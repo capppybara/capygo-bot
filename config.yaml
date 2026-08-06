@@ -8,12 +8,6 @@ window:
   # Optional extra filter on the window title. Leave "" to ignore.
   title_contains: ""
 
-loop:
-  # Timing lives in each task (e.g. pet-armament-chest uses POST_CLICK + a
-  # stable-frame wait; StepTask uses its DELAY constant). Only the safety cap
-  # is global:
-  max_iterations: 500    # hard cap on loop steps per run — used by ALL tasks
-
 match:
   threshold: 0.85        # template-match confidence required to count as "found"
 

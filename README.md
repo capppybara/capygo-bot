@@ -83,7 +83,7 @@ adding a task needs no UI changes.
 ```
 run.py                     CLI entry point (a task run, headless)
 run.sh                     launcher: GUI with no args, CLI with args
-config.yaml                window owner, match threshold, max_iterations, kill key
+config.yaml                window owner, match threshold, kill key
 capygo/
   window.py                find the game window + live bounds
   capture.py               window -> BGR image (Quartz)

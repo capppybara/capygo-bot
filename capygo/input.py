@@ -1,7 +1,7 @@
 """Post synthetic mouse clicks at absolute screen coordinates.
 
-Requires Accessibility permission for the terminal. In dry-run mode nothing is
-posted; the intended click is only logged by the caller.
+Requires Accessibility permission for the app that launches the bot. In dry-run
+mode nothing is posted; the intended click is only logged by the caller.
 """
 
 from __future__ import annotations

@@ -24,8 +24,8 @@ class KillSwitch:
 
     def __enter__(self) -> "KillSwitch":
         # The global key listener needs Input Monitoring permission. If it can't
-        # start (e.g. run headless from the UI), keep going: SIGTERM/SIGINT and
-        # max_iterations still stop the run.
+        # start (e.g. run headless from the UI), keep going: the Stop button /
+        # Ctrl+C (SIGTERM/SIGINT) still stop the run.
         try:
             self._listener = keyboard.Listener(on_press=self._on_press)
             self._listener.start()

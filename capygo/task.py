@@ -113,7 +113,6 @@ class Context:
         self._scale = 1.0
         self._threshold = config["match"]["threshold"]
         self._click_jitter = config["safety"]["click_jitter_px"]
-        self._max_iter = config["loop"]["max_iterations"]
 
     # --- perception -------------------------------------------------------
     def frame(self):
@@ -161,9 +160,6 @@ class Context:
     def should_stop(self) -> bool:
         if self.kill.stop:
             self.log.info("kill switch pressed; stopping")
-            return True
-        if self.iteration >= self._max_iter:
-            self.log.info("hit max_iterations (%d); stopping", self._max_iter)
             return True
         return False
 

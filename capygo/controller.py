@@ -45,6 +45,16 @@ def setup_run_logging(task_name: str):
     return logger, log_path
 
 
+def _accessibility_ok() -> bool:
+    """True if the launching app has Accessibility permission (needed to click)."""
+    try:
+        from ApplicationServices import AXIsProcessTrusted
+
+        return bool(AXIsProcessTrusted())
+    except Exception:
+        return True  # can't tell -> don't cry wolf
+
+
 def build_runtime(task_name, params, kill, logger, config, dry_run=False):
     """Wire config + window + task into a ready-to-run (task, Context) pair."""
     window = GameWindow(
@@ -75,6 +85,13 @@ def run_task(
 
     log.info("run start: task=%s params=%s dry_run=%s", task_name, params or {}, dry_run)
     log.info("log file: %s", log_path)
+    if not dry_run and not _accessibility_ok():
+        log.warning(
+            "Accessibility is NOT granted to the app that launched this bot. Clicks "
+            "will be silently DROPPED and the bot will stall (it can see the screen "
+            "but can't click). Grant it under System Settings > Privacy & Security > "
+            "Accessibility for that app, then relaunch."
+        )
     with KillSwitch(config["safety"]["kill_key"]) as kill:
         # SIGTERM (UI Stop) and SIGINT (Ctrl+C) request a graceful stop: the loop
         # checks kill.stop each iteration and exits cleanly.
