@@ -1,0 +1,158 @@
+/* CapyBara-Go theme, palette sampled from the in-game Settings screen:
+   cream background, tan rows, dark banner headers, chunky lime-green + salmon
+   buttons with dark outlines, dark-brown text. */
+
+QWidget {
+    color: #33261B;
+    font-family: "Arial Rounded MT Bold", "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    background: transparent;
+}
+
+#Root {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #F6E9CC, stop:1 #EEDDBB);
+}
+
+/* dark banner headers, like the game's "Settings" bar */
+#Header {
+    background: #2E2A33;
+    border: 3px solid #241D14;
+    border-radius: 14px;
+}
+#Header QLabel { background: transparent; }
+#HeaderTitle { color: #FFFFFF; font-size: 24px; font-weight: bold; }
+#TaskTitle { color: #FFFFFF; font-size: 20px; font-weight: bold; }
+
+#SubHeader { font-size: 13px; color: #8A7659; }
+#Hint { font-size: 12px; color: #8A5A2A; }
+#TaskDesc {
+    background: #E6CB9F;
+    border: 3px solid #241D14;
+    border-radius: 12px;
+    padding: 10px 14px;
+    color: #5A4632;
+    font-size: 13px;
+}
+
+/* --- home task cards (tan rows) --- */
+QFrame#TaskCard {
+    background: #E6CB9F;
+    border: 3px solid #241D14;
+    border-radius: 14px;
+}
+QFrame#TaskCard:hover { background: #EBD4AC; border-color: #7C5A1E; }
+QFrame#TaskCard QLabel { background: transparent; }
+#CardIcon { font-size: 34px; }
+#CardTitle { font-size: 17px; font-weight: bold; color: #33261B; }
+#CardDesc { font-size: 12px; color: #6E5A44; }
+
+/* --- settings panel --- */
+QGroupBox {
+    background: #E6CB9F;
+    border: 3px solid #241D14;
+    border-radius: 14px;
+    margin-top: 0;
+    padding: 12px;
+    font-weight: bold;
+    color: #33261B;
+}
+QGroupBox::title {
+    subcontrol-origin: padding;
+    subcontrol-position: top left;
+    left: 6px;
+    top: 8px;
+    padding: 0 4px;
+    font-size: 15px;
+}
+
+/* short value field; the arrows are separate buttons beside it (see SpinUp/Down) */
+QSpinBox#ValueField, QDoubleSpinBox#ValueField {
+    background: #FBF3DF;
+    border: 2px solid #241D14;
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: #33261B;
+    font-size: 15px;
+    min-height: 40px;
+}
+QSpinBox#ValueField:focus, QDoubleSpinBox#ValueField:focus { border-color: #7C5A1E; }
+
+QPushButton#SpinUp, QPushButton#SpinDown {
+    background: #C2DA57;
+    border: 2px solid #241D14;
+    border-radius: 6px;
+    min-width: 38px;
+    max-width: 38px;
+    min-height: 18px;
+    max-height: 18px;
+    font-size: 11px;
+    color: #241D14;
+    padding: 0;
+}
+QPushButton#SpinUp:hover, QPushButton#SpinDown:hover { background: #D2E56E; }
+QPushButton#SpinUp:pressed, QPushButton#SpinDown:pressed { background: #A9C63E; }
+
+QCheckBox { spacing: 8px; color: #33261B; }
+QCheckBox::indicator {
+    width: 22px;
+    height: 22px;
+    background: #FFFFFF;
+    border: 2px solid #241D14;
+    border-radius: 5px;
+}
+QCheckBox::indicator:hover { border-color: #7C5A1E; }
+QCheckBox::indicator:checked {
+    background: #FFFFFF;
+    border: 2px solid #241D14;
+    image: url("@ASSETS@/check.png");
+}
+
+/* --- buttons: chunky, dark-outlined, top-lit --- */
+QPushButton {
+    border-radius: 12px;
+    padding: 10px 16px;
+    font-weight: bold;
+    font-size: 15px;
+    color: #2C3410;
+    border: 3px solid #241D14;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #D2E56E, stop:1 #B7D24C);
+}
+QPushButton:hover { background: #DCEC80; }
+QPushButton:disabled { background: #D9C9A6; color: #9C8B6E; border-color: #6B5C42; }
+
+QPushButton#Start {
+    color: #223309;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #CBE066, stop:1 #AFCB43);
+}
+QPushButton#Start:hover { background: #D6EA79; }
+
+QPushButton#Stop {
+    color: #FFFFFF;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #EC7581, stop:1 #DC4E5B);
+}
+QPushButton#Stop:hover { background: #F2828D; }
+
+QPushButton#Back {
+    color: #33261B;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #F3E7C9, stop:1 #E6CB9F);
+    padding: 6px 12px;
+    font-size: 14px;
+}
+QPushButton#Back:hover { background: #F7EFD8; }
+
+/* --- log (parchment inset) --- */
+QPlainTextEdit#Log {
+    background: #FBF3DF;
+    border: 3px solid #241D14;
+    border-radius: 12px;
+    color: #3B2C1E;
+    font-family: "Menlo", "SF Mono", monospace;
+    font-size: 12px;
+    padding: 8px;
+}
+QScrollArea { border: none; }

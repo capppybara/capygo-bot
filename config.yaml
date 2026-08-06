@@ -1,0 +1,22 @@
+# Global config for capygo-bot.
+# Per-task settings live in each task module; this file holds shared defaults.
+
+window:
+  # macOS process/owner name that owns the game window.
+  # Find the exact string with:  python tools/list_windows.py
+  owner: "CapybaraGo"
+  # Optional extra filter on the window title. Leave "" to ignore.
+  title_contains: ""
+
+loop:
+  # Timing lives in each task (e.g. pet-armament-chest uses POST_CLICK + a
+  # stable-frame wait; StepTask uses its DELAY constant). Only the safety cap
+  # is global:
+  max_iterations: 500    # hard cap on loop steps per run — used by ALL tasks
+
+match:
+  threshold: 0.85        # template-match confidence required to count as "found"
+
+safety:
+  kill_key: "esc"        # press this key any time to stop the bot
+  click_jitter_px: 2     # randomize each click by +/- this many pixels
