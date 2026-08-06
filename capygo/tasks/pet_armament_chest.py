@@ -5,12 +5,13 @@ Verified flow (one "run" = one chest collected):
   Unlock                     start a chest; button becomes Free Upgrade
   Free Upgrade (x3, free)    reveals slots; then splits into Open + Upgrade
   Open + Upgrade screen      read the 6 status slots (check / cross / question):
-                               X (cross) count >= failure_threshold -> Open
-                               else                                  -> Upgrade
+                             - free stage (first 3 revealed, from the free upgrades):
+                               Open once free failures >= free_failure_threshold,
+                               else go paid (0 = free upgrades only)
+                             - paid stage (>3 revealed): Open once total failures
+                               (free + paid) >= failure_threshold, else Upgrade
                              each successful Upgrade promotes the chest tier
                              (e.g. green 60% -> purple 45%); each fail adds an X
-                             failure_threshold = 0 -> always Open here, i.e. take
-                             the free upgrades only and never pay for an Upgrade
   Open                       collects the chest -> Rewards popup
   Rewards popup              "Tap to close" -> back to Unlock (next chest)
 
@@ -64,8 +65,11 @@ class PetArmamentChest(Task):
     PARAMS = [
         Param("runs", "int", 10, "Total runs", min=1, max=999,
               help="how many chests to collect before stopping"),
-        Param("failure_threshold", "int", 2, "Failure threshold", min=0, max=6,
-              help="Open once this many upgrades fail (red X). 0 = free upgrades only"),
+        Param("free_failure_threshold", "int", 2, "Free failure threshold", min=0, max=3,
+              help="Open instead of going paid once free-stage failures reach this many "
+                   "(0 = free upgrades only)"),
+        Param("failure_threshold", "int", 2, "Total failure threshold", min=1, max=6,
+              help="Open the chest once total failures (free + paid) reach this many"),
     ]
 
     # Hard cap on wall-clock time between one click and the next.
@@ -116,6 +120,29 @@ class PetArmamentChest(Task):
     def _read_slots(self, ctx: Context, frame) -> list[str]:
         return [self._classify_slot(ctx, frame, s) for s in SLOTS]
 
+    # --- decision (pure, unit-testable) -----------------------------------
+    @staticmethod
+    def _decide(slots, free_threshold: int, threshold: int):
+        """On an Open+Upgrade screen, choose the next action.
+
+        Returns (action, reason) where action is "open" or "upgrade".
+          free stage  (<=3 slots revealed): Open once free failures reach
+                      free_threshold, else go paid.
+          paid stage  (>3 revealed): Open once total failures reach threshold.
+        Both stages quit on failures >= their threshold.
+        """
+        revealed = sum(1 for s in slots if s in ("check", "cross"))
+        x = slots.count("cross")  # total failures so far (free + paid)
+        bar = _slots_str(slots)
+        if revealed <= 3:  # free stage
+            if x >= free_threshold:
+                return "open", f"{bar} free fails {x}>={free_threshold}, stop"
+            return "upgrade", f"{bar} free fails {x}/{free_threshold} -> paid"
+        # paid stage
+        if x >= threshold:
+            return "open", f"{bar} X={x}/{threshold} threshold reached"
+        return "upgrade", f"{bar} X={x}/{threshold}"
+
     # --- helpers ----------------------------------------------------------
     def _act(self, ctx: Context, match, run_no: int, total: int, button: str, reason: str) -> None:
         """Log one action line in the format `run x/total - click B - reason`, then click."""
@@ -127,8 +154,10 @@ class PetArmamentChest(Task):
     def run(self, ctx: Context) -> None:
         total = self.params["runs"]
         threshold = self.params["failure_threshold"]
+        free_threshold = self.params["free_failure_threshold"]
         runs_done = 0
-        ctx.log.info("pet-armament-chest: runs=%d failure_threshold=%d", total, threshold)
+        ctx.log.info("pet-armament-chest: runs=%d free_failure_threshold=%d "
+                     "failure_threshold=%d", total, free_threshold, threshold)
 
         while runs_done < total and not ctx.should_stop():
             ctx.iteration += 1
@@ -160,15 +189,9 @@ class PetArmamentChest(Task):
 
             if open_btn.found and upgrade_btn.found:
                 slots = self._read_slots(ctx, frame)
-                x = slots.count("cross")
-                bar = _slots_str(slots)
-                if x >= threshold:
-                    reason = (f"{bar} free upgrades only" if threshold == 0
-                              else f"{bar} X={x}/{threshold} threshold reached")
-                    self._act(ctx, open_btn, run_no, total, "Open", reason)
-                else:
-                    self._act(ctx, upgrade_btn, run_no, total, "Upgrade",
-                              f"{bar} X={x}/{threshold}")
+                action, reason = self._decide(slots, free_threshold, threshold)
+                btn = open_btn if action == "open" else upgrade_btn
+                self._act(ctx, btn, run_no, total, action.capitalize(), reason)
                 continue
 
             # Only Open remains (chest maxed): collect it.

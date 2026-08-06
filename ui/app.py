@@ -27,7 +27,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("CapyGo Bot")
-        self.resize(560, 740)
+        self.resize(560, 810)
 
         self.stack = QStackedWidget()
         root = QWidget()

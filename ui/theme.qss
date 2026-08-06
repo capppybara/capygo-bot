@@ -71,22 +71,23 @@ QSpinBox#ValueField, QDoubleSpinBox#ValueField {
     background: #FBF3DF;
     border: 2px solid #241D14;
     border-radius: 8px;
-    padding: 6px 10px;
+    padding: 3px 8px;
     color: #33261B;
     font-size: 15px;
-    min-height: 40px;
+    min-height: 28px;
+    max-height: 28px;
 }
 QSpinBox#ValueField:focus, QDoubleSpinBox#ValueField:focus { border-color: #7C5A1E; }
 
 QPushButton#SpinUp, QPushButton#SpinDown {
     background: #C2DA57;
     border: 2px solid #241D14;
-    border-radius: 6px;
-    min-width: 38px;
-    max-width: 38px;
-    min-height: 18px;
-    max-height: 18px;
-    font-size: 11px;
+    border-radius: 5px;
+    min-width: 34px;
+    max-width: 34px;
+    min-height: 13px;
+    max-height: 13px;
+    font-size: 9px;
     color: #241D14;
     padding: 0;
 }

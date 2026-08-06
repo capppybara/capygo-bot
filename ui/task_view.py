@@ -155,7 +155,7 @@ class TaskScreen(QWidget):
         spin.setValue(p.default)
         spin.setObjectName("ValueField")
         spin.setButtonSymbols(QAbstractSpinBox.NoButtons)  # hide built-in arrows
-        spin.setFixedWidth(110)
+        spin.setFixedWidth(90)
 
         up = QPushButton("▲")
         up.setObjectName("SpinUp")
@@ -167,7 +167,7 @@ class TaskScreen(QWidget):
         down.clicked.connect(spin.stepDown)
 
         col = QVBoxLayout()
-        col.setSpacing(4)
+        col.setSpacing(1)
         col.setContentsMargins(0, 0, 0, 0)
         col.addWidget(up)
         col.addWidget(down)
