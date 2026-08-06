@@ -4,7 +4,7 @@
 
 QWidget {
     color: #33261B;
-    font-family: "Arial Rounded MT Bold", "Helvetica Neue", Arial, sans-serif;
+    font-family: "Arial Rounded MT Bold", "Helvetica Neue", "Arial";
     font-size: 14px;
     background: transparent;
 }
@@ -152,7 +152,7 @@ QPlainTextEdit#Log {
     border: 3px solid #241D14;
     border-radius: 12px;
     color: #3B2C1E;
-    font-family: "Menlo", "SF Mono", monospace;
+    font-family: "Menlo";
     font-size: 12px;
     padding: 8px;
 }

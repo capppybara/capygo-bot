@@ -51,6 +51,14 @@ class MainWindow(QMainWindow):
     def go_home(self):
         self.stack.setCurrentWidget(self.home)
 
+    def closeEvent(self, event):
+        # Kill any running task subprocess so it doesn't outlive the app.
+        for screen in self.task_screens.values():
+            proc = getattr(screen, "proc", None)
+            if proc is not None:
+                proc.kill()
+        super().closeEvent(event)
+
 
 def main() -> int:
     app = QApplication(sys.argv)

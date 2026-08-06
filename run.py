@@ -10,11 +10,39 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import threading
+import time
 
 import capygo.tasks  # noqa: F401  (registers all tasks)
 from capygo.controller import run_task
 from capygo.task import _REGISTRY, list_tasks
+
+
+def _exit_with_parent() -> None:
+    """If launched by the UI (CAPYGO_PARENT_PID set), exit when that app dies.
+
+    A QProcess child is orphaned (not killed) when the app is force-quit, so it
+    would keep clicking. This polls the parent and stops the task once it's gone.
+    """
+    ppid = os.environ.get("CAPYGO_PARENT_PID")
+    if not ppid:
+        return
+
+    parent = int(ppid)
+
+    def watch() -> None:
+        while True:
+            time.sleep(1.0)
+            try:
+                os.kill(parent, 0)  # signal 0 = liveness check
+            except ProcessLookupError:
+                os._exit(0)  # app is gone -> stop the task
+            except PermissionError:
+                pass  # exists but not ours to signal -> still alive
+
+    threading.Thread(target=watch, daemon=True).start()
 
 
 def _parse_params(pairs: list[str]) -> dict:
@@ -56,6 +84,7 @@ def main() -> int:
         _print_tasks()
         return 0
 
+    _exit_with_parent()
     try:
         run_task(
             args.task,

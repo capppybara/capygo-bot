@@ -199,6 +199,8 @@ class TaskScreen(QWidget):
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONPATH", ROOT)
         env.insert("PYTHONUNBUFFERED", "1")
+        # So the task process exits if this app is killed (see run.py).
+        env.insert("CAPYGO_PARENT_PID", str(os.getpid()))
 
         self.proc = QProcess(self)
         self.proc.setWorkingDirectory(ROOT)
