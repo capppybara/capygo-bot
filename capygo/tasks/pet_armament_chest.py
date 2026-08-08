@@ -33,7 +33,7 @@ import time
 
 import numpy as np
 
-from ..geometry import Rel
+from ..geometry import Rel, RelRect
 from ..task import Context, Param, Task, register
 
 # The 6 status slots, as window-relative centers (measured from the live UI).
@@ -44,6 +44,10 @@ SLOT_BOX = 0.05  # half-size (window fraction) of the box cropped per slot
 
 ICONS = ["check", "cross", "question"]
 ICON_MATCH_MIN = 0.70  # below this, a slot reads as "unknown" (mid-animation)
+
+# Search only the bottom-left for the single "Unlock" button, so the bottom-right
+# "Unlock 10 at once" button can never be matched or clicked.
+UNLOCK_REGION = RelRect(0.0, 0.68, 0.50, 0.30)
 
 # Compact single-char symbols for logging the status bar.
 SYM = {"check": "✓", "cross": "✗", "question": "?", "unknown": "·"}
@@ -172,7 +176,7 @@ class PetArmamentChest(Task):
                 continue
 
             # Start of a chest.
-            unlock = ctx.find("unlock_button", frame=frame)
+            unlock = ctx.find("unlock_button", frame=frame, region=UNLOCK_REGION)
             if unlock.found:
                 self._act(ctx, unlock, run_no, total, "Unlock", "start chest")
                 continue
