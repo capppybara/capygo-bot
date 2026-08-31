@@ -37,3 +37,15 @@ def click_screen(x: float, y: float, jitter_px: int = 0, hold: float = 0.03) -> 
         None, Quartz.kCGEventLeftMouseUp, pos, Quartz.kCGMouseButtonLeft
     )
     _post(up)
+
+
+def type_text(text: str, per_char_delay: float = 0.04) -> None:
+    """Type `text` into the focused field (as Unicode key events)."""
+    for ch in text:
+        down = Quartz.CGEventCreateKeyboardEvent(None, 0, True)
+        Quartz.CGEventKeyboardSetUnicodeString(down, len(ch), ch)
+        _post(down)
+        up = Quartz.CGEventCreateKeyboardEvent(None, 0, False)
+        Quartz.CGEventKeyboardSetUnicodeString(up, len(ch), ch)
+        _post(up)
+        time.sleep(per_char_delay)

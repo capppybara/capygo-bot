@@ -6,3 +6,4 @@ mss>=9.0
 pynput>=1.7
 PyYAML>=6.0
 PySide6>=6.6
+ocrmac>=1.0

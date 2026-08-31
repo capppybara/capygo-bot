@@ -58,3 +58,43 @@ def find_template(
     cx = ox + max_loc[0] + tw // 2
     cy = oy + max_loc[1] + th // 2
     return Match(max_val >= threshold, float(max_val), cx, cy)
+
+
+def read_int(bgr, upscale: int = 3):
+    """OCR a small image with Apple Vision and return the last integer in it.
+
+    Returns None if nothing numeric is read. Taking the last digit run is robust
+    to a leading glyph (e.g. a lightning icon read as a stray digit).
+    """
+    import re
+
+    from ocrmac import ocrmac
+    from PIL import Image
+
+    if upscale != 1:
+        bgr = cv2.resize(bgr, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
+    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    result = ocrmac.OCR(Image.fromarray(rgb), language_preference=["en-US"]).recognize()
+    text = " ".join(t for t, _, _ in result)
+    runs = re.findall(r"[0-9]+", text)
+    return int(runs[-1]) if runs else None
+
+
+def ocr_lines(bgr):
+    """Return [(text, cx_px, cy_px)] for each text line Apple Vision finds.
+
+    Coordinates are in pixels of `bgr`, top-left origin (Vision reports a
+    bottom-left origin, converted here).
+    """
+    from ocrmac import ocrmac
+    from PIL import Image
+
+    h, w = bgr.shape[:2]
+    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    result = ocrmac.OCR(Image.fromarray(rgb), language_preference=["en-US"]).recognize()
+    out = []
+    for text, _conf, (bx, by, bw, bh) in result:
+        cx = int((bx + bw / 2) * w)
+        cy = int((1 - (by + bh / 2)) * h)
+        out.append((text, cx, cy))
+    return out

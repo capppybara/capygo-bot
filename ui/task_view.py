@@ -36,6 +36,35 @@ from .icons import task_icon_pixmap
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+class ChoiceSpinBox(QSpinBox):
+    """A spin box whose value is constrained to a fixed list of choices.
+
+    The up/down arrows step through the choices in order (not by a fixed
+    increment, since they aren't evenly spaced), and a typed value snaps to the
+    nearest choice. Used for parameters like the energy multiple (1, 2, 3, 5,
+    10, 20)."""
+
+    def __init__(self, choices, parent=None):
+        super().__init__(parent)
+        self._choices = sorted(int(c) for c in choices)
+        self.setRange(self._choices[0], self._choices[-1])
+
+    def _nearest_index(self, value: int) -> int:
+        return min(range(len(self._choices)), key=lambda i: abs(self._choices[i] - value))
+
+    def stepBy(self, steps: int) -> None:
+        idx = self._nearest_index(self.value())
+        idx = max(0, min(len(self._choices) - 1, idx + (1 if steps > 0 else -1)))
+        self.setValue(self._choices[idx])
+
+    def valueFromText(self, text: str) -> int:
+        import re
+
+        m = re.search(r"-?\d+", text)
+        v = int(m.group()) if m else self.value()
+        return self._choices[self._nearest_index(v)]
+
+
 class TaskScreen(QWidget):
     def __init__(self, name: str, on_back):
         super().__init__()
@@ -147,11 +176,16 @@ class TaskScreen(QWidget):
             w.setChecked(bool(p.default))
             return w, w
 
-        spin = QDoubleSpinBox() if p.type == "float" else QSpinBox()
-        spin.setRange(
-            p.min if p.min is not None else 0,
-            p.max if p.max is not None else 1_000_000,
-        )
+        if getattr(p, "choices", None):
+            spin = ChoiceSpinBox(p.choices)
+        else:
+            spin = QDoubleSpinBox() if p.type == "float" else QSpinBox()
+            spin.setRange(
+                p.min if p.min is not None else 0,
+                p.max if p.max is not None else 1_000_000,
+            )
+        if getattr(p, "suffix", ""):
+            spin.setSuffix(p.suffix)
         spin.setValue(p.default)
         spin.setObjectName("ValueField")
         spin.setButtonSymbols(QAbstractSpinBox.NoButtons)  # hide built-in arrows

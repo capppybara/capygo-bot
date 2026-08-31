@@ -38,6 +38,8 @@ class Param:
     min: float | None = None
     max: float | None = None
     help: str = ""
+    choices: list | None = None  # if set, the value snaps to the nearest of these
+    suffix: str = ""  # display-only unit shown after the value in the UI (e.g. "x")
 
     def coerce(self, value: Any) -> Any:
         if self.type == "int":
@@ -48,6 +50,8 @@ class Param:
             v = value if isinstance(value, bool) else str(value).lower() in ("1", "true", "yes", "on")
         else:
             v = value
+        if self.choices:
+            return min(self.choices, key=lambda c: abs(c - v))
         if self.min is not None and v < self.min:
             v = type(v)(self.min)
         if self.max is not None and v > self.max:
@@ -155,6 +159,28 @@ class Context:
         self.window.focus()
         click_screen(sx, sy, jitter_px=self._click_jitter)
         self.log.debug("clicked %s at screen (%.0f, %.0f)", label, sx, sy)
+
+    def type_text(self, text: str) -> None:
+        """Type into the currently focused field (click the field first)."""
+        text = str(text)
+        if self.dry_run:
+            self.log.info("DRY-RUN type %r", text)
+            return
+        from .input import type_text
+
+        self.window.focus()
+        type_text(text)
+        self.log.debug("typed %r", text)
+
+    def read_number(self, region: RelRect, frame=None):
+        """OCR an integer out of a window-relative region (None if unreadable)."""
+        if frame is None:
+            frame = self.frame()
+        h, w = frame.shape[:2]
+        x0, y0, x1, y1 = region.to_pixels(w, h)
+        from .perception import read_int
+
+        return read_int(frame[y0:y1, x0:x1])
 
     # --- flow control -----------------------------------------------------
     def should_stop(self) -> bool:
