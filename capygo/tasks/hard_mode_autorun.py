@@ -164,8 +164,18 @@ class HardModeAutorun(Task):
 
         Right after a run the main screen can still be settling, so a single
         click + fixed wait sometimes misses; poll for the jump field instead.
+
+        The "New Invitation" tab intermittently slides over the right half of the
+        Chapter button; a click that catches it opens the friends panel instead.
+        So before re-clicking, confirm we're still on the main screen (Start
+        visible). If we've drifted onto another panel, stop cleanly rather than
+        clicking the Chapter position on the wrong screen.
         """
-        for _ in range(3):
+        for attempt in range(3):
+            if attempt > 0 and not self._present(ctx, "start_button"):
+                ctx.log.info("not on the main screen after clicking Chapter (a popup may "
+                             "have opened, e.g. the invitation tab) -> stop")
+                return False
             self._click_pos(ctx, CHAPTER_BTN, "Chapter", f"run {run_no}/{total}: open list")
             for _ in range(6):
                 if self._present(ctx, "jump_field"):
