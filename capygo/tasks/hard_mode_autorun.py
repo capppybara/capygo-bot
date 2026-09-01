@@ -255,11 +255,23 @@ class HardModeAutorun(Task):
         return False
 
     # --- phase 3/4: run + wait --------------------------------------------
+    def _sleep(self, ctx: Context, seconds: float) -> bool:
+        """Sleep in short slices so a stop (Esc / Stop button) is noticed within
+        ~0.3s instead of only after the whole wait. Returns True if a stop was
+        requested during the wait (the caller should bail out)."""
+        end = time.time() + seconds
+        while True:
+            if ctx.should_stop():
+                return True
+            remaining = end - time.time()
+            if remaining <= 0:
+                return False
+            time.sleep(min(0.3, remaining))
+
     def _wait_for_finish(self, ctx: Context) -> str:
         t0 = time.time()
         while time.time() - t0 < self.FINISH_TIMEOUT:
-            time.sleep(self.FINISH_POLL)
-            if ctx.should_stop():
+            if self._sleep(ctx, self.FINISH_POLL):  # interruptible poll interval
                 return "stopped"
             frame = ctx.frame()
             if self._present(ctx, "finish_failure", frame):
@@ -280,6 +292,8 @@ class HardModeAutorun(Task):
         """
         t0 = time.time()
         while time.time() - t0 < timeout:
+            if ctx.should_stop():
+                return False
             if self._present(ctx, "start_button"):
                 return True
             self._click_pos(ctx, FINISH_CONTINUE, "continue", "dismiss results", wait=2.0)
@@ -303,17 +317,26 @@ class HardModeAutorun(Task):
                 break
             if not self._select_chapter(ctx, chapter, run_no, total):
                 break
+            if ctx.should_stop():
+                break
             if not self._select_multiple(ctx, multiple, run_no, total):
+                break
+            if ctx.should_stop():
                 break
             self._click_pos(ctx, START_BTN, "Start", f"run {run_no}/{total}")
             # Solo runs prompt "start the battle without teammates?" -> OK.
             for _ in range(4):
-                time.sleep(0.7)
+                if self._sleep(ctx, 0.7):
+                    break
                 if self._present(ctx, "confirm_ok"):
                     self._click(ctx, "confirm_ok", "OK", "confirm start without a team")
                     break
+            if ctx.should_stop():
+                break
             # If the run didn't launch (Start still on screen), it's out of energy.
-            time.sleep(1.5)
+            self._sleep(ctx, 1.5)
+            if ctx.should_stop():
+                break
             if self._present(ctx, "start_button"):
                 ctx.log.warning("run did not start (not enough energy) -> stopping")
                 break
