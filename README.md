@@ -1,8 +1,9 @@
 # CapyGo Bot
 
 Automate repetitive actions in **CapyBara Go!** on macOS. It watches the game
-window, finds buttons on screen, and clicks them for you. The first (and only)
-automation so far opens **Pet Armament chests**.
+window, finds buttons on screen, and clicks them for you. Two automations so far:
+opening **Pet Armament chests**, and **auto-running Hard Mode** chapters at a
+chosen energy multiple.
 
 > **Tested only on a MacBook Pro M3 16" using the native Capybara Go! Mac app at
 > its default window size.** No guarantees it works in a different setup (other
@@ -61,6 +62,31 @@ this number."* Defaults are `10 / 2 / 2`.
 Before starting, make sure you're on the **locked chest screen with the Unlock
 button** showing.
 
+## Hard Mode Autorun — how the settings work
+
+The bot runs a Hard Mode chapter over and over for you. Each run it re-selects
+the chapter, sets the energy multiple, presses **Start**, waits for the battle to
+finish, then does it again. It reads the energy cost inside the Start button to
+confirm the multiple is right (and nudges it if a click was missed), and it
+double-checks the win/lose screen before counting a run.
+
+Three settings control it:
+
+- **Chapter** — which Hard Mode chapter to run (default `180`).
+
+- **Energy multiple** — how much energy (and reward) per run: `1x`, `2x`, `3x`,
+  `5x`, `10x`, or `20x` (default `20x`). The arrows step through only those
+  values.
+
+- **Number of runs** — how many times to run before it stops (default `10`).
+
+It stops early if a run is **lost**, if there isn't **enough energy** to start,
+or if **Hard Mode is off**.
+
+Before starting, be on the **Hard Mode screen** (chapter + **Start** visible)
+with **Hard Mode on** — the switch next to Start must show the **red** icon, not
+blue. If it's blue, the bot stops and asks you to turn Hard Mode on first.
+
 ## Notes
 
 - Press **Esc** any time to stop (needs the Accessibility permission above).
@@ -93,7 +119,8 @@ capygo/
   task.py                  Task / StepTask base classes + registry + Context
   controller.py            wires config + window + task; per-run logging
   tasks/
-    pet_armament_chest.py  first task
+    pet_armament_chest.py  chest-opening task
+    hard_mode_autorun.py   Hard Mode auto-run task (OCR + color checks)
 templates/<task-name>/     button/icon PNGs matched at runtime
 ui/                        PySide6 app (home + task screens, theme, assets)
 tools/
@@ -115,6 +142,7 @@ python -m ui.app                 # GUI
 
 ```bash
 ./run.sh pet-armament-chest -p runs=20 -p free_failure_threshold=2 -p failure_threshold=2
+./run.sh hard-mode-autorun -p chapter=180 -p energy_multiple=20 -p runs=2
 ./run.sh pet-armament-chest -n          # --dry-run
 ./run.sh --list                         # list tasks and their params
 ```
