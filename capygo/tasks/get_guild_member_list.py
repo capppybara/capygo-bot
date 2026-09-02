@@ -57,13 +57,15 @@ FULL_TOP = 0.575          # a card is fully visible (safe to open) when its cent
 FULL_BOTTOM = 0.825       #   y is within [FULL_TOP, FULL_BOTTOM]
 LIST_REGION = RelRect(0.10, 0.560, 0.80, 0.300)  # for bottom-of-list detection
 
-# Drag up to advance ~2 cards, i.e. less than the ~3 read per page, so pages
-# overlap by ~1 card and nothing is skipped (UID de-dup drops the repeats).
-# Content scrolls a bit further than the finger travels (momentum), so ~0.13 of
-# the window advances roughly two 80px cards.
-SCROLL_FROM = Rel(0.5, 0.72)
-SCROLL_TO = Rel(0.5, 0.588)
-SCROLL_TO_FIRM = Rel(0.5, 0.50)  # a firmer retry if a drag doesn't take
+# Drag up ~1.5 cards, well under the ~3 read per page, so consecutive pages
+# ALWAYS overlap by >=1 whole card. That guarantee is what keeps the overlap
+# aligner correct: the top card of every new page is then a genuine repeat, so a
+# coincidental coin-value match can never be mistaken for a new member and
+# skipped (a bigger step once advanced ~3 cards and dropped a member on a list
+# with many equal coin values). Content scrolls a bit further than the finger
+# travels (momentum): ~0.066 of the window per 80px card.
+SCROLL_FROM = Rel(0.5, 0.70)
+SCROLL_TO = Rel(0.5, 0.60)
 
 # --- character screen ------------------------------------------------------
 UID_COPY_BTN = Rel(0.815, 0.220)          # copy-to-clipboard button next to the UID
@@ -254,19 +256,18 @@ class GetGuildMemberList(Task):
                 return
 
     def _scroll_down(self, ctx: Context) -> bool:
-        """Drag the list up one step. Returns True if the list actually moved."""
+        """Drag the list up one small step. Returns True if the list moved. Retries
+        the SAME small drag if it didn't take (a drag occasionally doesn't
+        register); it never uses a larger drag, which could overshoot the overlap.
+        Three no-move attempts mean the list is at the bottom."""
         before = ctx.frame()
-        ctx.drag_rel(SCROLL_FROM, SCROLL_TO)
-        if self._sleep(ctx, 1.0):
-            return False
-        after = ctx.frame()
-        if not self._list_unchanged(before, after):
-            return True
-        # A drag can occasionally not register; try once more, firmer.
-        ctx.drag_rel(SCROLL_FROM, SCROLL_TO_FIRM)
-        if self._sleep(ctx, 1.0):
-            return False
-        return not self._list_unchanged(before, ctx.frame())
+        for _ in range(3):
+            ctx.drag_rel(SCROLL_FROM, SCROLL_TO)
+            if self._sleep(ctx, 1.0):
+                return False
+            if not self._list_unchanged(before, ctx.frame()):
+                return True
+        return False
 
     # --- CSV --------------------------------------------------------------
     def _write_csv(self, ctx: Context, guild: str, members: dict) -> str:
@@ -279,6 +280,63 @@ class GetGuildMemberList(Task):
                 wr.writerow([guild, uid, power or ""])
         ctx.log.info("wrote %d members -> %s", len(members), path)
         return path
+
+    # --- one top-to-bottom pass -------------------------------------------
+    def _sweep(self, ctx: Context, members: dict, target, skip_overlap: bool) -> None:
+        """Walk the list top to bottom once, reading each new member into `members`.
+
+        skip_overlap=True (fast pass): skip the cards a page shares with the
+        previous one, so each member is opened just once. skip_overlap=False
+        (recovery pass): open every fully-visible card and rely on UID de-dup;
+        slower, but coin values can't cause a skip, so it always finds a member
+        the fast pass missed (e.g. several equal coin values in a row).
+        """
+        self._scroll_to_top(ctx)
+        page = 0
+        stale = 0
+        prev_coins: list[str] = []
+        while not ctx.should_stop() and page < MAX_PAGES:
+            page += 1
+            cards = self._visible_cards(ctx.frame())
+            coins = [coin for _, coin in cards]
+            skip = self._overlap(prev_coins, coins) if skip_overlap else 0
+            prev_coins = coins
+            new_here = 0
+            for center, _coin in cards[skip:]:
+                if ctx.should_stop():
+                    break
+                res = self._read_member(ctx, center)
+                if res is None:
+                    ctx.log.debug("a card did not open; skipping (page %d)", page)
+                    continue
+                uid, power = res
+                if not uid:
+                    ctx.log.info("read a member but could not copy its UID; skipping")
+                    continue
+                if uid in members:
+                    continue
+                members[uid] = power
+                new_here += 1
+                ctx.log.info("[%d%s] uid=%s power=%s",
+                             len(members), f"/{target}" if target else "",
+                             uid, power or "?")
+
+            if ctx.should_stop():
+                return
+            if target and len(members) >= target:
+                ctx.log.info("collected all %d members", target)
+                return
+            # The fast pass expects each page to add someone; a run of empty pages
+            # means it's stuck. The recovery pass legitimately re-sees known members
+            # page after page, so there it relies on bottom detection alone.
+            if skip_overlap:
+                stale = stale + 1 if new_here == 0 else 0
+                if stale >= 2:
+                    ctx.log.info("no new members over 2 pages -> stopping")
+                    return
+            if not self._scroll_down(ctx):
+                ctx.log.info("reached the bottom of the member list")
+                return
 
     # --- main loop --------------------------------------------------------
     def run(self, ctx: Context) -> None:
@@ -293,48 +351,14 @@ class GetGuildMemberList(Task):
 
         members: dict[str, str] = {}  # uid -> power, in discovery order
         try:
-            self._scroll_to_top(ctx)  # always begin at the first member
-            page = 0
-            stale = 0
-            prev_coins: list[str] = []  # coin values of the previous page's cards
-            while not ctx.should_stop() and page < MAX_PAGES:
-                page += 1
-                cards = self._visible_cards(ctx.frame())
-                coins = [coin for _, coin in cards]
-                skip = self._overlap(prev_coins, coins)  # cards already read last page
-                prev_coins = coins
-                new_here = 0
-                for center, _coin in cards[skip:]:
-                    if ctx.should_stop():
-                        break
-                    res = self._read_member(ctx, center)
-                    if res is None:
-                        ctx.log.debug("a card did not open; skipping (page %d)", page)
-                        continue
-                    uid, power = res
-                    if not uid:
-                        ctx.log.info("read a member but could not copy its UID; skipping")
-                        continue
-                    if uid in members:
-                        continue
-                    members[uid] = power
-                    new_here += 1
-                    ctx.log.info("[%d%s] uid=%s power=%s",
-                                 len(members), f"/{target}" if target else "",
-                                 uid, power or "?")
-
-                if ctx.should_stop():
-                    break
-                if target and len(members) >= target:
-                    ctx.log.info("collected all %d members", target)
-                    break
-                stale = stale + 1 if new_here == 0 else 0
-                if stale >= 2:
-                    ctx.log.info("no new members over 2 pages -> stopping")
-                    break
-                if not self._scroll_down(ctx):
-                    ctx.log.info("reached the bottom of the member list")
-                    break
+            self._sweep(ctx, members, target, skip_overlap=True)
+            # If the exact count is known and we came up short, sweep once more
+            # opening every card (no coin-based skipping), which cannot skip a
+            # member. Only runs on the rare miss, so the fast pass stays fast.
+            if (target and len(members) < target and not ctx.should_stop()):
+                ctx.log.info("re-checking for %d missed member(s) (full pass)",
+                             target - len(members))
+                self._sweep(ctx, members, target, skip_overlap=False)
         finally:
             self._write_csv(ctx, guild, members)
             if target and len(members) < target:
