@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
@@ -176,6 +177,15 @@ class TaskScreen(QWidget):
             w.setChecked(bool(p.default))
             return w, w
 
+        if p.type == "str":
+            w = QLineEdit()
+            w.setText(str(p.default))
+            w.setObjectName("ValueField")
+            w.setFixedWidth(180)
+            if p.help:
+                w.setPlaceholderText(p.help)
+            return w, w
+
         if getattr(p, "choices", None):
             spin = ChoiceSpinBox(p.choices)
         else:
@@ -220,6 +230,8 @@ class TaskScreen(QWidget):
     def _value(self, p, w):
         if p.type == "bool":
             return w.isChecked()
+        if p.type == "str":
+            return w.text()
         return w.value()
 
     # --- run lifecycle ----------------------------------------------------

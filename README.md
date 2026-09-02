@@ -1,9 +1,10 @@
 # CapyGo Bot
 
 Automate repetitive actions in **CapyBara Go!** on macOS. It watches the game
-window, finds buttons on screen, and clicks them for you. Two automations so far:
-opening **Pet Armament chests**, and **auto-running Hard Mode** chapters at a
-chosen energy multiple.
+window, finds buttons on screen, and clicks them for you. Three automations so
+far: opening **Pet Armament chests**, **auto-running Hard Mode** chapters at a
+chosen energy multiple, and **exporting a guild's member list** (each member's
+UID and power) to a CSV.
 
 > **Tested only on a MacBook Pro M3 16" using the native Capybara Go! Mac app at
 > its default window size.** No guarantees it works in a different setup (other
@@ -87,6 +88,24 @@ Before starting, be on the **Hard Mode screen** (chapter + **Start** visible)
 with **Hard Mode on** — the switch next to Start must show the **red** icon, not
 blue. If it's blue, the bot stops and asks you to turn Hard Mode on first.
 
+## Get Guild Member List — how it works
+
+The bot walks every member on a guild's **Info** screen and saves each one's UID
+and power to a spreadsheet. For each member it opens their character screen,
+copies the UID with the in-game copy button (exact, not guessed), reads the
+power shown under the character, then moves to the next. It scrolls the list
+itself and de-duplicates by UID, so it captures everyone exactly once.
+
+There's nothing to set up: it reads the guild name off the screen (you can type
+it in the one optional box if you'd rather name the file yourself).
+
+The result is written to `~/Downloads/capygo_<guild>_member_list.csv` with
+columns `guild_name, member_uid, power`. If you stop it early, it still saves
+whoever was collected so far.
+
+Before starting, open the guild's **Info** screen — the one titled "Guild Info"
+with the member list.
+
 ## Notes
 
 - Press **Esc** any time to stop (needs the Accessibility permission above).
@@ -121,6 +140,7 @@ capygo/
   tasks/
     pet_armament_chest.py  chest-opening task
     hard_mode_autorun.py   Hard Mode auto-run task (OCR + color checks)
+    get_guild_member_list.py  guild members -> CSV (OCR + clipboard copy)
 templates/<task-name>/     button/icon PNGs matched at runtime
 ui/                        PySide6 app (home + task screens, theme, assets)
 tools/
@@ -143,6 +163,7 @@ python -m ui.app                 # GUI
 ```bash
 ./run.sh pet-armament-chest -p runs=20 -p free_failure_threshold=2 -p failure_threshold=2
 ./run.sh hard-mode-autorun -p chapter=180 -p energy_multiple=20 -p runs=2
+./run.sh get-guild-member-list          # exports to ~/Downloads
 ./run.sh pet-armament-chest -n          # --dry-run
 ./run.sh --list                         # list tasks and their params
 ```

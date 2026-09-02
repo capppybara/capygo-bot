@@ -160,6 +160,31 @@ class Context:
         click_screen(sx, sy, jitter_px=self._click_jitter)
         self.log.debug("clicked %s at screen (%.0f, %.0f)", label, sx, sy)
 
+    def drag_rel(self, start: Rel, end: Rel, steps: int = 25, duration: float = 0.6) -> None:
+        """Click-and-drag between two window-relative points (e.g. to scroll a list)."""
+        b = self.window.bounds()
+        x0, y0 = b.x + start.x * b.width, b.y + start.y * b.height
+        x1, y1 = b.x + end.x * b.width, b.y + end.y * b.height
+        if self.dry_run:
+            self.log.debug("DRY-RUN drag rel(%.3f,%.3f)->rel(%.3f,%.3f)",
+                           start.x, start.y, end.x, end.y)
+            return
+        from .input import drag_screen
+
+        self.window.focus()
+        drag_screen(x0, y0, x1, y1, steps=steps, duration=duration)
+        self.log.debug("dragged screen (%.0f,%.0f)->(%.0f,%.0f)", x0, y0, x1, y1)
+
+    def read_clipboard(self) -> str:
+        from .input import read_clipboard
+
+        return read_clipboard()
+
+    def set_clipboard(self, text: str) -> None:
+        from .input import write_clipboard
+
+        write_clipboard(text)
+
     def type_text(self, text: str) -> None:
         """Type into the currently focused field (click the field first)."""
         text = str(text)
