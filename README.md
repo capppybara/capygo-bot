@@ -97,7 +97,9 @@ power shown under the character, then moves to the next. It scrolls the list
 itself and de-duplicates by UID, so it captures everyone exactly once.
 
 There's nothing to set up: it reads the guild name off the screen (you can type
-it in the one optional box if you'd rather name the file yourself).
+it in the one optional box if you'd rather name the file yourself). If the name
+isn't in the English alphabet (a Korean name, say, which won't read cleanly), it
+uses the guild's numeric **ID** instead so the file still gets a sensible name.
 
 The result is written to `~/Downloads/capygo_<guild>_member_list.csv` with
 columns `guild_name, member_uid, power`. If you stop it early, it still saves

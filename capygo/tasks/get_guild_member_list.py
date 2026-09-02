@@ -44,6 +44,7 @@ from ..task import Context, Param, Task, register
 
 # --- header (fixed while the member list scrolls) -------------------------
 GUILD_NAME_REGION = RelRect(0.52, 0.181, 0.34, 0.035)   # value cell -> guild name
+GUILD_ID_REGION = RelRect(0.52, 0.212, 0.34, 0.036)     # ID row, below the name
 MEMBER_COUNT_REGION = RelRect(0.555, 0.328, 0.11, 0.028)  # "47/48"
 
 # --- member list layout (642x951) -----------------------------------------
@@ -129,12 +130,38 @@ class GetGuildMemberList(Task):
         return ocr_lines(cv2.cvtColor(th, cv2.COLOR_GRAY2BGR))
 
     # --- header reads -----------------------------------------------------
+    @staticmethod
+    def _is_english(s: str) -> bool:
+        """True if the name is plain English letters (ASCII, with a letter). A
+        non-English name (Korean, etc.) OCRs to non-ASCII junk, which we'd rather
+        replace with the numeric guild ID than put in a filename."""
+        s = s.strip()
+        return bool(s) and all(ord(c) < 128 for c in s) and any(c.isalpha() for c in s)
+
+    def _read_guild_id(self, ctx: Context, frame=None):
+        """The numeric guild ID from the row below the name (e.g. 96880), or None."""
+        if frame is None:
+            frame = ctx.frame()
+        h, w = frame.shape[:2]
+        x0, y0, x1, y1 = GUILD_ID_REGION.to_pixels(w, h)
+        from ..perception import read_int
+
+        return read_int(frame[y0:y1, x0:x1])
+
     def _read_guild_name(self, ctx: Context) -> str:
         override = self.params.get("guild_name", "").strip()
         if override:
             return override
-        lines = self._ocr_otsu(ctx.frame(), GUILD_NAME_REGION)
+        frame = ctx.frame()
+        lines = self._ocr_otsu(frame, GUILD_NAME_REGION)
         name = " ".join(t for t, _, _ in lines).strip()
+        if self._is_english(name):
+            return name
+        # A non-English (or unreadable) name -> use the numeric guild ID instead.
+        gid = self._read_guild_id(ctx, frame)
+        if gid is not None:
+            ctx.log.info("guild name %r is not English -> using guild ID %d", name, gid)
+            return str(gid)
         return name or "guild"
 
     def _read_member_count(self, ctx: Context):
