@@ -102,8 +102,9 @@ isn't in the English alphabet (a Korean name, say, which won't read cleanly), it
 uses the guild's numeric **ID** instead so the file still gets a sensible name.
 
 The result is written to `~/Downloads/capygo_<guild>_member_list.csv` with
-columns `guild_name, member_uid, power`. If you stop it early, it still saves
-whoever was collected so far.
+columns `guild_name, member_uid, power`. Power is a plain number **in trillions**
+with no unit letter (so `905.85B` is stored as `0.90585`, `1.38T` as `1.38`). If
+you stop it early, it still saves whoever was collected so far.
 
 Before starting, open the guild's **Info** screen — the one titled "Guild Info"
 with the member list.

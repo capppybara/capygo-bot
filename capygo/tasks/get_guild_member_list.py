@@ -20,8 +20,10 @@ never skips anyone. It stops when the list can't scroll further (bottom reached)
 or every member (from the "N/M" count) has been seen.
 
 Output: ~/Downloads/capygo_<guild>_member_list.csv with columns
-(guild_name, member_uid, power). The file is written on exit even if stopped
-early, so an Esc still saves what was collected.
+(guild_name, member_uid, power). Power is stored as a plain number in trillions
+(no unit letter): 1.38T -> 1.38, 905.85B -> 0.90585, 162.48M -> 0.00016248. The
+file is written on exit even if stopped early, so an Esc still saves what was
+collected.
 
 Templates in templates/get-guild-member-list/ (captured from the live game):
   guild_title    the "Guild Info" banner (confirms we start on the right screen)
@@ -34,6 +36,7 @@ import csv
 import os
 import re
 import time
+from decimal import Decimal, InvalidOperation
 
 import cv2
 import numpy as np
@@ -72,6 +75,17 @@ SCROLL_TO = Rel(0.5, 0.60)
 UID_COPY_BTN = Rel(0.815, 0.220)          # copy-to-clipboard button next to the UID
 POWER_REGION = RelRect(0.397, 0.576, 0.203, 0.037)  # value below the character
 CLOSE_BTN = Rel(0.5, 0.925)               # floating X: closes the top popup
+
+# Power is stored in trillions with no unit letter: T stays as-is, B/M/K (and a
+# bare number) are scaled down to trillions. So 1.38T -> 1.38, 905.85B -> 0.90585,
+# 162.48M -> 0.00016248.
+POWER_UNIT_TO_TRILLION = {
+    "T": Decimal(1),
+    "B": Decimal("0.001"),
+    "M": Decimal("0.000001"),
+    "K": Decimal("0.000000001"),
+    "": Decimal(10) ** -12,
+}
 
 CLIP_SENTINEL = "capygo-none"  # seeded before a copy so a stale value can't fool us
 MAX_PAGES = 80                 # safety cap (a full guild is ~48 members)
@@ -177,15 +191,31 @@ class GetGuildMemberList(Task):
         return None
 
     # --- one member -------------------------------------------------------
+    @staticmethod
+    def _to_trillions(raw: str):
+        """Convert a power reading like '905.85B' to a plain number in trillions
+        ('0.90585'), dropping the unit letter. None if it can't be parsed."""
+        m = re.match(r"\s*([\d,]*\.?\d+)\s*([KMBTkmbt]?)", raw or "")
+        if not m:
+            return None
+        try:
+            val = Decimal(m.group(1).replace(",", ""))
+        except InvalidOperation:
+            return None
+        tri = val * POWER_UNIT_TO_TRILLION[m.group(2).upper()]
+        s = format(tri, "f")  # fixed-point, never scientific notation
+        return s.rstrip("0").rstrip(".") if "." in s else s
+
     def _read_power(self, ctx: Context):
-        """OCR the power value under the character (e.g. '1.38T'); None if unread."""
+        """OCR the power under the character and return it in trillions as a plain
+        number (e.g. '1.38T' -> '1.38', '905.85B' -> '0.90585'); None if unread."""
         frame = ctx.frame()
         h, w = frame.shape[:2]
         x0, y0, x1, y1 = POWER_REGION.to_pixels(w, h)
         for text, _cx, _cy in ocr_lines(frame[y0:y1, x0:x1]):
             m = re.search(r"\d[\d.,]*\s*[KMBTkmbt]?", text)
             if m:
-                return m.group(0).replace(" ", "").upper()
+                return self._to_trillions(m.group(0))
         return None
 
     def _read_member(self, ctx: Context, y_rel: float):
