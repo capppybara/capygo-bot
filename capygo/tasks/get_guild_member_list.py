@@ -337,4 +337,9 @@ class GetGuildMemberList(Task):
                     break
         finally:
             self._write_csv(ctx, guild, members)
+            if target and len(members) < target:
+                ctx.log.warning("collected %d of %d members - stopped before the end "
+                                "(the list stopped scrolling, or a game popup "
+                                "interrupted). The CSV has what was read so far.",
+                                len(members), target)
             ctx.log.info("get-guild-member-list done: %d members", len(members))
