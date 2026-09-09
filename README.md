@@ -1,10 +1,11 @@
 # CapyGo Bot
 
 Automate repetitive actions in **CapyBara Go!** on macOS. It watches the game
-window, finds buttons on screen, and clicks them for you. Three automations so
+window, finds buttons on screen, and clicks them for you. Four automations so
 far: opening **Pet Armament chests**, **auto-running Hard Mode** chapters at a
-chosen energy multiple, and **exporting a guild's member list** (each member's
-UID and power) to a CSV.
+chosen energy multiple, **exporting a guild's member list** (each member's UID
+and power) to a CSV, and mining the **Goblin Miner** minigame floor by floor for
+the Capy King statue.
 
 > **Tested only on a MacBook Pro M3 16" using the native Capybara Go! Mac app at
 > its default window size.** No guarantees it works in a different setup (other
@@ -109,6 +110,42 @@ you stop it early, it still saves whoever was collected so far.
 Before starting, open the guild's **Info** screen — the one titled "Guild Info"
 with the member list.
 
+## Goblin Miner — how it works
+
+The bot plays the **Goblin Miner** minigame floor by floor. Each floor it digs
+the stone grid to uncover the hidden **Capy King statue**, unlocks and claims
+the statue, then takes the doorway down to the next floor. It keeps going until
+the pickaxe meter runs out.
+
+Each floor it:
+
+1. Mines a fixed **6-tile pattern** (the spots a large statue is most likely to
+   sit on, so a big statue shows up early), stopping the moment a statue appears.
+2. Matches the uncovered piece against a library of fragment templates to work
+   out the statue's **size** (1×1, 2×2, or 2×3) and which part is showing, which
+   pins the whole statue's footprint on the grid. If nothing showed in the
+   pattern, it presses **Auto-Mine** to dig until the statue surfaces, then
+   identifies it the same way.
+3. Uncovers the rest of the footprint (only those tiles, never a halo), opens the
+   statue, taps to resolve its four rarity orbs, claims the reward, and closes
+   the summary.
+4. Clicks the **doorway** that appears at the footprint's top-left, dropping to
+   the next floor.
+
+**When picks run out** it claims the free **Pickaxe +15** refill at the bottom of
+the screen and keeps digging; once that refill is used up, it stops. One setting,
+**Stop below picks**, lets you keep a reserve (stop before a floor once the meter
+is at or below it); `0` mines until the board can no longer be cleared.
+
+Before starting, open the **Goblin Miner** screen (the stone grid titled "Goblin
+Miner").
+
+> **Big statues are a work in progress.** The 1×1 statue is handled end to end.
+> The mining pattern is laid out to land on a large 2×2 / 2×3 statue, so any
+> statue the pattern uncovers is treated as a big one: the bot **stops and
+> reports it, leaving it untouched**, rather than digging into it. Uncovering big
+> statues cleanly is being built out over the next runs.
+
 ## Notes
 
 - Press **Esc** any time to stop (needs the Accessibility permission above).
@@ -144,6 +181,7 @@ capygo/
     pet_armament_chest.py  chest-opening task
     hard_mode_autorun.py   Hard Mode auto-run task (OCR + color checks)
     get_guild_member_list.py  guild members -> CSV (OCR + clipboard copy)
+    goblin_miner.py        Goblin Miner minigame: mine floors for the statue
 templates/<task-name>/     button/icon PNGs matched at runtime
 ui/                        PySide6 app (home + task screens, theme, assets)
 tools/
@@ -167,6 +205,7 @@ python -m ui.app                 # GUI
 ./run.sh pet-armament-chest -p runs=20 -p free_failure_threshold=2 -p failure_threshold=2
 ./run.sh hard-mode-autorun -p chapter=180 -p energy_multiple=20 -p runs=2
 ./run.sh get-guild-member-list          # exports to ~/Downloads
+./run.sh goblin-miner -p min_picks=0    # mine floors until picks run out
 ./run.sh pet-armament-chest -n          # --dry-run
 ./run.sh --list                         # list tasks and their params
 ```

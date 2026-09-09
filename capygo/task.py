@@ -148,6 +148,14 @@ class Context:
         sy = b.y + match.y / self._scale
         self._do_click(sx, sy, f"match(score={match.score:.2f})")
 
+    def _focus_and_settle(self) -> None:
+        """Bring the window to the front and give it a moment to actually come
+        frontmost before we post an event. Without this pause the click/drag
+        races the activation and lands on whatever was in front a moment ago (or
+        is swallowed as a mere resurface), so it silently misses."""
+        self.window.focus()
+        time.sleep(0.2)
+
     def _do_click(self, sx: float, sy: float, label: str) -> None:
         # The human-readable action line is logged by the task (run x/total -
         # click button - reason). Keep the low-level coords at debug level.
@@ -156,7 +164,7 @@ class Context:
             return
         from .input import click_screen
 
-        self.window.focus()
+        self._focus_and_settle()
         click_screen(sx, sy, jitter_px=self._click_jitter)
         self.log.debug("clicked %s at screen (%.0f, %.0f)", label, sx, sy)
 
@@ -171,7 +179,7 @@ class Context:
             return
         from .input import drag_screen
 
-        self.window.focus()
+        self._focus_and_settle()
         drag_screen(x0, y0, x1, y1, steps=steps, duration=duration)
         self.log.debug("dragged screen (%.0f,%.0f)->(%.0f,%.0f)", x0, y0, x1, y1)
 
@@ -193,7 +201,7 @@ class Context:
             return
         from .input import type_text
 
-        self.window.focus()
+        self._focus_and_settle()
         type_text(text)
         self.log.debug("typed %r", text)
 
