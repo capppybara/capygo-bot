@@ -36,10 +36,10 @@ adapts to timing instead of counting blind taps.
 A statue whose fragment matches no template (a size not yet captured) stops the
 run with an "UNIDENTIFIED STATUE" note so it can be snapshotted and added.
 
-TODO (game mechanics seen but not yet handled): "bomb" tiles should be claimed
-immediately (they clear the whole row + column), and "cracked block" tiles
-should be claimed at the end once the statue is done. Templates for both still
-need capturing.
+Two other tile types are matched by template too: a "bomb" (bomb.png) is claimed
+on sight -- each blast clears its whole row and column, which helps surface the
+statue -- and a "cracked block" (cracked.png), a buried reward, is claimed at the
+end of a floor once the statue is done, before dropping down.
 """
 
 from __future__ import annotations
@@ -83,6 +83,8 @@ FRAGMENT_MATCH_THRESHOLD = 0.70   # min TM_CCOEFF_NORMED to accept a fragment ID
                                   # (real fragments match >=0.87, false ones <=0.57)
 BOMB_MATCH_THRESHOLD = 0.65       # min TM_CCOEFF_NORMED to accept a bomb tile
                                   # (templates/goblin-miner/bomb.png)
+CRACKED_MATCH_THRESHOLD = 0.65    # min TM_CCOEFF_NORMED to accept a cracked block
+                                  # (templates/goblin-miner/cracked.png)
 
 # --- buttons / fixed taps --------------------------------------------------
 AUTO_MINE_BTN = Rel(0.805, 0.181)   # green "Auto-Mine" button, top right
@@ -206,12 +208,17 @@ class GoblinMiner(Task):
             self._frag_cache = frags
         return self._frag_cache
 
-    def _identify(self, ctx: Context, frame):
+    def _identify(self, ctx: Context, frame=None):
         """Match every revealed tile against the fragment library. Return the
-        best (size, position, r, c, score) above threshold, else None."""
+        best (size, position, r, c, score) above threshold, else None. With no
+        frame given, popups are cleared first and a fresh frame grabbed -- a
+        reward-summary overlay turns dimmed tiles into phantom matches otherwise."""
         frags = self._fragments(ctx)
         if not frags:
             return None
+        if frame is None:
+            self._clear_popups(ctx)
+            frame = ctx.frame()
         board = self._scan(frame)
         best = None
         for (r, c), kind in board.items():
@@ -271,9 +278,54 @@ class GoblinMiner(Task):
             claimed = True
         return claimed
 
+    def _cracked_template(self, ctx: Context):
+        """Load templates/goblin-miner/cracked.png once (None if missing)."""
+        if not hasattr(self, "_cracked_tmpl"):
+            path = os.path.join(ctx.templates_dir, "cracked.png")
+            self._cracked_tmpl = cv2.imread(path) if os.path.exists(path) else None
+        return self._cracked_tmpl
+
+    def _claim_cracked(self, ctx: Context) -> bool:
+        """Click every revealed cracked block (each hides a reward). Done at the
+        end of a floor, after the statue is claimed. Skips it when out of picks
+        (a click would do nothing). Returns True if any were claimed."""
+        tmpl = self._cracked_template(ctx)
+        if tmpl is None:
+            return False
+        claimed = False
+        for _ in range(12):
+            if ctx.should_stop():
+                break
+            picks = self._read_picks(ctx)
+            if picks is not None and picks <= 0:
+                break
+            frame = ctx.frame()
+            found = None
+            for (r, c), kind in self._scan(frame).items():
+                if kind in ("stone", "empty", "door", "statue"):
+                    continue
+                tile = self._tile_crop(frame, r, c)
+                t = tile if tile.shape == tmpl.shape else \
+                    cv2.resize(tile, (tmpl.shape[1], tmpl.shape[0]))
+                if float(cv2.matchTemplate(t, tmpl, cv2.TM_CCOEFF_NORMED).max()) \
+                        >= CRACKED_MATCH_THRESHOLD:
+                    found = (r, c)
+                    break
+            if not found:
+                break
+            r, c = found
+            ctx.log.info("claiming cracked block at r%dc%d", r, c)
+            ctx.click_rel(self._tile_rel(r, c))
+            self._sleep(ctx, 0.9)
+            self._clear_popups(ctx)
+            claimed = True
+        return claimed
+
     def _real_statue(self, ctx: Context):
         """The largest 4-connected clump of "statue" tiles -- a real statue is a
-        contiguous 1/4/6-tile blob, so this drops scattered noise."""
+        contiguous 1/4/6-tile blob, so this drops scattered noise. Clears popups
+        first so a dimmed overlay is not read as statue tiles."""
+        self._clear_popups(ctx)
         statue = set(self._tiles_of(self._scan(ctx.frame()), "statue"))
         best, seen = [], set()
         for start in statue:
@@ -567,7 +619,10 @@ class GoblinMiner(Task):
                 if self._refill_available(ctx):         # out of picks
                     resolved = "empty"
                     break
-                if self._tiles_of(self._scan(ctx.frame()), "statue"):
+                # Only trust a raw "statue" read with no popup up (a reward
+                # summary dims tiles into phantom statue reads).
+                if self._prompt(ctx) == "" and \
+                        self._tiles_of(self._scan(ctx.frame()), "statue"):
                     resolved = "statue"
                     break
             if resolved in ("statue", "empty"):
@@ -615,10 +670,12 @@ class GoblinMiner(Task):
             self._clear_popups(ctx)
             board = self._board_settled(ctx)
 
-            # A doorway already showing (statue claimed): just descend. A real
-            # doorway is exactly one tile; more means a popup slipped through.
+            # A doorway already showing (statue claimed): claim any leftover
+            # cracked blocks, then descend. A real doorway is exactly one tile;
+            # more means a popup slipped through.
             if len(self._tiles_of(board, "door")) == 1 and \
                     not self._tiles_of(board, "statue"):
+                self._claim_cracked(ctx)
                 if not self._take_doorway(ctx):
                     ctx.log.warning("doorway vanished -> stopping")
                     break
@@ -632,7 +689,7 @@ class GoblinMiner(Task):
             #    flow. Mine the pattern, then Auto-Mine, until a fragment matches,
             #    claiming bombs (each clears a row+column) and clearing the reward
             #    popups they raise.
-            frag = self._identify(ctx, ctx.frame())
+            frag = self._identify(ctx)
             if not frag:
                 for (r, c) in PATTERN:
                     if ctx.should_stop():
@@ -641,7 +698,7 @@ class GoblinMiner(Task):
                         self._mine_tile(ctx, r, c)
                     self._claim_bombs(ctx)
                     self._clear_popups(ctx)
-                    frag = self._identify(ctx, ctx.frame())
+                    frag = self._identify(ctx)
                     if frag:                        # stop digging once found
                         break
 
@@ -651,7 +708,7 @@ class GoblinMiner(Task):
                     outcome = self._auto_mine(ctx)
                     self._claim_bombs(ctx)
                     self._clear_popups(ctx)
-                    frag = self._identify(ctx, ctx.frame())
+                    frag = self._identify(ctx)
                     if frag:
                         break
                     if outcome == "statue":
@@ -683,6 +740,9 @@ class GoblinMiner(Task):
             if not self._handle_statue(ctx, footprint):
                 ctx.log.warning("statue flow did not return to the grid -> stopping")
                 break
+            # With the statue done, claim any cracked blocks (buried rewards)
+            # before dropping down.
+            self._claim_cracked(ctx)
             if not self._take_doorway(ctx):
                 ctx.log.warning("no doorway found -> stopping")
                 break

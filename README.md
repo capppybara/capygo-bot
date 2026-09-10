@@ -129,8 +129,12 @@ Each floor it:
 3. Uncovers the rest of the footprint (only those tiles, never a halo), opens the
    statue, taps to resolve its four rarity orbs, claims the reward, and closes
    the summary.
-4. Clicks the **doorway** that appears at the footprint's top-left, dropping to
-   the next floor.
+4. Claims any leftover **cracked blocks** (buried rewards), then clicks the
+   **doorway** that appears at the footprint's top-left, dropping to the next
+   floor.
+
+Along the way it also grabs any **bomb** it uncovers — a bomb clears its whole
+row and column, which helps expose the statue.
 
 **When picks run out** it claims the free **Pickaxe +15** refill at the bottom of
 the screen and keeps digging; once that refill is used up, it stops. One setting,
@@ -139,12 +143,6 @@ is at or below it); `0` mines until the board can no longer be cleared.
 
 Before starting, open the **Goblin Miner** screen (the stone grid titled "Goblin
 Miner").
-
-> **Big statues are a work in progress.** The 1×1 statue is handled end to end.
-> The mining pattern is laid out to land on a large 2×2 / 2×3 statue, so any
-> statue the pattern uncovers is treated as a big one: the bot **stops and
-> reports it, leaving it untouched**, rather than digging into it. Uncovering big
-> statues cleanly is being built out over the next runs.
 
 ## Notes
 
