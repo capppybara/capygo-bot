@@ -81,6 +81,8 @@ STATUE_SIZES = {
 }
 FRAGMENT_MATCH_THRESHOLD = 0.70   # min TM_CCOEFF_NORMED to accept a fragment ID
                                   # (real fragments match >=0.87, false ones <=0.57)
+BOMB_MATCH_THRESHOLD = 0.65       # min TM_CCOEFF_NORMED to accept a bomb tile
+                                  # (templates/goblin-miner/bomb.png)
 
 # --- buttons / fixed taps --------------------------------------------------
 AUTO_MINE_BTN = Rel(0.805, 0.181)   # green "Auto-Mine" button, top right
@@ -223,6 +225,71 @@ class GoblinMiner(Task):
                 score = float(cv2.matchTemplate(t, tm, cv2.TM_CCOEFF_NORMED).max())
                 if score >= FRAGMENT_MATCH_THRESHOLD and (best is None or score > best[4]):
                     best = (size, pos, r, c, score)
+        return best
+
+    def _bomb_template(self, ctx: Context):
+        """Load templates/goblin-miner/bomb.png once (None if missing)."""
+        if not hasattr(self, "_bomb_tmpl"):
+            path = os.path.join(ctx.templates_dir, "bomb.png")
+            self._bomb_tmpl = cv2.imread(path) if os.path.exists(path) else None
+        return self._bomb_tmpl
+
+    def _find_bomb(self, ctx: Context, frame):
+        """Best revealed tile matching the bomb template, as (r, c, score), else
+        None."""
+        tmpl = self._bomb_template(ctx)
+        if tmpl is None:
+            return None
+        best = None
+        for (r, c), kind in self._scan(frame).items():
+            if kind in ("stone", "empty"):
+                continue
+            tile = self._tile_crop(frame, r, c)
+            t = tile if tile.shape == tmpl.shape else \
+                cv2.resize(tile, (tmpl.shape[1], tmpl.shape[0]))
+            score = float(cv2.matchTemplate(t, tmpl, cv2.TM_CCOEFF_NORMED).max())
+            if score >= BOMB_MATCH_THRESHOLD and (best is None or score > best[2]):
+                best = (r, c, score)
+        return best
+
+    def _claim_bombs(self, ctx: Context) -> bool:
+        """Click every revealed bomb (each clears its whole row + column, which
+        helps surface the statue). Loops because one blast can reveal another
+        bomb. Returns True if any were claimed."""
+        claimed = False
+        for _ in range(8):
+            if ctx.should_stop():
+                break
+            bomb = self._find_bomb(ctx, ctx.frame())
+            if not bomb:
+                break
+            r, c, score = bomb
+            ctx.log.info("claiming bomb at r%dc%d (match %.2f)", r, c, score)
+            ctx.click_rel(self._tile_rel(r, c))
+            self._sleep(ctx, 1.2)
+            self._clear_popups(ctx)          # a blast may raise a rewards summary
+            claimed = True
+        return claimed
+
+    def _real_statue(self, ctx: Context):
+        """The largest 4-connected clump of "statue" tiles -- a real statue is a
+        contiguous 1/4/6-tile blob, so this drops scattered noise."""
+        statue = set(self._tiles_of(self._scan(ctx.frame()), "statue"))
+        best, seen = [], set()
+        for start in statue:
+            if start in seen:
+                continue
+            comp, stack = [], [start]
+            while stack:
+                t = stack.pop()
+                if t in seen or t not in statue:
+                    continue
+                seen.add(t)
+                comp.append(t)
+                (tr, tc) = t
+                stack += [(tr - 1, tc), (tr + 1, tc), (tr, tc - 1), (tr, tc + 1)]
+            if len(comp) > len(best):
+                best = comp
         return best
 
     def _footprint(self, size: str, pos: str, r: int, c: int):
@@ -539,8 +606,12 @@ class GoblinMiner(Task):
                     ctx.log.info("out of picks and no refill left -> stopping")
                     break
 
-            # Clear any leftover popups, then settle the board (also lets the
-            # task pick up an already-mined floor).
+            # Clear any leftover popups, claim any bombs (each clears its row +
+            # column, which can surface the statue), clear the reward popups the
+            # blasts raise, then settle the board (also lets the task pick up an
+            # already-mined floor).
+            self._clear_popups(ctx)
+            self._claim_bombs(ctx)
             self._clear_popups(ctx)
             board = self._board_settled(ctx)
 
@@ -555,27 +626,39 @@ class GoblinMiner(Task):
                 ctx.log.info("floor cleared (%d total)", floors)
                 continue
 
-            # 1. Identify a statue: check what's already showing, then mine the
-            #    pattern, then Auto-Mine -- stopping as soon as a fragment is
-            #    matched to the library.
+            # 1. Identify a statue. Rely on the fragment TEMPLATE MATCH, not the
+            #    raw "statue" colour class -- a reward popup overlay turns dimmed
+            #    tiles into phantom "statue" tiles, which must not drive control
+            #    flow. Mine the pattern, then Auto-Mine, until a fragment matches,
+            #    claiming bombs (each clears a row+column) and clearing the reward
+            #    popups they raise.
             frag = self._identify(ctx, ctx.frame())
-            if not frag and not self._tiles_of(self._scan(ctx.frame()), "statue"):
+            if not frag:
                 for (r, c) in PATTERN:
                     if ctx.should_stop():
                         break
                     if board.get((r, c)) in ("stone", "unknown"):
                         self._mine_tile(ctx, r, c)
-                    # Stop the moment a statue turns up -- don't keep digging the
-                    # rest of the pattern once it's found.
+                    self._claim_bombs(ctx)
+                    self._clear_popups(ctx)
                     frag = self._identify(ctx, ctx.frame())
-                    if frag or self._tiles_of(self._scan(ctx.frame()), "statue"):
+                    if frag:                        # stop digging once found
                         break
 
-            if not frag and not self._tiles_of(self._scan(ctx.frame()), "statue"):
+            unidentified = None
+            if not frag:
                 while not ctx.should_stop():
                     outcome = self._auto_mine(ctx)
+                    self._claim_bombs(ctx)
+                    self._clear_popups(ctx)
                     frag = self._identify(ctx, ctx.frame())
-                    if frag or self._tiles_of(self._scan(ctx.frame()), "statue"):
+                    if frag:
+                        break
+                    if outcome == "statue":
+                        # A statue is revealed but no template matched it -- a
+                        # size not in the library (all three are captured, so
+                        # this is rare). Report the real (contiguous) blob.
+                        unidentified = self._real_statue(ctx)
                         break
                     if outcome == "empty" and self._try_refill(ctx):
                         continue
@@ -585,11 +668,8 @@ class GoblinMiner(Task):
                 break
 
             if not frag:
-                # Statue content is showing but no template matched -> a size we
-                # have not captured yet (a 2x2). Stop so it can be captured.
-                statue = self._tiles_of(self._scan(ctx.frame()), "statue")
-                if statue:
-                    self._report_unidentified(ctx, statue)
+                if unidentified:
+                    self._report_unidentified(ctx, unidentified)
                 else:
                     ctx.log.info("no statue reached (out of picks?) -> stopping")
                 break
