@@ -95,7 +95,9 @@ CLOSE_TAP = Rel(0.5, 0.86)          # "Tap to close" on a reward summary
 PICK_REGION = RelRect(0.42, 0.935, 0.28, 0.042)   # the "N/100" pickaxe counter
                                                   # (wide enough for 3-digit N)
 PROMPT_BAND = RelRect(0.10, 0.70, 0.80, 0.20)     # where the statue prompts sit
-TITLE_BAND = RelRect(0.20, 0.10, 0.55, 0.06)      # the "Goblin Miner" header
+TITLE_BAND = RelRect(0.13, 0.090, 0.70, 0.080)    # the "Goblin Miner" header
+                                                  # (generous -- a tight band OCRs
+                                                  # empty and mis-reads the screen)
 
 # When picks run out, the bottom counter is replaced by a green "Pickaxe x15"
 # button (a free +15 refill, a couple of uses per period). Tapping it grants the
@@ -491,7 +493,10 @@ class GoblinMiner(Task):
             return False
 
         # Drive the reveal by its on-screen prompt: 4x upgrade -> claim ->
-        # close the reward summary -> back on the grid.
+        # close the reward summary -> back on the grid. Closing the reward
+        # summary is the last step, so once it is gone we are done -- do NOT wait
+        # to re-OCR the "Goblin Miner" title, which flakes and once made a
+        # successful claim read as a failure.
         for _ in range(14):
             if ctx.should_stop():
                 return False
@@ -500,8 +505,9 @@ class GoblinMiner(Task):
                 ctx.click_rel(REVEAL_TAP)
                 self._sleep(ctx, 0.7)
             elif prompt == "close":
-                ctx.click_rel(CLOSE_TAP)
-                self._sleep(ctx, 1.0)
+                self._dismiss_close_popup(ctx)   # reward summary -> back on grid
+                self._board_settled(ctx)
+                return True
             elif self._on_mining_screen(ctx):
                 return True
             else:
