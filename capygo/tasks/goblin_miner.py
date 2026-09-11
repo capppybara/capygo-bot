@@ -92,7 +92,8 @@ REVEAL_TAP = Rel(0.5, 0.5)          # taps the statue reveal screen (upgrade/cla
 CLOSE_TAP = Rel(0.5, 0.86)          # "Tap to close" on a reward summary
 
 # --- reading the screen ----------------------------------------------------
-PICK_REGION = RelRect(0.46, 0.940, 0.18, 0.034)   # the "N/100" pickaxe counter
+PICK_REGION = RelRect(0.42, 0.935, 0.28, 0.042)   # the "N/100" pickaxe counter
+                                                  # (wide enough for 3-digit N)
 PROMPT_BAND = RelRect(0.10, 0.70, 0.80, 0.20)     # where the statue prompts sit
 TITLE_BAND = RelRect(0.20, 0.10, 0.55, 0.06)      # the "Goblin Miner" header
 
@@ -604,30 +605,29 @@ class GoblinMiner(Task):
                 return "empty"
             ctx.log.info("Auto-Mine")
             ctx.click_rel(AUTO_MINE_BTN)
-            resolved = None
+            # Wait out this click's popup (every click raises one when it digs):
+            # the "statue found" tip means the statue is now revealed; a rewards
+            # summary means loot was claimed and there's more to dig.
+            tip = False
             for _ in range(12):
                 if ctx.should_stop():
                     return "timeout"
                 self._sleep(ctx, 0.5)
-                if self._dismiss_tips(ctx):             # statue found
-                    resolved = "statue"
+                if self._dismiss_tips(ctx):             # statue found -> revealed
+                    tip = True
                     break
                 if self._prompt(ctx) == "close":        # rewards -> dig again
                     self._dismiss_close_popup(ctx)
-                    resolved = "rewards"
                     break
                 if self._refill_available(ctx):         # out of picks
-                    resolved = "empty"
-                    break
-                # Only trust a raw "statue" read with no popup up (a reward
-                # summary dims tiles into phantom statue reads).
-                if self._prompt(ctx) == "" and \
-                        self._tiles_of(self._scan(ctx.frame()), "statue"):
-                    resolved = "statue"
-                    break
-            if resolved in ("statue", "empty"):
-                return resolved
-            # "rewards" or nothing resolved -> click Auto-Mine again
+                    return "empty"
+            # Let the board settle, then confirm a statue by an actual template
+            # match -- not a raw colour read, which flickers during the dig.
+            self._clear_popups(ctx)
+            self._board_settled(ctx)
+            if tip or self._identify(ctx):
+                return "statue"
+            # nothing yet -> click Auto-Mine again
         ctx.log.info("Auto-Mine did not finish within the click budget")
         return "timeout"
 
