@@ -101,6 +101,15 @@ def run_task(
         signal.signal(signal.SIGTERM, _request_stop)
         signal.signal(signal.SIGINT, _request_stop)
 
+        key = config["safety"]["kill_key"].capitalize()
+        if kill.armed:
+            log.info("stop with %s, the Stop button, or Ctrl+C. (%s needs Input "
+                     "Monitoring for the app running this bot; if it does nothing, "
+                     "use the Stop button.)", key, key)
+        else:
+            log.warning("%s kill switch could NOT start (no Input Monitoring "
+                        "permission) -> use the Stop button or Ctrl+C to stop.", key)
+
         task, ctx = build_runtime(task_name, params, kill, log, config, dry_run)
         task.run(ctx)
     log.info("task %r finished after %d steps", task_name, ctx.iteration)

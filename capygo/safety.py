@@ -15,6 +15,7 @@ class KillSwitch:
     def __init__(self, key: str = "esc"):
         self.key = key.lower()
         self.stop = False
+        self.armed = False   # True once the global key listener has started
         self._listener: keyboard.Listener | None = None
 
     def _on_press(self, key) -> None:
@@ -29,8 +30,10 @@ class KillSwitch:
         try:
             self._listener = keyboard.Listener(on_press=self._on_press)
             self._listener.start()
+            self.armed = True
         except Exception:
             self._listener = None
+            self.armed = False
         return self
 
     def __exit__(self, *exc) -> None:
