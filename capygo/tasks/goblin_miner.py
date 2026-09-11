@@ -14,8 +14,11 @@ Per floor:
      to identify the statue's SIZE (1x1 / 2x2 / 2x3) and which part is showing.
      That pins the full footprint on the board: the doorway/top-left origin is
      the matched tile minus the fragment's offset.
-  3. If nothing showed in the pattern, press Auto-Mine to dig until the statue
-     surfaces, then identify it the same way. Refill picks if they run out.
+  3. A 2x2 or 2x3 statue ALWAYS sits under one of the six pattern tiles, so the
+     pattern (kept supplied with picks -- it refills mid-pattern if it runs dry)
+     always uncovers a big statue by hand; Auto-Mine is never used on one. Only a
+     1x1 can hide off the pattern, so if nothing showed, Auto-Mine digs until the
+     (1x1) statue surfaces, then it is identified the same way.
   4. Reveal the rest of the footprint (mine only those tiles -- never a halo),
      open the statue, tap 4x to resolve its rarity orbs, tap once to claim, tap
      the reward summary closed.
@@ -363,6 +366,8 @@ class GoblinMiner(Task):
             if ctx.should_stop():
                 return
             if self._classify(ctx.frame(), r, c) == "stone":
+                if not self._ensure_picks(ctx):
+                    return
                 self._mine_tile(ctx, r, c)
 
     # --- reading numbers / prompts ----------------------------------------
@@ -406,6 +411,18 @@ class GoblinMiner(Task):
                 return True
         ctx.log.info("refill did not grant (used up?) -> stopping")
         return False
+
+    def _ensure_picks(self, ctx: Context) -> bool:
+        """Make sure there is a pick to mine with before a manual dig, refilling
+        when the counter is at 0. Returns False only when out of picks with no
+        refill left -- so the 6-tile pattern always runs in full and a 2x2/2x3
+        (which the pattern always touches) is found by hand, never by Auto-Mine."""
+        picks = self._read_picks(ctx)
+        if picks is not None and picks > 0:      # plenty -- cheap common case
+            return True
+        if self._refill_available(ctx) or (picks is not None and picks <= 0):
+            return self._try_refill(ctx)
+        return True                              # unreadable, no refill -> proceed
 
     def _prompt(self, ctx: Context, frame=None) -> str:
         """The active statue prompt: 'upgrade' | 'claim' | 'close' | ''."""
@@ -701,6 +718,11 @@ class GoblinMiner(Task):
                     if ctx.should_stop():
                         break
                     if board.get((r, c)) in ("stone", "unknown"):
+                        # Keep picks topped up so every pattern tile actually gets
+                        # mined -- a 2x2/2x3 always sits under one of them, so the
+                        # pattern (never Auto-Mine) is what finds a big statue.
+                        if not self._ensure_picks(ctx):
+                            break
                         self._mine_tile(ctx, r, c)
                     self._claim_bombs(ctx)
                     self._clear_popups(ctx)
