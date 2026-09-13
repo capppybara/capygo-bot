@@ -653,10 +653,14 @@ class GoblinMiner(Task):
                 return "statue"
             if self._refill_available(ctx):
                 return "empty"
-            # If the click removed no stone it dug nothing -- we are out of picks
-            # (the counter regenerates to a low nonzero value, so it never reads
-            # exactly 0; a no-op dig is the reliable "out of picks" signal).
+            # A click that removed no stone dug nothing. That's EITHER out of
+            # picks (the counter regenerates to a low nonzero value, so it never
+            # reads exactly 0) OR the statue is already up and Auto-Mine has gone
+            # no-op ("auto-mining ends"). So: statue showing -> "statue" (let the
+            # caller identify / report it); otherwise -> out of picks.
             if len(self._tiles_of(board, "stone")) >= stone_before:
+                if self._tiles_of(board, "statue"):
+                    return "statue"
                 ctx.log.info("Auto-Mine dug nothing -> out of picks")
                 return "empty"
             # made progress -> click Auto-Mine again
