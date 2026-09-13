@@ -626,6 +626,7 @@ class GoblinMiner(Task):
             picks = self._read_picks(ctx)
             if picks is not None and picks <= 0:
                 return "empty"
+            stone_before = len(self._tiles_of(self._scan(ctx.frame()), "stone"))
             ctx.log.info("Auto-Mine")
             ctx.click_rel(AUTO_MINE_BTN)
             # Wait out this click's popup (every click raises one when it digs):
@@ -647,10 +648,18 @@ class GoblinMiner(Task):
             # Let the board settle, then confirm a statue by an actual template
             # match -- not a raw colour read, which flickers during the dig.
             self._clear_popups(ctx)
-            self._board_settled(ctx)
+            board = self._board_settled(ctx)
             if tip or self._identify(ctx):
                 return "statue"
-            # nothing yet -> click Auto-Mine again
+            if self._refill_available(ctx):
+                return "empty"
+            # If the click removed no stone it dug nothing -- we are out of picks
+            # (the counter regenerates to a low nonzero value, so it never reads
+            # exactly 0; a no-op dig is the reliable "out of picks" signal).
+            if len(self._tiles_of(board, "stone")) >= stone_before:
+                ctx.log.info("Auto-Mine dug nothing -> out of picks")
+                return "empty"
+            # made progress -> click Auto-Mine again
         ctx.log.info("Auto-Mine did not finish within the click budget")
         return "timeout"
 
