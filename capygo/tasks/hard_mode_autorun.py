@@ -9,10 +9,12 @@ Per run:
   2. Set the energy multiple: click + under Start until the shown multiple
      matches the target (one of 1, 2, 3, 5, 10, 20).
   3. Click Start (confirm the "no teammates" prompt if solo), then poll for the
-     Victory/Defeat screen and tap to dismiss it back to the main screen.
-  4. On success, run again (chapter + multiple are re-applied every run).
-     Stop on a failure, when Start won't launch (not enough energy), or when
-     `runs` is reached.
+     run to finish: the Victory/Defeat screen (tap to dismiss it back to the main
+     screen) OR the starting screen already showing (the result screen was
+     dismissed by the game or by the user -- count it and go again either way).
+  4. On success (or the starting screen returning), run again (chapter + multiple
+     are re-applied every run). Stop on a detected failure, when Start won't
+     launch (not enough energy), or when `runs` is reached.
 
 Before each run it also checks the Hard Mode switch next to Start: it must show
 the RED icon (Hard Mode on). If it's blue, the task stops and tells the user to
@@ -284,6 +286,12 @@ class HardModeAutorun(Task):
             if self._sleep(ctx, self.FINISH_POLL):  # interruptible poll interval
                 return "stopped"
             frame = ctx.frame()
+            # Already back on the starting screen (Start button showing): the run
+            # ended and the result screen was dismissed for us -- by the game, or
+            # by the user tapping it. Count it and move on, win or lose, instead
+            # of waiting out the timeout for a Victory/Defeat screen that's gone.
+            if self._present(ctx, "start_button", frame):
+                return "restart"
             if self._present(ctx, "finish_failure", frame):
                 return "failure"
             if self._present(ctx, "finish_success", frame):
@@ -358,6 +366,11 @@ class HardModeAutorun(Task):
                     ctx.log.warning("could not get back to the main screen after the run "
                                     "-> stopping")
                     break
+                time.sleep(1.5)  # let the main screen settle before the next run
+                runs_done += 1
+                continue
+            if result == "restart":
+                # Already back on the starting screen -> the run is done; go again.
                 time.sleep(1.5)  # let the main screen settle before the next run
                 runs_done += 1
                 continue
