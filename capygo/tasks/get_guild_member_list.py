@@ -11,7 +11,10 @@ guilds can be graphed together (see the compare-guild-power task, or the Generat
 plot / Clear collection buttons in the app). Opening each member is what makes de-dup
 reliable: reading powers/names straight off the cards fails because different members
 share a power and a stylized/non-Latin name OCRs differently across pages, so only
-the UID identifies a member exactly.
+the UID identifies a member exactly. If the run is interrupted (Esc / Stop / Ctrl+C),
+the partial roster is discarded - nothing is written and the collection is untouched
+- since a half-read roster would give a wrong top-N sum. (The full CSV mode, by
+contrast, saves whatever it read so far on an early stop.)
 
 Per member:
   1. Click the member's profile picture -> the Character Info screen opens.
@@ -425,6 +428,14 @@ class GetGuildMemberList(Task):
             ctx.log.info("re-checking for %d missed member(s) (full pass)",
                          target - len(members))
             self._sweep(ctx, members, target, skip_overlap=False)
+
+        # Interrupted (Esc / Stop / Ctrl+C): throw the partial run away. A half-read
+        # roster would give a wrong top-N sum and a misleading comparison, so nothing
+        # is written and the collection is left untouched.
+        if ctx.should_stop():
+            ctx.log.info("interrupted -> discarding this run (%d members read, "
+                         "nothing saved)", len(members))
+            return
 
         powers: list[tuple[str, Decimal]] = []
         for uid, p in members.items():
