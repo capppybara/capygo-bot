@@ -107,8 +107,39 @@ columns `guild_name, member_uid, power`. Power is a plain number **in trillions*
 with no unit letter (so `905.85B` is stored as `0.90585`, `1.38T` as `1.38`). If
 you stop it early, it still saves whoever was collected so far.
 
+**Hedgemony comparison mode** (the toggle in the app, or `-p hedgemony=true`): a
+fast, read-only pass. It scrolls the list and reads the power shown under each name
+(the sword-icon value on the card) without opening anyone, then adds up the highest
+powers and reports the total. Use `-p top_n=25` to set how many of the top members to
+sum (default 25). It writes a short summary to
+`~/Downloads/capygo_<guild>_top<N>_power.csv` (rank, power, and a `TOP_N_SUM` row)
+instead of doing the full per-member walk. It cross-checks the number of cards it
+read against the guild's member count, so a miss is flagged in the log.
+
 Before starting, open the guild's **Info** screen — the one titled "Guild Info"
 with the member list.
+
+Each hedgemony run also adds that guild's top-N to a local collection
+(`data/guild_power.json`), keyed by guild ID so re-running a guild just updates it.
+Collect several guilds this way (open each one's Info screen, Start with the toggle
+on), then use the **Generate plot** button to graph them together and **Clear
+collection** to reset when you're done.
+
+## Comparison plot (Generate plot / Clear collection)
+
+With Hedgemony comparison on, the Get Guild Member List screen shows a **Hedgemony
+collection** box with the guilds collected so far and two buttons:
+
+- **Generate plot** draws every collected guild onto one graph and saves it to
+  `~/Downloads/hedgemony_guild_comparison_<YYYYMMDDHHMMSS>.png` (timestamped, so each
+  run is kept), then opens it: one line per guild over rank 1..N (its top powers,
+  strongest first), so you can see which guild is stronger and how top-heavy each is.
+  The legend labels each line `guild_name (total T)` with that guild's top-N total.
+- **Clear collection** empties the collection (with a confirmation), so it's
+  unambiguous when the collected guilds are reset.
+
+The plot doesn't touch the game, so the game can be closed for it. From the CLI the
+same graph is produced by `./run.sh compare-guild-power`.
 
 ## Goblin Miner — how it works
 
@@ -203,6 +234,9 @@ python -m ui.app                 # GUI
 ./run.sh pet-armament-chest -p runs=20 -p free_failure_threshold=2 -p failure_threshold=2
 ./run.sh hard-mode-autorun -p chapter=180 -p energy_multiple=20 -p runs=2
 ./run.sh get-guild-member-list          # exports to ~/Downloads
+./run.sh get-guild-member-list -p hedgemony=true            # collect top 25 powers
+./run.sh get-guild-member-list -p hedgemony=true -p top_n=10 # collect top 10 powers
+./run.sh compare-guild-power            # graph all collected guilds
 ./run.sh goblin-miner -p min_picks=0    # mine floors until picks run out
 ./run.sh pet-armament-chest -n          # --dry-run
 ./run.sh --list                         # list tasks and their params

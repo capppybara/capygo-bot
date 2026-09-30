@@ -53,7 +53,7 @@ QGroupBox {
     border: 3px solid #241D14;
     border-radius: 14px;
     margin-top: 0;
-    padding: 12px;
+    padding: 8px 12px;
     font-weight: bold;
     color: #33261B;
 }
@@ -61,13 +61,13 @@ QGroupBox::title {
     subcontrol-origin: padding;
     subcontrol-position: top left;
     left: 6px;
-    top: 8px;
+    top: 3px;
     padding: 0 4px;
     font-size: 15px;
 }
 
 /* short value field; the arrows are separate buttons beside it (see SpinUp/Down) */
-QSpinBox#ValueField, QDoubleSpinBox#ValueField {
+QSpinBox#ValueField, QDoubleSpinBox#ValueField, QLineEdit#ValueField {
     background: #FBF3DF;
     border: 2px solid #241D14;
     border-radius: 8px;
@@ -77,7 +77,9 @@ QSpinBox#ValueField, QDoubleSpinBox#ValueField {
     min-height: 28px;
     max-height: 28px;
 }
-QSpinBox#ValueField:focus, QDoubleSpinBox#ValueField:focus { border-color: #7C5A1E; }
+QSpinBox#ValueField:focus, QDoubleSpinBox#ValueField:focus,
+QLineEdit#ValueField:focus { border-color: #7C5A1E; }
+QLineEdit#ValueField { selection-background-color: #C2DA57; selection-color: #241D14; }
 
 QPushButton#SpinUp, QPushButton#SpinDown {
     background: #C2DA57;
@@ -147,6 +149,7 @@ QPushButton#Back {
 QPushButton#Back:hover { background: #F7EFD8; }
 
 /* --- log (parchment inset) --- */
+#LogStatus { font-size: 15px; font-weight: bold; color: #33261B; background: transparent; }
 QPlainTextEdit#Log {
     background: #FBF3DF;
     border: 3px solid #241D14;

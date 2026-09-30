@@ -89,6 +89,8 @@ class HomeScreen(QWidget):
         lay.addSpacing(10)
 
         for name in list_tasks():
+            if getattr(get_task_class(name), "HIDDEN", False):
+                continue  # e.g. compare-guild-power: reached via a button, not a card
             lay.addWidget(TaskCard(name, on_select))
 
         lay.addStretch(1)

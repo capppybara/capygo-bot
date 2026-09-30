@@ -232,6 +232,7 @@ class Task(ABC):
     ICON: str = "🎮"
     DESCRIPTION: str = ""
     START_HINT: str = ""  # task-specific precondition shown on the task screen
+    HIDDEN: bool = False  # if True, no home-screen card (still registered + runnable)
 
     @classmethod
     def title(cls) -> str:

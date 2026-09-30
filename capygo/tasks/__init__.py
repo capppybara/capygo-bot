@@ -3,6 +3,7 @@
 Add a new task module here so its @register decorator runs.
 """
 
+from . import compare_guild_power  # noqa: F401
 from . import get_guild_member_list  # noqa: F401
 from . import goblin_miner  # noqa: F401
 from . import hard_mode_autorun  # noqa: F401

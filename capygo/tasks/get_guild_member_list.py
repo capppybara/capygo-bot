@@ -3,6 +3,16 @@
 Walks every member on a Guild Info screen and exports each member's UID and
 power to a CSV.
 
+Hedgemony comparison mode (-p hedgemony=true): the same walk as the full CSV mode -
+open each member and de-dup by the exact UID - but instead of the per-member CSV it
+sums the highest `top_n` powers (default 25), writes a short summary CSV (rank, uid,
+power), and adds this guild's top-N to the shared comparison collection so several
+guilds can be graphed together (see the compare-guild-power task, or the Generate
+plot / Clear collection buttons in the app). Opening each member is what makes de-dup
+reliable: reading powers/names straight off the cards fails because different members
+share a power and a stylized/non-Latin name OCRs differently across pages, so only
+the UID identifies a member exactly.
+
 Per member:
   1. Click the member's profile picture -> the Character Info screen opens.
   2. Read the UID by clicking the in-game copy-to-clipboard button next to it and
@@ -104,6 +114,14 @@ class GetGuildMemberList(Task):
         Param("guild_name", "str", "", "Guild name (optional)",
               help="used for the CSV name/column; leave blank to read it from the "
                    "screen"),
+        Param("hedgemony", "bool", False, "Hedgemony comparison",
+              help="walk the roster (opening each member for the exact UID, like the "
+                   "CSV mode) and add this guild's top N to the comparison collection "
+                   "instead of writing the per-member CSV. Use Generate plot / Clear "
+                   "collection below."),
+        Param("top_n", "int", 25, "Top N to sum", min=1, max=200,
+              help="in hedgemony comparison mode, how many of the highest powers to "
+                   "collect and add up"),
     ]
 
     # --- small helpers ----------------------------------------------------
@@ -192,19 +210,45 @@ class GetGuildMemberList(Task):
 
     # --- one member -------------------------------------------------------
     @staticmethod
-    def _to_trillions(raw: str):
-        """Convert a power reading like '905.85B' to a plain number in trillions
-        ('0.90585'), dropping the unit letter. None if it can't be parsed."""
+    def _to_trillions_decimal(raw: str):
+        """Parse a power reading like '905.85B' into a Decimal in trillions
+        (Decimal('0.90585')). None if it can't be parsed. Kept as a Decimal so
+        hedgemony mode can add powers up without float rounding.
+
+        Sanitizes a misread leading digit on a sub-T value: the game rolls K/M/B up
+        to the next unit at 1000, so such a value always has a 1-3 digit integer
+        part. A longer one means OCR fused the sword icon onto the number as a stray
+        leading digit ("9864.97B" for "864.97B" -> 9.86T instead of 0.86T); the
+        extra leading digits are dropped."""
         m = re.match(r"\s*([\d,]*\.?\d+)\s*([KMBTkmbt]?)", raw or "")
         if not m:
             return None
+        numstr = m.group(1).replace(",", "")
+        unit = m.group(2).upper()
+        if unit in ("K", "M", "B"):
+            intpart, _, frac = numstr.partition(".")
+            while len(intpart) > 3:  # >999 is impossible for a sub-T unit
+                intpart = intpart[1:]
+            numstr = f"{intpart}.{frac}" if frac else intpart
         try:
-            val = Decimal(m.group(1).replace(",", ""))
+            val = Decimal(numstr)
         except InvalidOperation:
             return None
-        tri = val * POWER_UNIT_TO_TRILLION[m.group(2).upper()]
-        s = format(tri, "f")  # fixed-point, never scientific notation
+        return val * POWER_UNIT_TO_TRILLION[unit]
+
+    @staticmethod
+    def _fmt_trillions(tri: Decimal) -> str:
+        """A Decimal in trillions as a plain fixed-point string, no trailing
+        zeros, never scientific notation ('0.90585', '1.19', '30.5')."""
+        s = format(tri, "f")
         return s.rstrip("0").rstrip(".") if "." in s else s
+
+    @classmethod
+    def _to_trillions(cls, raw: str):
+        """Convert a power reading like '905.85B' to a plain number in trillions
+        ('0.90585'), dropping the unit letter. None if it can't be parsed."""
+        tri = cls._to_trillions_decimal(raw)
+        return None if tri is None else cls._fmt_trillions(tri)
 
     def _read_power(self, ctx: Context):
         """OCR the power under the character and return it in trillions as a plain
@@ -301,22 +345,30 @@ class GetGuildMemberList(Task):
 
     def _scroll_to_top(self, ctx: Context) -> None:
         """Drag the list down until it stops moving, so a run always starts at the
-        first member no matter where the list was left."""
+        first member no matter where the list was left. Each down-drag is retried a
+        few times before concluding the top is reached: a single drag occasionally
+        stalls, and treating one stall as 'already at top' would leave the list
+        wherever it was (e.g. at the bottom from a previous run)."""
         for _ in range(MAX_PAGES):
             if ctx.should_stop():
                 return
+            moved = False
             before = ctx.frame()
-            ctx.drag_rel(Rel(0.5, 0.60), Rel(0.5, 0.82))
-            if self._sleep(ctx, 0.8):
-                return
-            if self._list_unchanged(before, ctx.frame()):
-                return
+            for _try in range(3):
+                ctx.drag_rel(Rel(0.5, 0.60), Rel(0.5, 0.82))
+                if self._sleep(ctx, 0.8):
+                    return
+                if not self._list_unchanged(before, ctx.frame()):
+                    moved = True
+                    break
+            if not moved:
+                return  # genuinely at the top (didn't budge across retries)
 
     def _scroll_down(self, ctx: Context) -> bool:
         """Drag the list up one small step. Returns True if the list moved. Retries
-        the SAME small drag if it didn't take (a drag occasionally doesn't
-        register); it never uses a larger drag, which could overshoot the overlap.
-        Three no-move attempts mean the list is at the bottom."""
+        the SAME small drag if it didn't take (a drag occasionally doesn't register);
+        it never uses a larger drag, which could overshoot the overlap. Three no-move
+        attempts mean the list is at the bottom."""
         before = ctx.frame()
         for _ in range(3):
             ctx.drag_rel(SCROLL_FROM, SCROLL_TO)
@@ -337,6 +389,90 @@ class GetGuildMemberList(Task):
                 wr.writerow([guild, uid, power or ""])
         ctx.log.info("wrote %d members -> %s", len(members), path)
         return path
+
+    # --- hedgemony comparison -----------------------------------------------
+    def _write_power_summary(self, ctx: Context, guild: str,
+                             top: list[tuple[str, Decimal]], total: Decimal) -> str:
+        safe = re.sub(r"[^\w\-]+", "_", guild).strip("_") or "guild"
+        path = os.path.expanduser(f"~/Downloads/capygo_{safe}_top{len(top)}_power.csv")
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            wr = csv.writer(f)
+            wr.writerow(["guild_name", "rank", "member_uid", "power_trillions"])
+            for i, (uid, p) in enumerate(top, 1):
+                wr.writerow([guild, i, uid, self._fmt_trillions(p)])
+            wr.writerow([guild, f"TOP_{len(top)}_SUM", "", self._fmt_trillions(total)])
+        ctx.log.info("wrote top-%d power summary -> %s", len(top), path)
+        return path
+
+    def _run_hedgemony(self, ctx: Context) -> None:
+        """Same walk as the full CSV mode - open each member, de-dup by the exact UID
+        (content-based keys fail: same-power members collide and a stylized/CJK name
+        OCRs differently across pages). Then, instead of the per-member CSV, sum the
+        top-N powers and add the guild to the comparison collection."""
+        if not self._present(ctx, "guild_title"):
+            ctx.log.warning("not on the Guild Info screen -> open a guild's info "
+                            "first and start again")
+            return
+        guild = self._read_guild_name(ctx)
+        target = self._read_member_count(ctx)
+        top_n = self.params["top_n"]
+        ctx.log.info("hedgemony comparison: guild %s (members: %s), summing top %d",
+                     guild, target if target else "?", top_n)
+
+        members: dict[str, str] = {}  # uid -> power (trillions), exact UID de-dup
+        self._sweep(ctx, members, target, skip_overlap=True)
+        if target and len(members) < target and not ctx.should_stop():
+            ctx.log.info("re-checking for %d missed member(s) (full pass)",
+                         target - len(members))
+            self._sweep(ctx, members, target, skip_overlap=False)
+
+        powers: list[tuple[str, Decimal]] = []
+        for uid, p in members.items():
+            if not p:
+                continue
+            try:
+                powers.append((uid, Decimal(p)))  # members already hold trillions
+            except InvalidOperation:
+                continue
+        if not powers:
+            ctx.log.warning("collected no member powers")
+            return
+        if target and len(powers) != target:
+            ctx.log.warning("collected %d of %d members (stopped early, or a UID/power "
+                            "couldn't be read)", len(powers), target)
+
+        powers.sort(key=lambda t: t[1], reverse=True)
+        n = min(top_n, len(powers))
+        top = powers[:n]
+        total = sum((d for _, d in top), Decimal(0))
+        ctx.log.info("top %d: %s", n,
+                     ", ".join(self._fmt_trillions(d) + "T" for _, d in top))
+        ctx.log.info("=== TOP %d POWER SUM = %sT  (collected %d of %s members) ===",
+                     n, self._fmt_trillions(total), len(powers),
+                     target if target else "?")
+        # We opened every member, so keep the full roster too (not just the top-N).
+        self._write_csv(ctx, guild, members)
+        self._write_power_summary(ctx, guild, top, total)
+        self._collect_into_store(ctx, guild, top, total, target, n)
+
+    def _collect_into_store(self, ctx: Context, guild: str,
+                            top: list[tuple[str, Decimal]], total: Decimal,
+                            member_count, n: int) -> None:
+        """Append this run's top-N to the shared collection so several guilds can
+        be graphed side by side later by the compare-guild-power task."""
+        from .. import store
+
+        gid = self._read_guild_id(ctx)
+        count = store.add_guild(
+            gid, guild,
+            [self._fmt_trillions(d) for _, d in top],
+            self._fmt_trillions(total),
+            member_count=member_count, top_n=n,
+        )
+        names = ", ".join(g["name"] for g in store.guilds())
+        ctx.log.info("added %s to the guild-power collection (now %d: %s)",
+                     guild, count, names)
+        ctx.log.info("run compare-guild-power to graph them side by side")
 
     # --- one top-to-bottom pass -------------------------------------------
     def _sweep(self, ctx: Context, members: dict, target, skip_overlap: bool) -> None:
@@ -397,6 +533,9 @@ class GetGuildMemberList(Task):
 
     # --- main loop --------------------------------------------------------
     def run(self, ctx: Context) -> None:
+        if self.params.get("hedgemony"):
+            self._run_hedgemony(ctx)
+            return
         if not self._present(ctx, "guild_title"):
             ctx.log.warning("not on the Guild Info screen -> open a guild's info first "
                             "and start again")

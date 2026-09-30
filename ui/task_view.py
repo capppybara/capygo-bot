@@ -11,8 +11,8 @@ from __future__ import annotations
 import os
 import sys
 
-from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer
-from PySide6.QtGui import QTextCursor
+from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
@@ -75,6 +76,8 @@ class TaskScreen(QWidget):
         self.proc: QProcess | None = None
         self.controls: dict[str, tuple] = {}
         self._param_rows: list = []  # container widgets, disabled while running
+        self._pending_on_finish = None  # callback(exit_code) after a launched run
+        self.collection_box: QGroupBox | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
@@ -118,7 +121,7 @@ class TaskScreen(QWidget):
         # --- settings (the "Settings" label sits inside the box) ---
         box = QGroupBox("Settings")
         form = QFormLayout(box)
-        form.setContentsMargins(14, 32, 14, 14)
+        form.setContentsMargins(14, 20, 14, 12)
         form.setSpacing(10)
         for p in self.cls.PARAMS:
             row_widget, value_widget = self._make_control(p)
@@ -126,8 +129,6 @@ class TaskScreen(QWidget):
             self.controls[p.key] = (p, value_widget)
             self._param_rows.append(row_widget)
             form.addRow(p.label, row_widget)
-        self.dry = QCheckBox("Dry run (log clicks without clicking)")
-        form.addRow("", self.dry)
         root.addWidget(box)
 
         hint = QLabel("⚠  Make sure the buttons that will be clicked are fully visible "
@@ -158,10 +159,31 @@ class TaskScreen(QWidget):
         btns.addWidget(self.stop_btn)
         root.addLayout(btns)
 
-        # --- log box (the status label is the box's title, inside the box) ---
-        self.log_box = QGroupBox("Idle")
+        # --- collection actions (only for a task with a hedgemony toggle) ---
+        # Shown while the toggle is on: generate the side-by-side comparison plot
+        # from everything collected, or clear the collection so it's unambiguous
+        # when the collected guilds are reset.
+        if "hedgemony" in self.controls:
+            self._build_collection_box(root)
+            _, toggle = self.controls["hedgemony"]
+            toggle.toggled.connect(self._on_hedgemony_toggled)
+            self._on_hedgemony_toggled(toggle.isChecked())
+
+        # --- log box: a header row (status label + dry-run) over the log ---
+        self.log_box = QGroupBox()
         log_layout = QVBoxLayout(self.log_box)
-        log_layout.setContentsMargins(14, 32, 14, 14)
+        log_layout.setContentsMargins(14, 8, 14, 12)
+        log_layout.setSpacing(6)
+
+        log_header = QHBoxLayout()
+        self.status_label = QLabel("Idle")
+        self.status_label.setObjectName("LogStatus")
+        self.dry = QCheckBox("Dry run (log clicks without clicking)")
+        log_header.addWidget(self.status_label)
+        log_header.addStretch(1)
+        log_header.addWidget(self.dry)
+        log_layout.addLayout(log_header)
+
         self.log = QPlainTextEdit()
         self.log.setObjectName("Log")
         self.log.setReadOnly(True)
@@ -234,6 +256,101 @@ class TaskScreen(QWidget):
             return w.text()
         return w.value()
 
+    # --- collection actions (hedgemony comparison) ------------------------
+    def _build_collection_box(self, root) -> None:
+        box = QGroupBox("Hedgemony collection")
+        v = QVBoxLayout(box)
+        v.setContentsMargins(14, 20, 14, 12)
+        v.setSpacing(10)
+
+        self.collection_status = QLabel()
+        self.collection_status.setObjectName("TaskDesc")
+        self.collection_status.setWordWrap(True)
+        v.addWidget(self.collection_status)
+
+        row = QHBoxLayout()
+        self.plot_btn = QPushButton("📊  Generate plot")
+        self.plot_btn.setObjectName("Start")
+        self.plot_btn.setCursor(Qt.PointingHandCursor)
+        self.plot_btn.clicked.connect(self._generate_plot)
+        self.clear_btn = QPushButton("🗑  Clear collection")
+        self.clear_btn.setObjectName("Stop")
+        self.clear_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_btn.clicked.connect(self._clear_collection)
+        row.addWidget(self.plot_btn)
+        row.addWidget(self.clear_btn)
+        row.addStretch(1)
+        v.addLayout(row)
+
+        self.collection_box = box
+        root.addWidget(box)
+        self._refresh_collection_status()
+
+    def _on_hedgemony_toggled(self, on: bool) -> None:
+        if self.collection_box is not None:
+            self.collection_box.setVisible(bool(on))
+        if on:
+            self._refresh_collection_status()
+
+    def _refresh_collection_status(self) -> None:
+        if self.collection_box is None:
+            return
+        from capygo import store
+
+        entries = store.guilds()
+        if entries:
+            names = ", ".join(e["name"] for e in entries)
+            self.collection_status.setText(
+                f"{len(entries)} guild(s) collected: {names}")
+        else:
+            self.collection_status.setText(
+                "No guilds collected yet. Turn on Hedgemony comparison and Start on "
+                "each guild's Info screen to collect them.")
+
+    def _generate_plot(self) -> None:
+        if self.proc and self.proc.state() != QProcess.NotRunning:
+            return
+        from capygo import store
+
+        if not store.guilds():
+            QMessageBox.information(self, "Generate plot",
+                                    "No guilds collected yet. Collect at least one "
+                                    "first (Hedgemony comparison on, then Start).")
+            return
+        self._start_proc(["-u", "run.py", "compare-guild-power"],
+                         on_finish=self._open_latest_plot)
+
+    def _open_latest_plot(self, exit_code: int) -> None:
+        if exit_code != 0:
+            return
+        import glob
+
+        files = sorted(glob.glob(os.path.expanduser(
+            "~/Downloads/hedgemony_guild_comparison_*.png")))
+        if files:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(files[-1]))
+
+    def _clear_collection(self) -> None:
+        if self.proc and self.proc.state() != QProcess.NotRunning:
+            return
+        from capygo import store
+
+        n = len(store.guilds())
+        if n == 0:
+            QMessageBox.information(self, "Clear collection",
+                                    "The collection is already empty.")
+            return
+        resp = QMessageBox.question(
+            self, "Clear collection",
+            f"Remove all {n} collected guild(s) from the comparison collection?\n"
+            "This cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if resp != QMessageBox.Yes:
+            return
+        store.clear()
+        self._append_text(f"[cleared {n} guild(s) from the collection]\n")
+        self._refresh_collection_status()
+
     # --- run lifecycle ----------------------------------------------------
     def start(self):
         args = ["-u", "run.py", self.name]
@@ -241,13 +358,16 @@ class TaskScreen(QWidget):
             args += ["-p", f"{key}={self._value(p, w)}"]
         if self.dry.isChecked():
             args.append("--dry-run")
+        self._start_proc(args)
 
+    def _start_proc(self, args, on_finish=None):
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONPATH", ROOT)
         env.insert("PYTHONUNBUFFERED", "1")
         # So the task process exits if this app is killed (see run.py).
         env.insert("CAPYGO_PARENT_PID", str(os.getpid()))
 
+        self._pending_on_finish = on_finish
         self.proc = QProcess(self)
         self.proc.setWorkingDirectory(ROOT)
         self.proc.setProcessEnvironment(env)
@@ -269,7 +389,7 @@ class TaskScreen(QWidget):
 
     def stop(self):
         if self.proc and self.proc.state() != QProcess.NotRunning:
-            self.log_box.setTitle("Stopping…")
+            self.status_label.setText("Stopping…")
             self.proc.terminate()  # SIGTERM -> controller sets kill.stop (graceful)
             proc = self.proc
             QTimer.singleShot(
@@ -279,7 +399,11 @@ class TaskScreen(QWidget):
 
     def _on_finished(self, exit_code, exit_status):
         self._set_running(False)
-        self.log_box.setTitle("Stopped" if exit_code else "Finished")
+        self.status_label.setText("Stopped" if exit_code else "Finished")
+        cb, self._pending_on_finish = self._pending_on_finish, None
+        if cb:
+            cb(exit_code)
+        self._refresh_collection_status()  # a collection run may have added a guild
 
     def _on_error(self, err):
         self._append_text(f"[process error] {err}\n")
@@ -290,8 +414,11 @@ class TaskScreen(QWidget):
         for row in self._param_rows:
             row.setEnabled(not running)
         self.dry.setEnabled(not running)
+        if self.collection_box is not None:
+            self.plot_btn.setEnabled(not running)
+            self.clear_btn.setEnabled(not running)
         if running:
-            self.log_box.setTitle("Running…")
+            self.status_label.setText("Running…")
 
     # --- log helpers ------------------------------------------------------
     def _append(self, qbytes):
