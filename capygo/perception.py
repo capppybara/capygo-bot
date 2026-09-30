@@ -80,18 +80,23 @@ def read_int(bgr, upscale: int = 3):
     return int(runs[-1]) if runs else None
 
 
-def ocr_lines(bgr):
+def ocr_lines(bgr, recognition_level=None):
     """Return [(text, cx_px, cy_px)] for each text line Apple Vision finds.
 
     Coordinates are in pixels of `bgr`, top-left origin (Vision reports a
-    bottom-left origin, converted here).
+    bottom-left origin, converted here). recognition_level="accurate" uses Vision's
+    slower, more capable model; it reads stylized fonts (e.g. the guild-name banner)
+    far better than the default fast model. Left as the default otherwise.
     """
     from ocrmac import ocrmac
     from PIL import Image
 
     h, w = bgr.shape[:2]
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    result = ocrmac.OCR(Image.fromarray(rgb), language_preference=["en-US"]).recognize()
+    kwargs = {"language_preference": ["en-US"]}
+    if recognition_level is not None:
+        kwargs["recognition_level"] = recognition_level
+    result = ocrmac.OCR(Image.fromarray(rgb), **kwargs).recognize()
     out = []
     for text, _conf, (bx, by, bw, bh) in result:
         cx = int((bx + bw / 2) * w)

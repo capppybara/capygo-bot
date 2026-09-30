@@ -53,7 +53,6 @@ import re
 import time
 from decimal import Decimal, InvalidOperation
 
-import cv2
 import numpy as np
 
 from ..geometry import Rel, RelRect
@@ -155,17 +154,6 @@ class GetGuildMemberList(Task):
             time.sleep(0.25)
         return self._present(ctx, name)
 
-    def _ocr_otsu(self, frame, region: RelRect):
-        """OCR a region after 4x upscale + Otsu threshold (reads the stylized game
-        font far better than the raw crop)."""
-        h, w = frame.shape[:2]
-        x0, y0, x1, y1 = region.to_pixels(w, h)
-        crop = frame[y0:y1, x0:x1]
-        up = cv2.resize(crop, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
-        gray = cv2.cvtColor(up, cv2.COLOR_BGR2GRAY)
-        _, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        return ocr_lines(cv2.cvtColor(th, cv2.COLOR_GRAY2BGR))
-
     # --- header reads -----------------------------------------------------
     @staticmethod
     def _is_english(s: str) -> bool:
@@ -190,7 +178,11 @@ class GetGuildMemberList(Task):
         if override:
             return override
         frame = ctx.frame()
-        lines = self._ocr_otsu(frame, GUILD_NAME_REGION)
+        # The guild-name banner is a stylized font: the fast model with Otsu misreads
+        # it ("CritHapen" -> "dri Hapen"); Vision's accurate model reads it cleanly.
+        h, w = frame.shape[:2]
+        x0, y0, x1, y1 = GUILD_NAME_REGION.to_pixels(w, h)
+        lines = ocr_lines(frame[y0:y1, x0:x1], recognition_level="accurate")
         name = " ".join(t for t, _, _ in lines).strip()
         if self._is_english(name):
             return name
