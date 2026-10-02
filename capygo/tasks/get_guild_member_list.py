@@ -34,7 +34,7 @@ varies and the on-card values aren't reliable enough to skip repeats by. It stop
 when the list can't scroll further (bottom reached) or every member (from the
 "N/M" count) has been seen.
 
-Output: ~/Downloads/capygo_<guild>_member_list.csv with columns
+Output: ~/Downloads/capy-bot/capygo_<guild>_member_list.csv with columns
 (guild_name, member_uid, power). Power is stored as a plain number in trillions
 (no unit letter): 1.38T -> 1.38, 905.85B -> 0.90585, 162.48M -> 0.00016248. The
 file is written on exit even if stopped early, so an Esc still saves what was
@@ -56,6 +56,7 @@ from decimal import Decimal, InvalidOperation
 import numpy as np
 
 from ..geometry import Rel, RelRect
+from ..paths import output_path
 from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
 
@@ -110,7 +111,7 @@ class GetGuildMemberList(Task):
     TITLE = "Get Guild Member List"
     ICON = "📋"
     DESCRIPTION = ("Scroll a guild's member list and export each member's UID and "
-                   "power to a CSV in ~/Downloads.")
+                   "power to a CSV in ~/Downloads/capy-bot.")
     START_HINT = ("Open the guild's Info screen (the one titled \"Guild Info\" with "
                   "the member list) before starting.")
 
@@ -366,7 +367,7 @@ class GetGuildMemberList(Task):
     # --- CSV --------------------------------------------------------------
     def _write_csv(self, ctx: Context, guild: str, members: dict) -> str:
         safe = re.sub(r"[^\w\-]+", "_", guild).strip("_") or "guild"
-        path = os.path.expanduser(f"~/Downloads/capygo_{safe}_member_list.csv")
+        path = output_path(f"capygo_{safe}_member_list.csv")
         with open(path, "w", newline="", encoding="utf-8") as f:
             wr = csv.writer(f)
             wr.writerow(["guild_name", "member_uid", "power"])
@@ -379,7 +380,7 @@ class GetGuildMemberList(Task):
     def _write_power_summary(self, ctx: Context, guild: str,
                              top: list[tuple[str, Decimal]], total: Decimal) -> str:
         safe = re.sub(r"[^\w\-]+", "_", guild).strip("_") or "guild"
-        path = os.path.expanduser(f"~/Downloads/capygo_{safe}_top{len(top)}_power.csv")
+        path = output_path(f"capygo_{safe}_top{len(top)}_power.csv")
         with open(path, "w", newline="", encoding="utf-8") as f:
             wr = csv.writer(f)
             wr.writerow(["guild_name", "rank", "member_uid", "power_trillions"])

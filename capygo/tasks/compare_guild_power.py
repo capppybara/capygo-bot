@@ -3,7 +3,7 @@
 Draws every guild collected so far by the hedgemony comparison mode of
 get-guild-member-list (-p hedgemony=true) onto one graph. It reads the shared
 collection store (data/guild_power.json) and writes a single timestamped PNG to
-~/Downloads (hedgemony_guild_comparison_<YYYYMMDDHHMMSS>.png, so runs aren't
+~/Downloads/capy-bot (hedgemony_guild_comparison_<YYYYMMDDHHMMSS>.png, so runs aren't
 overwritten): one line per guild over rank 1..N (its top-N powers, highest first). The curve's
 steepness shows how top-heavy a guild is; comparing the lines shows which guild is
 stronger and how power is spread. The legend labels each line "guild_name (total T)"
@@ -21,17 +21,15 @@ feature is being tested; flip it on to reset the list after graphing.
 
 from __future__ import annotations
 
-import os
 import time
 
+from ..paths import output_path
 from ..task import Context, Param, Task, register
-
-OUT_DIR = os.path.expanduser("~/Downloads")
 
 
 def _out_path() -> str:
     """A fresh timestamped path so each graph is kept, not overwritten."""
-    return os.path.join(OUT_DIR, f"hedgemony_guild_comparison_{time.strftime('%Y%m%d%H%M%S')}.png")
+    return output_path(f"hedgemony_guild_comparison_{time.strftime('%Y%m%d%H%M%S')}.png")
 
 
 @register("compare-guild-power")
@@ -129,8 +127,7 @@ class CompareGuildPower(Task):
                      f"{'s' if len(entries) != 1 else ''}",
                      fontsize=14, fontweight="bold")
         fig.tight_layout()
-        out_path = _out_path()
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        out_path = _out_path()  # output_path() already created the directory
         fig.savefig(out_path, dpi=150)
         plt.close(fig)
         return out_path

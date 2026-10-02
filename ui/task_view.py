@@ -325,8 +325,10 @@ class TaskScreen(QWidget):
             return
         import glob
 
-        files = sorted(glob.glob(os.path.expanduser(
-            "~/Downloads/hedgemony_guild_comparison_*.png")))
+        from capygo.paths import OUTPUT_DIR
+
+        files = sorted(glob.glob(os.path.join(
+            OUTPUT_DIR, "hedgemony_guild_comparison_*.png")))
         if files:
             QDesktopServices.openUrl(QUrl.fromLocalFile(files[-1]))
 
