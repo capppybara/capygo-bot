@@ -40,6 +40,7 @@ class Param:
     help: str = ""
     choices: list | None = None  # if set, the value snaps to the nearest of these
     suffix: str = ""  # display-only unit shown after the value in the UI (e.g. "x")
+    hidden: bool = False  # not shown in the app's form (set by the app, or -p on CLI)
 
     def coerce(self, value: Any) -> Any:
         if self.type == "int":
@@ -240,6 +241,13 @@ class Task(ABC):
 
     def configure(self, params: dict) -> None:
         self.params = {p.key: p.coerce(params.get(p.key, p.default)) for p in self.PARAMS}
+
+    @classmethod
+    def already_done_today(cls, params: dict) -> list[tuple[str | None, str, str]]:
+        """Once-a-day work this run would repeat, as (switch key or None, label,
+        when it last ran). The app asks for confirmation before starting if this is
+        non-empty. Most tasks have none."""
+        return []
 
     @abstractmethod
     def run(self, ctx: Context) -> None:

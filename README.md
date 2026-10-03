@@ -175,6 +175,52 @@ is at or below it); `0` mines until the board can no longer be cleared.
 Before starting, open the **Goblin Miner** screen (the stone grid titled "Goblin
 Miner").
 
+## Auto Daily — how it works
+
+Runs your daily chores in one go, in a fixed order. The task screen has one switch
+per daily, so you can turn any of them off. Each daily is also its own task you can
+run alone from the command line.
+
+Every daily starts and ends on the home screen: the main **Adventure** screen with
+the Start button showing and the capy switch next to it set to blue. Auto Daily gets
+there before the first daily. After each daily, finished or not, it backs out to the
+home screen and moves on to the next one. To get home it checks, in order: if the
+capy switch is red (the other game mode), it taps the switch back to blue; if a round
+X close button is showing, it taps that; if a "Tap to close" popup is up, it dismisses
+it; otherwise it taps the back arrow at the bottom-left. Failed dailies are listed in
+the log at the end. If it still can't reach the home screen, it stops.
+
+Each daily runs once per game day, and each tracks that on its own. The game day
+resets at midnight UTC (5 PM Pacific in summer, 4 PM in winter). If you press Start
+and a switched-on daily already ran today, the app asks first: **Run again**, **Skip
+it** (run the rest without it), or **Cancel**. From the command line, an already-run
+daily is skipped unless you add `-p rerun=true`. Dry runs don't count as a run.
+
+Before starting, be on the main Adventure screen.
+
+Dailies so far:
+
+- **Energy claim** — taps the energy bolt at the top to open the energy shop,
+  watches the free ad twice, buys energy with gems twice, claims the Daily Pack,
+  and closes the shop. It checks the shop is actually open before each tap.
+  (Re-running it the same day would buy energy with gems again, which the
+  once-a-day check prevents unless you confirm.)
+- **Adventure assistant** — taps the floating robot bubble to open the Adventure
+  Assistant, then on the Shortcut, Feature and Shop tabs taps Execute, waits for the
+  run to finish (the button turns from "Interrupted" to "Completed", usually ~5s,
+  10s max), taps Completed, and finally closes the assistant. It finds Execute by
+  reading the button bar, since the Shop tab has an extra "Add Item" button.
+- **Daily shop** — taps the leftmost bottom-bar icon to open the Shop. On the
+  Treasure tab it taps "Get 1" once on the Gem Chest and once on the Mythic
+  Treasure Chest (the first Gem Chest draw of the day uses a free key; later ones
+  cost gems), dismissing each reveal. On the Pack Shop tab it claims the Free Pack
+  if it's still 1/1. Then it goes home with the crossed-swords tab. It never
+  touches Top Up or the gem-priced packs.
+- **Claim cards** — taps Privilege Card (top of the left bar), taps Claim all,
+  dismisses the rewards, and goes back with the back arrow.
+
+Every tap in a daily is followed by a ~1 second pause so the game can catch up.
+
 ## Notes
 
 - Press **Esc** any time to stop (needs the Accessibility permission above).
@@ -238,6 +284,10 @@ python -m ui.app                 # GUI
 ./run.sh get-guild-member-list -p hedgemony=true -p top_n=10 # collect top 10 powers
 ./run.sh compare-guild-power            # graph all collected guilds
 ./run.sh goblin-miner -p min_picks=0    # mine floors until picks run out
+./run.sh auto-daily                     # run every daily
+./run.sh auto-daily -p energy_claim=false  # skip one daily
+./run.sh energy-claim                   # run one daily on its own
+./run.sh auto-daily -p rerun=true       # run dailies that already ran today again
 ./run.sh pet-armament-chest -n          # --dry-run
 ./run.sh --list                         # list tasks and their params
 ```

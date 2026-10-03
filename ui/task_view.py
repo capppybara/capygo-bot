@@ -124,6 +124,8 @@ class TaskScreen(QWidget):
         form.setContentsMargins(14, 20, 14, 12)
         form.setSpacing(10)
         for p in self.cls.PARAMS:
+            if p.hidden:  # set by the app itself (e.g. the re-run confirmation)
+                continue
             row_widget, value_widget = self._make_control(p)
             value_widget.setToolTip(p.help)
             self.controls[p.key] = (p, value_widget)
@@ -355,12 +357,49 @@ class TaskScreen(QWidget):
 
     # --- run lifecycle ----------------------------------------------------
     def start(self):
+        values = {key: self._value(p, w) for key, (p, w) in self.controls.items()}
+        extra: list[str] = []
+        done = self.cls.already_done_today(values)
+        if done:  # once-a-day work that already ran this game day: ask first
+            choice = self._confirm_rerun(done)
+            if choice == "cancel":
+                return
+            if choice == "rerun":
+                extra = ["-p", "rerun=true"]
+            else:  # "skip": switch those dailies off for this run only
+                for key, _label, _when in done:
+                    values[key] = False
         args = ["-u", "run.py", self.name]
-        for key, (p, w) in self.controls.items():
-            args += ["-p", f"{key}={self._value(p, w)}"]
+        for key, value in values.items():
+            args += ["-p", f"{key}={value}"]
+        args += extra
         if self.dry.isChecked():
             args.append("--dry-run")
         self._start_proc(args)
+
+    def _confirm_rerun(self, done) -> str:
+        """Ask before repeating once-a-day work. Returns "rerun", "skip" or "cancel".
+        "Skip" (run everything else) is offered only when each item is a switch."""
+        lines = "\n".join(f"•  {label} (ran at {when})" for _key, label, when in done)
+        box = QMessageBox(self)
+        box.setWindowTitle("Already ran today")
+        box.setText(f"Already ran today:\n{lines}\n\nRun it again?")
+        box.setInformativeText("The game day resets at midnight UTC "
+                               "(5 PM Pacific in summer, 4 PM in winter).")
+        rerun = box.addButton("Run again", QMessageBox.AcceptRole)
+        skip = None
+        if all(key for key, _label, _when in done):
+            skip = box.addButton("Skip it" if len(done) == 1 else "Skip them",
+                                 QMessageBox.ActionRole)
+        cancel = box.addButton("Cancel", QMessageBox.RejectRole)
+        box.setDefaultButton(skip or cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is rerun:
+            return "rerun"
+        if skip is not None and clicked is skip:
+            return "skip"
+        return "cancel"
 
     def _start_proc(self, args, on_finish=None):
         env = QProcessEnvironment.systemEnvironment()
