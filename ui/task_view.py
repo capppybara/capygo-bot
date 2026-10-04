@@ -19,13 +19,17 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -118,12 +122,23 @@ class TaskScreen(QWidget):
         desc.setWordWrap(True)
         root.addWidget(desc)
 
-        # --- settings (the "Settings" label sits inside the box) ---
-        box = QGroupBox("Settings")
-        form = QFormLayout(box)
-        form.setContentsMargins(14, 20, 14, 12)
-        form.setSpacing(10)
-        section = ""
+        # --- settings: a title row, then the form ---
+        # The form scrolls inside the box, so a long list of switches (Auto Daily)
+        # never gets cut off or squeezes the log: it shows in full while it fits and
+        # scrolls once it doesn't. Chore switches (params with a section) sit two
+        # per row under their section heading; other params keep label | field rows.
+        box = QGroupBox()
+        box.setObjectName("SettingsBox")
+        box_layout = QVBoxLayout(box)
+        box_layout.setContentsMargins(10, 8, 4, 8)
+        box_layout.setSpacing(6)
+        box_layout.setSizeConstraint(QLayout.SetMinAndMaxSize)  # no taller than its form
+        form_widget = QWidget()
+        form_widget.setObjectName("SettingsForm")
+        form = QFormLayout(form_widget)
+        form.setContentsMargins(0, 0, 8, 0)
+        form.setSpacing(8)
+        section, grid, n = "", None, 0
         for p in self.cls.PARAMS:
             if p.hidden:  # set by the app itself (e.g. the re-run confirmation)
                 continue
@@ -132,12 +147,62 @@ class TaskScreen(QWidget):
                 heading = QLabel(section)
                 heading.setObjectName("FormSection")
                 form.addRow(heading)
+                holder = QWidget()
+                grid = QGridLayout(holder)
+                grid.setContentsMargins(0, 0, 0, 0)
+                grid.setHorizontalSpacing(12)
+                grid.setVerticalSpacing(6)
+                grid.setColumnStretch(0, 1)
+                grid.setColumnStretch(1, 1)
+                form.addRow(holder)
+                n = 0
+            if p.section and p.type == "bool":  # a chore switch: two per row
+                switch = QCheckBox(p.label)
+                switch.setChecked(bool(p.default))
+                switch.setToolTip(p.help)
+                grid.addWidget(switch, n // 2, n % 2)
+                n += 1
+                self.controls[p.key] = (p, switch)
+                self._param_rows.append(switch)
+                continue
             row_widget, value_widget = self._make_control(p)
             value_widget.setToolTip(p.help)
             self.controls[p.key] = (p, value_widget)
             self._param_rows.append(row_widget)
             form.addRow(p.label, row_widget)
-        root.addWidget(box)
+
+        # Title row; chore switches get Select all / Select none right beside it,
+        # outside the scrolling list so they stay in reach. Every chore starts on.
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        title = QLabel("Settings")
+        title.setObjectName("BoxTitle")
+        title.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)  # box stays snug
+        head.addWidget(title)
+        self._switch_keys = [k for k, (p, _) in self.controls.items()
+                             if p.type == "bool" and p.section]
+        if self._switch_keys:
+            head.addSpacing(6)
+            for text, on in (("Select all", True), ("Select none", False)):
+                b = QPushButton(text)
+                b.setObjectName("SmallBtn")
+                b.setCursor(Qt.PointingHandCursor)
+                b.clicked.connect(lambda _=False, on=on: self._set_switches(on))
+                self._param_rows.append(b)  # disabled while running, like the switches
+                head.addWidget(b)
+        head.addStretch(1)
+        box_layout.addLayout(head)
+        scroll = QScrollArea()
+        scroll.setObjectName("SettingsScroll")
+        scroll.setWidget(form_widget)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        full = form_widget.sizeHint().height()
+        scroll.setMaximumHeight(full)            # never taller than the form itself
+        scroll.setMinimumHeight(min(full, 150))  # but always shows a few rows
+        box_layout.addWidget(scroll)
+        root.addWidget(box, 1)
 
         hint = QLabel("⚠  Make sure the buttons that will be clicked are fully visible "
                       "and not behind another window. The mouse needs to be able to "
@@ -256,6 +321,10 @@ class TaskScreen(QWidget):
         container = QWidget()
         container.setLayout(row)
         return container, spin
+
+    def _set_switches(self, on: bool) -> None:
+        for key in self._switch_keys:
+            self.controls[key][1].setChecked(on)
 
     def _value(self, p, w):
         if p.type == "bool":

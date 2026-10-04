@@ -66,6 +66,31 @@ QGroupBox::title {
     font-size: 15px;
 }
 
+/* the Settings box: its own title row (with Select all / none beside the title for
+   chore switches) and less padding than the other boxes */
+QGroupBox#SettingsBox { padding: 2px 6px; }
+#BoxTitle { font-size: 15px; font-weight: bold; color: #33261B; }
+
+/* the Settings form scrolls inside its box when it's long (Auto Daily) */
+#SettingsScroll, #SettingsScroll > QWidget, #SettingsForm { background: transparent; }
+QScrollBar:vertical {
+    background: #D9BC8C;
+    border: 2px solid #241D14;
+    border-radius: 6px;
+    width: 14px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: #C2DA57;
+    border: 2px solid #241D14;
+    border-radius: 5px;
+    min-height: 28px;
+    margin: -2px;
+}
+QScrollBar::handle:vertical:hover { background: #D2E56E; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
+
 /* a heading inside the Settings form that groups the switches below it */
 #FormSection { font-size: 13px; font-weight: bold; color: #8A5A2A; padding-top: 4px; }
 
@@ -150,6 +175,18 @@ QPushButton#Back {
     font-size: 14px;
 }
 QPushButton#Back:hover { background: #F7EFD8; }
+
+/* Select all / Select none above the chore switches */
+QPushButton#SmallBtn {
+    color: #33261B;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #F3E7C9, stop:1 #E6CB9F);
+    border: 2px solid #241D14;
+    border-radius: 8px;
+    padding: 3px 10px;
+    font-size: 12px;
+}
+QPushButton#SmallBtn:hover { background: #F7EFD8; }
 
 /* --- log (parchment inset) --- */
 #LogStatus { font-size: 15px; font-weight: bold; color: #33261B; background: transparent; }
