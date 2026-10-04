@@ -177,8 +177,9 @@ Miner").
 
 ## Auto Daily — how it works
 
-Runs your daily chores in one go, in a fixed order. The task screen has one switch
-per daily, so you can turn any of them off. Each daily is also its own task you can
+Runs your daily chores and then your events in one go, in a fixed order. The task
+screen has one switch per daily and per event (under "Dailies" and "Events"
+headings), so you can turn any of them off. Each one is also its own task you can
 run alone from the command line.
 
 Every daily starts and ends on the home screen: the main **Adventure** screen with
@@ -188,7 +189,8 @@ home screen and moves on to the next one. To get home it checks, in order: if th
 capy switch is red (the other game mode), it taps the switch back to blue; if a round
 X close button is showing, it taps that; if a "Tap to close" popup is up, it dismisses
 it; otherwise it taps the back arrow at the bottom-left. Failed dailies are listed in
-the log at the end. If it still can't reach the home screen, it stops.
+the log at the end. If it still can't reach the home screen, it skips the rest of the
+dailies and goes on to the events.
 
 Each daily runs once per game day, and each tracks that on its own. The game day
 resets at midnight UTC (5 PM Pacific in summer, 4 PM in winter). If you press Start
@@ -218,8 +220,54 @@ Dailies so far:
   touches Top Up or the gem-priced packs.
 - **Claim cards** — taps Privilege Card (top of the left bar), taps Claim all,
   dismisses the rewards, and goes back with the back arrow.
+- **Claim calendar** — taps Calendar on the right-hand bar, taps the reward chest
+  at the top-right of the Event Calendar, dismisses the rewards, and closes it.
 
 Every tap in a daily is followed by a ~1 second pause so the game can catch up.
+
+### Events (part of Auto Daily)
+
+The event chores are part of Auto Daily too: each event is its own subtask with a
+switch under the **Events** heading, and the switched-on events run after the
+dailies. They use the same failure handling and once-a-day check, with one
+difference: their base is the **Events** screen, not home. The bot opens Events
+once, every event starts there and backs out to it when done, so the next event
+carries on from there, and it goes home only after the last event. Each event can
+also run on its own; then it goes to Events first and home at the end.
+
+Events so far:
+
+- **Tower challenge** — Events (bottom-right) → Challenge tab → Tower Challenge,
+  then taps Challenge 5 times. After each one it checks every 10 seconds for the
+  Victory or Defeat screen and closes it. Then it backs out to the Events screen.
+  Each challenge uses one of the day's 10 tickets.
+- **Dungeon dive vouchers** — Challenge tab → Dungeon Dive, taps the ticket + at the
+  top-left corner, sets the quantity to 2 and buys them with gems (300), then goes
+  back. The game caps this at 2 a day, so a repeat run buys nothing.
+- **Goblin miner** — Challenge tab → Goblin Miner, then runs the Goblin Miner task
+  (the same one as its own card) until the picks run out, and backs out to the
+  Events screen.
+- **Arena attacks** — Arena tab → Arena. Attacks 5 times. Each time it reads your
+  power and points from your banner, taps Challenge, and picks the opponent with
+  the most points whose power is below 1.5x yours (B and T are converted). If none
+  fits it uses the Free Refresh (only while it's free) and looks again; if still
+  none, it stops and flags it for you. It waits for the fight to load, taps Skip,
+  and taps OK on the result. Out of tickets, Challenge opens a ticket Purchase
+  popup instead of a fight: it closes it and the list and finishes (it never buys
+  tickets).
+- **Holy Grail War likes** — Arena tab → Holy Grail War (the Hero Plaza). Likes both
+  champions with the thumbs-up buttons on the plaza it opens to (Supreme), then
+  switches division with the top-left button (middle option, Dauntless; then top
+  option, Rising Star) and likes both each time, dismissing each reward. If the
+  plaza has no thumbs-up buttons (some phases), it taps nothing and goes back to
+  the Events screen.
+- **Martial Arts likes** — Arena tab → Martial Arts Tournament (the Martial Arts
+  Hall). Same as Holy Grail War, but with three champions per zone: Supreme, then
+  the middle option (Valiant), then the top option (Novice).
+
+Not built yet: Seal Battle (Arena tab), Gulu Mine (Challenge tab), and the Dungeon
+tab. To add an event, copy `capygo/tasks/_event_template.py` and add it
+to the list in `auto_events.py`.
 
 ## Notes
 
@@ -288,6 +336,8 @@ python -m ui.app                 # GUI
 ./run.sh auto-daily -p energy_claim=false  # skip one daily
 ./run.sh energy-claim                   # run one daily on its own
 ./run.sh auto-daily -p rerun=true       # run dailies that already ran today again
+./run.sh auto-events                    # run only the events (no card in the app)
+./run.sh tower-challenge                # run one event on its own
 ./run.sh pet-armament-chest -n          # --dry-run
 ./run.sh --list                         # list tasks and their params
 ```

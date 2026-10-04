@@ -36,7 +36,9 @@ import json
 import os
 import time
 from abc import abstractmethod
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -47,7 +49,10 @@ from ..task import Context, Param, Task
 
 # --- run log: when each daily last finished ---------------------------------
 # The game's daily reset is 00:00 UTC (the shop's "Refresh Time" countdown lands on
-# 5 PM PDT), so a "game day" is the UTC date. The log lives in data/ (gitignored).
+# 5 PM PDT), so a "game day" is the UTC date. In Pacific time that's 5 PM in summer
+# and 4 PM in winter: keep every day calculation in UTC, never a fixed local hour.
+# Stamps are stored in UTC; only labels are converted to local time, per stamp, so
+# they follow daylight saving. The log lives in data/ (gitignored).
 RUN_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "data", "daily_runs.json")
 
@@ -296,6 +301,125 @@ def go_home(ctx: Context, max_steps: int = 10) -> bool:
     return home_state(ctx.frame()) == HOME
 
 
+@dataclass
+class ChoreGroup:
+    """A run of chores that share a base screen: every chore in the group starts
+    and ends there (dailies: home; events: the Events screen)."""
+    name: str                            # also the section heading in the app
+    chores: list                         # DailyTask subclasses, in run order
+    go_base: Callable[[Context], bool]   # gets to the base screen from anywhere
+    base: str                            # base screen name, for the log
+
+
+def chore_params(groups) -> list[Param]:
+    """One on/off switch per chore, under its group's heading, plus the hidden
+    re-run flag."""
+    return [Param(c.param_key(), "bool", True, c.label(), help=c.DESCRIPTION,
+                  section=g.name)
+            for g in groups for c in g.chores] + [RERUN_PARAM]
+
+
+class ChoreRunner(Task):
+    """Runs groups of chores (DailyTask subclasses) in order - the engine behind
+    auto-daily. Subclasses set GROUPS and PARAMS = chore_params(GROUPS).
+
+    Only switched-on chores run. Each group gets to its base screen first, and every
+    chore in it starts and ends there (go_base runs after each one, finished or not).
+    finish() runs at the very end (back home). A chore that fails (or crashes) is
+    logged and skipped. If a group's base screen can't be reached, the rest of that
+    group is skipped and the next group still runs. A chore that already finished
+    this game day is skipped unless `rerun` is set (the app asks before Start)."""
+
+    GROUPS: list[ChoreGroup] = []
+
+    @classmethod
+    def chores(cls) -> list:
+        return [c for g in cls.GROUPS for c in g.chores]
+
+    def finish(self, ctx: Context) -> None:
+        """After the last chore: leave the game on the home screen."""
+        go_home(ctx)
+
+    @classmethod
+    def already_done_today(cls, params: dict) -> list[tuple[str | None, str, str]]:
+        return [(c.param_key(), c.label(), last_run_label(c.name)) for c in cls.chores()
+                if params.get(c.param_key()) and c.done_today()]
+
+    def _run_one(self, ctx: Context, cls) -> bool:
+        own_templates = ctx.templates_dir
+        ctx.templates_dir = os.path.join(os.path.dirname(own_templates), cls.name)
+        chore = cls()
+        chore.configure({})
+        try:
+            return chore.run_daily(ctx)
+        except Exception:  # one broken chore shouldn't sink the rest
+            ctx.log.exception("%s crashed", cls.name)
+            return False
+        finally:
+            ctx.templates_dir = own_templates
+
+    def run(self, ctx: Context) -> None:
+        enabled = [c for c in self.chores() if self.params.get(c.param_key())]
+        skipped = [c for c in enabled if c.done_today() and not self.params.get("rerun")]
+        for c in skipped:
+            ctx.log.warning("%s already ran today (at %s) -> skipping. Confirm in the "
+                            "app, or pass -p rerun=true, to run it again.",
+                            c.name, last_run_label(c.name))
+        todo = [c for c in enabled if c not in skipped]
+        if not todo:
+            ctx.log.warning("nothing to run")
+            return
+        ctx.log.info("to run: %s", ", ".join(c.name for c in todo))
+
+        finished: list[str] = []
+        failed: list[str] = []
+        for group in self.GROUPS:
+            chores = [c for c in group.chores if c in todo]
+            if not chores or ctx.should_stop():
+                continue
+            ctx.log.info("=== %s ===", group.name)
+            if not group.go_base(ctx):
+                if ctx.should_stop():
+                    break
+                ctx.log.warning("couldn't get to the %s -> skipping %s", group.base,
+                                ", ".join(c.name for c in chores))
+                failed += [c.name for c in chores]
+                continue
+            for i, cls in enumerate(chores):
+                if ctx.should_stop():
+                    break
+                ctx.log.info("--- %s ---", cls.name)
+                ok = self._run_one(ctx, cls)
+                if ctx.should_stop():
+                    break
+                if ok:
+                    finished.append(cls.name)
+                    if not ctx.dry_run:  # a dry run did nothing, so it doesn't count
+                        mark_done(cls.name)
+                    ctx.log.info("%s done", cls.name)
+                else:
+                    failed.append(cls.name)
+                    ctx.log.warning("%s did not finish; returning to the %s and moving "
+                                    "on", cls.name, group.base)
+                if not group.go_base(ctx):
+                    if ctx.should_stop():
+                        break
+                    rest = chores[i + 1:]
+                    ctx.log.warning("couldn't get back to the %s after %s -> skipping "
+                                    "the rest of %s%s", group.base, cls.name, group.name,
+                                    f" ({', '.join(c.name for c in rest)})" if rest else "")
+                    failed += [c.name for c in rest]
+                    break
+
+        if not ctx.should_stop():
+            self.finish(ctx)
+        ctx.log.info("%s: %d of %d done%s%s%s", self.name, len(finished), len(todo),
+                     f" ({', '.join(finished)})" if finished else "",
+                     f"; failed: {', '.join(failed)}" if failed else "",
+                     f"; skipped (already ran today): "
+                     f"{', '.join(c.name for c in skipped)}" if skipped else "")
+
+
 class DailyTask(Task):
     HIDDEN = True       # reached through auto-daily, not its own home card
     LABEL: str = ""     # the switch label on the auto-daily screen
@@ -324,18 +448,33 @@ class DailyTask(Task):
         return []
 
     def run(self, ctx: Context) -> None:
+        """Running this one chore on its own (the runners call run_daily directly)."""
         if self.done_today() and not self.params.get("rerun"):
             ctx.log.warning("%s already ran today (at %s) -> skipping. Confirm in the "
                             "app, or pass -p rerun=true, to run it again.",
                             self.name, last_run_label(self.name))
             return
+        if not self.prepare(ctx):
+            if not ctx.should_stop():
+                ctx.log.warning("%s: couldn't get to its starting screen", self.name)
+            return
         ok = self.run_daily(ctx)
         if ok and not ctx.dry_run:  # a dry run did nothing, so it doesn't count
             mark_done(self.name)
-        elif not ctx.should_stop():
-            ctx.log.warning("%s did not finish; returning to the home screen", self.name)
-            go_home(ctx)
+        if not ctx.should_stop():
+            self.wrap_up(ctx, ok)
         ctx.log.info("%s %s", self.name, "done" if ok else "did not finish")
+
+    def prepare(self, ctx: Context) -> bool:
+        """Standalone run: get to the screen run_daily starts on. Dailies start on the
+        home screen, where the player launches them, so there's nothing to do."""
+        return True
+
+    def wrap_up(self, ctx: Context, ok: bool) -> None:
+        """Standalone run: leave the game on the home screen."""
+        if not ok:
+            ctx.log.warning("%s did not finish; returning to the home screen", self.name)
+        go_home(ctx)
 
     @abstractmethod
     def run_daily(self, ctx: Context) -> bool:

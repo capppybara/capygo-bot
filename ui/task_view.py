@@ -123,9 +123,15 @@ class TaskScreen(QWidget):
         form = QFormLayout(box)
         form.setContentsMargins(14, 20, 14, 12)
         form.setSpacing(10)
+        section = ""
         for p in self.cls.PARAMS:
             if p.hidden:  # set by the app itself (e.g. the re-run confirmation)
                 continue
+            if p.section and p.section != section:  # e.g. "Dailies", "Events"
+                section = p.section
+                heading = QLabel(section)
+                heading.setObjectName("FormSection")
+                form.addRow(heading)
             row_widget, value_widget = self._make_control(p)
             value_widget.setToolTip(p.help)
             self.controls[p.key] = (p, value_widget)

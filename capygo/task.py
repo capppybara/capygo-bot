@@ -41,6 +41,7 @@ class Param:
     choices: list | None = None  # if set, the value snaps to the nearest of these
     suffix: str = ""  # display-only unit shown after the value in the UI (e.g. "x")
     hidden: bool = False  # not shown in the app's form (set by the app, or -p on CLI)
+    section: str = ""     # app form heading this switch sits under (e.g. "Events")
 
     def coerce(self, value: Any) -> Any:
         if self.type == "int":
@@ -140,10 +141,16 @@ class Context:
 
     # --- action -----------------------------------------------------------
     def click_rel(self, rel: Rel) -> None:
+        if self.dry_run:  # no window lookup, so a dry run works with the game closed
+            self.log.debug("DRY-RUN click rel(%.3f,%.3f)", rel.x, rel.y)
+            return
         sx, sy = self.window.to_screen(rel)
         self._do_click(sx, sy, f"rel({rel.x:.3f},{rel.y:.3f})")
 
     def click_match(self, match: Match) -> None:
+        if self.dry_run:
+            self.log.debug("DRY-RUN click match at frame (%d, %d)", match.x, match.y)
+            return
         b = self.window.bounds()
         sx = b.x + match.x / self._scale
         sy = b.y + match.y / self._scale

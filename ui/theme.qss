@@ -66,6 +66,9 @@ QGroupBox::title {
     font-size: 15px;
 }
 
+/* a heading inside the Settings form that groups the switches below it */
+#FormSection { font-size: 13px; font-weight: bold; color: #8A5A2A; padding-top: 4px; }
+
 /* short value field; the arrows are separate buttons beside it (see SpinUp/Down) */
 QSpinBox#ValueField, QDoubleSpinBox#ValueField, QLineEdit#ValueField {
     background: #FBF3DF;
