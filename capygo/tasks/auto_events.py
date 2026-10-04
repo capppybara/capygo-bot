@@ -40,8 +40,8 @@ EVENTS = [  # run order
     MartialArts,
     # --- future events go here (see _event_template.py). Not built yet: ---
     # Arena tab:     Seal Battle
-    # Challenge tab: Gulu Mine
-    # Dungeon tab:   (not explored yet)
+    # (Nothing to build for Gulu Mine on the Challenge tab or the Dungeon tab: no
+    # daily chores there.)
 ]
 
 EVENTS_GROUP = ChoreGroup("Events", EVENTS, go_events, "Events screen")

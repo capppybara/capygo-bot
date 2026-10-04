@@ -106,6 +106,7 @@ RERUN_PARAM = Param("rerun", "bool", False, "Run once-a-day dailies again today"
 START_REGION = RelRect(0.30, 0.755, 0.32, 0.075)   # orange Start button (home)
 RED_START_REGION = RelRect(0.28, 0.705, 0.35, 0.09)  # its Start button sits higher
 SWITCH_ZONE = RelRect(0.631, 0.704, 0.086, 0.137)   # the capy switch in either mode
+SWITCH_TILES = RelRect(0.640, 0.755, 0.066, 0.079)  # home's blue tiles (head + arrow)
 SWITCH_TAP = Rel(0.673, 0.770)  # the capy head tile in BOTH modes (top / bottom tile)
 SWITCH_SETTLE = 4.0             # seconds for the cloud transition after flipping modes
 MAX_SWITCH_TAPS = 3             # never flip modes back and forth forever on a misread
@@ -173,13 +174,22 @@ def _start_visible(frame) -> bool:
 
 
 def _switch_colors(frame) -> tuple[float, float]:
-    """(red, blue) pixel fractions where the capy switch sits in either mode.
-    Home (blue): ~0.01 / ~0.60. Amber Bay (red): ~0.28 / 0.00. Every other screen
-    seen: <= 0.03 red. A popup's dimming kills both, so the screen reads as AWAY."""
+    """(red, blue) pixel fractions of the capy switch: red over the whole zone (the
+    red switch sits higher), blue over home's tiles only. Home (blue): red ~0.01,
+    blue ~0.65. Amber Bay (red): ~0.25 / 0.00. A popup's dimming kills both, so the
+    screen reads as AWAY.
+
+    Both are measured on the switch's own colors because the chapter scene behind
+    it changes: the "Ancient Frogdom" chapter puts an orange brick wall above the
+    switch, which the old red test (and a zone-wide blue share) took for the red
+    switch, so go_home flipped the mode back and forth. The switch's red is crimson
+    (blue >= green, ~(225,97,108)); bricks are orange (blue < green, ~(172,86,60))."""
     c = _crop(frame, SWITCH_ZONE).astype(np.int16)
     b, g, r = c[..., 0], c[..., 1], c[..., 2]
-    red = (r > 150) & (r - g > 70) & (r - b > 50)   # crimson, not the orange Start
-    blue = (b > r + 40) & (b >= g) & (b > 90)
+    red = (r > 150) & (r - g > 70) & (r - b > 50) & (b >= g)  # crimson, not orange
+    t = _crop(frame, SWITCH_TILES).astype(np.int16)
+    tb, tg, tr = t[..., 0], t[..., 1], t[..., 2]
+    blue = (tb > tr + 40) & (tb >= tg) & (tb > 90)
     return float(red.mean()), float(blue.mean())
 
 
@@ -188,11 +198,11 @@ def home_state(frame) -> str:
     switch), SWITCH_UNKNOWN (home's Start is up but the switch is neither color), or
     AWAY (another screen, or a popup is up)."""
     red, blue = _switch_colors(frame)
-    if red >= 0.15 and _says_start(frame, RED_START_REGION):
+    if red >= 0.15 and blue < 0.10 and _says_start(frame, RED_START_REGION):
         return SWITCH_RED
     if not _start_visible(frame):
         return AWAY
-    return HOME if blue >= 0.35 else SWITCH_UNKNOWN
+    return HOME if blue >= 0.50 else SWITCH_UNKNOWN
 
 
 def find_sprite(ctx: Context, frame, name: str,
@@ -299,6 +309,50 @@ def go_home(ctx: Context, max_steps: int = 10) -> bool:
         if not tap(ctx, target, SWITCH_SETTLE if move == "switch" else TAP_SETTLE):
             return False
     return home_state(ctx.frame()) == HOME
+
+
+def go_screen(ctx: Context, name: str, on_screen: Callable, button: Rel,
+              max_steps: int = 12) -> bool:
+    """Get to a screen opened by a home-screen button (Events, Guild, the menu) from
+    anywhere: from home tap the button; from inside it (or a popup) back out with
+    go_home's moves until on_screen(frame) holds."""
+    if ctx.dry_run:
+        return True
+    opened = 0
+    unknowns = 0
+    for _ in range(max_steps):
+        if ctx.should_stop():
+            return False
+        frame = ctx.frame()
+        if on_screen(frame):
+            return True
+        if home_state(frame) == HOME:
+            if opened >= 2:
+                ctx.log.warning("tapped %s twice but it didn't open", name)
+                return False
+            opened += 1
+            ctx.log.info("to %s: tap %s", name, name)
+            if not tap(ctx, button):
+                return False
+            continue
+        move, target = next_move(ctx, frame)
+        if move == "stuck":
+            ctx.log.warning("on the main screen, but the capy switch is neither blue "
+                            "nor red")
+            return False
+        if move == "unknown":
+            unknowns += 1
+            if unknowns == 1:  # often just a transition: give it a moment
+                if wait(ctx, 1.0):
+                    return False
+                continue
+            target = NEUTRAL
+        else:
+            unknowns = 0
+        ctx.log.info("to %s: %s", name, move)
+        if not tap(ctx, target, SWITCH_SETTLE if move == "switch" else TAP_SETTLE):
+            return False
+    return on_screen(ctx.frame())
 
 
 @dataclass
@@ -497,3 +551,20 @@ class DailyTask(Task):
         """Lower-cased OCR text inside a window-relative region of a fresh frame."""
         crop = _crop(ctx.frame(), region)
         return " ".join(t for t, _, _ in ocr_lines(crop)).lower()
+
+
+class ScreenTask(DailyTask):
+    """A chore that lives behind a home-screen button (Events, Guild, the menu):
+    run_daily starts on that screen and returns True once it's back there, so the
+    group's chores run back to back. Subclasses set go_base to the screen's go_*
+    function (e.g. go_base = staticmethod(go_events)). Run alone, it goes to that
+    screen first and home at the end."""
+    go_base: Callable[[Context], bool]
+
+    def prepare(self, ctx: Context) -> bool:
+        return self.go_base(ctx)
+
+    def wrap_up(self, ctx: Context, ok: bool) -> None:
+        if not ok:
+            ctx.log.warning("%s did not finish; returning to the home screen", self.name)
+        go_home(ctx)

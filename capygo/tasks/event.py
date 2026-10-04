@@ -13,8 +13,7 @@ from __future__ import annotations
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context
-from .daily import (HOME, NEUTRAL, SWITCH_SETTLE, TAP_SETTLE, DailyTask, _crop,
-                    go_home, home_state, next_move, tap, wait)
+from .daily import ScreenTask, _crop, go_screen
 
 EVENTS_BTN = Rel(0.832, 0.789)                   # "Events", home screen bottom-right
 EVENT_TABS = RelRect(0.35, 0.935, 0.55, 0.045)   # "Arena Challenge Dungeon"
@@ -29,59 +28,15 @@ def on_events(frame) -> bool:
     return "challenge" in text and "dungeon" in text
 
 
-def go_events(ctx: Context, max_steps: int = 12) -> bool:
-    """Get to the Events screen from anywhere: from home tap Events; from inside an
-    event (or a popup) back out with go_home's moves until the Events tabs show."""
-    if ctx.dry_run:
-        return True
-    opened = 0
-    unknowns = 0
-    for _ in range(max_steps):
-        if ctx.should_stop():
-            return False
-        frame = ctx.frame()
-        if on_events(frame):
-            return True
-        if home_state(frame) == HOME:
-            if opened >= 2:
-                ctx.log.warning("tapped Events twice but the Events screen didn't open")
-                return False
-            opened += 1
-            ctx.log.info("to Events: tap Events")
-            if not tap(ctx, EVENTS_BTN):
-                return False
-            continue
-        move, target = next_move(ctx, frame)
-        if move == "stuck":
-            ctx.log.warning("on the main screen, but the capy switch is neither blue "
-                            "nor red")
-            return False
-        if move == "unknown":
-            unknowns += 1
-            if unknowns == 1:  # often just a transition: give it a moment
-                if wait(ctx, 1.0):
-                    return False
-                continue
-            target = NEUTRAL
-        else:
-            unknowns = 0
-        ctx.log.info("to Events: %s", move)
-        if not tap(ctx, target, SWITCH_SETTLE if move == "switch" else TAP_SETTLE):
-            return False
-    return on_events(ctx.frame())
+def go_events(ctx: Context) -> bool:
+    """Get to the Events screen from anywhere (see go_screen)."""
+    return go_screen(ctx, "Events", on_events, EVENTS_BTN)
 
 
-class EventTask(DailyTask):
+class EventTask(ScreenTask):
     """An event chore: run_daily starts on the Events screen and returns True once
     it's back there."""
-
-    def prepare(self, ctx: Context) -> bool:
-        return go_events(ctx)
-
-    def wrap_up(self, ctx: Context, ok: bool) -> None:
-        if not ok:
-            ctx.log.warning("%s did not finish; returning to the home screen", self.name)
-        go_home(ctx)
+    go_base = staticmethod(go_events)
 
     def open_tab(self, ctx: Context, tab: str) -> bool:
         """Tap one of the Events screen's bottom tabs (arena/challenge/dungeon)."""

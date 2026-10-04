@@ -265,9 +265,19 @@ Events so far:
   Hall). Same as Holy Grail War, but with three champions per zone: Supreme, then
   the middle option (Valiant), then the top option (Novice).
 
-Not built yet: Seal Battle (Arena tab), Gulu Mine (Challenge tab), and the Dungeon
-tab. To add an event, copy `capygo/tasks/_event_template.py` and add it
+Not built yet: Seal Battle (Arena tab). Gulu Mine (Challenge tab) and the Dungeon
+tab have no daily chores. To add an event, copy `capygo/tasks/_event_template.py` and add it
 to the list in `auto_events.py`.
+
+Two more groups are set up, with no chores yet, so they show nothing in the app:
+
+- **Guild** (`auto_guild.py`, base: the guild screen from the "Guild" button left of
+  Start). Planned: Guild Hall and Guild Trade, maybe Guild Raid later. Template:
+  `capygo/tasks/_guild_template.py`.
+- **Menu** (`auto_menu.py`, base: the menu drawer from the list icon under the
+  profile picture). Template: `capygo/tasks/_menu_template.py`.
+
+Auto Daily runs the groups in this order: Dailies, Events, Guild, Menu.
 
 ## Notes
 
