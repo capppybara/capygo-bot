@@ -9,10 +9,12 @@ an "x1 Challenge" button each), plus a ticket "+", Free Refresh, and a round X.
 The plan (user, 2026-10-03): attack RUNS times. Goal: fight the highest-points
 opponent you can beat. Each attack:
   1. Read your power and points from the banner.
-  2. Tap Challenge; among the opponents with power < 1.5x yours, pick the one with
-     the most points (powers come in B and T; 1T = 1000B, compared in trillions).
-     If none fits, use the Free Refresh (only while it says "Free") and look again;
-     if still none, stop the arena and flag it (the user handles it by hand).
+  2. Tap Challenge and pick (user, 2026-10-04; powers come in B and T, 1T = 1000B,
+     compared in trillions). Beatable = power < 1.2x yours. First choice: the
+     beatable opponent with the most points among those MORE than 10 points above
+     yours. None -> use the Free Refresh (only while it says "Free") and look
+     again. Still none -> the beatable opponent with the most points. Nobody
+     beatable at all -> stop the arena and flag it (the user handles it by hand).
   3. Tap its "x1 Challenge": a black loading screen, then the fight screen. Give it
      a couple of seconds, then tap Skip.
   4. The result ("Victory"/"Defeat", points +/-) has an OK button; OK goes back to
@@ -39,7 +41,7 @@ import cv2
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context, register
-from .daily import _crop, find_sprite, tap_to_close_up
+from .daily import _crop, find_sprite, save_snapshot, tap_to_close_up
 from .event import EventTask, go_events
 from .get_guild_member_list import GetGuildMemberList
 
@@ -66,7 +68,8 @@ SKIP_LABEL = RelRect(0.53, 0.825, 0.16, 0.045)
 RESULT_TITLE = RelRect(0.25, 0.37, 0.50, 0.08)   # "Victory" / "Defeat"
 OK_BTN = Rel(0.5, 0.937)                         # result screen (replay is at the right
 OK_LABEL = RelRect(0.35, 0.915, 0.30, 0.05)      # edge above it - never tap that)
-MAX_POWER_RATIO = Decimal("1.5")                 # user: fight only below 1.5x my power
+MAX_POWER_RATIO = Decimal("1.2")                 # user: fight only below 1.2x my power
+MIN_POINT_GAP = 10                               # user: prefer > 10 points above mine
 RUNS = 5
 
 POLL = 0.5             # how often a wait checks the screen
@@ -135,11 +138,13 @@ def read_opponents(frame) -> list[Opponent]:
     return out
 
 
-def pick_opponent(opponents: list[Opponent], my_power: Decimal) -> Opponent | None:
+def pick_opponent(opponents: list[Opponent], my_power: Decimal,
+                  min_points: int | None = None) -> Opponent | None:
     """The most points among those below MAX_POWER_RATIO x my power (ties: the
-    weaker one)."""
-    beatable = [o for o in opponents if o.power < my_power * MAX_POWER_RATIO]
-    return max(beatable, key=lambda o: (o.points, -o.power), default=None)
+    weaker one); with min_points, only those with more points than that."""
+    pool = [o for o in opponents if o.power < my_power * MAX_POWER_RATIO
+            and (min_points is None or o.points > min_points)]
+    return max(pool, key=lambda o: (o.points, -o.power), default=None)
 
 
 def board_ready(frame) -> bool:
@@ -157,7 +162,11 @@ def fight_up(frame) -> bool:
 
 
 def result_up(frame) -> bool:
-    return "ok" in _words(frame, OK_LABEL).split()
+    """The fight's result screen: its OK button, or the big Victory/Defeat."""
+    if "ok" in _words(frame, OK_LABEL).split():
+        return True
+    title = _words(frame, RESULT_TITLE)
+    return "victory" in title or "defeat" in title
 
 
 def purchase_up(frame) -> bool:
@@ -170,7 +179,8 @@ class AutoArena(EventTask):
     LABEL = "Arena attacks"
     ICON = "⚔️"
     DESCRIPTION = ("Events -> Arena -> Arena: attack 5 times, each time the opponent "
-                   "with the most points below 1.5x your power, then go back.")
+                   "below 1.2x your power with the most points, preferring those more "
+                   "than 10 points above you, then go back.")
     START_HINT = "Start on the main Adventure screen."
 
     def run_daily(self, ctx: Context) -> bool:
@@ -194,7 +204,7 @@ class AutoArena(EventTask):
             start_points = start_points if start_points is not None else points
             ctx.log.info("%s: attack %d/%d - you: power %sT, %s points", self.name, n,
                          RUNS, power, points)
-            result = self._attack(ctx, power)
+            result = self._attack(ctx, power, points)
             if result is None:
                 return False
             if result == NO_TICKETS:
@@ -212,7 +222,8 @@ class AutoArena(EventTask):
                      results.count("defeat"), start_points, end_points)
         return go_events(ctx)  # back arrow -> the Events screen, for the next event
 
-    def _attack(self, ctx: Context, my_power: Decimal) -> str | None:
+    def _attack(self, ctx: Context, my_power: Decimal,
+                my_points: int | None) -> str | None:
         """One attack from the loaded leaderboard: pick, fight, Skip, OK. The result
         ("victory"/"defeat"/"unknown"), NO_TICKETS (back on the leaderboard), or
         None if it went wrong (logged)."""
@@ -231,11 +242,10 @@ class AutoArena(EventTask):
             ctx.log.warning("%s: the opponent list didn't open after %d tries",
                             self.name, CHALLENGE_TRIES)
             return None
-        pick = self._choose(ctx, my_power)
+        pick = self._choose(ctx, my_power, my_points)
         if pick is None:
-            ctx.log.warning("%s: FLAG - no opponent below %sx your power, even after a "
-                            "refresh; stopping the arena, handle it by hand",
-                            self.name, MAX_POWER_RATIO)
+            ctx.log.warning("%s: FLAG - no opponent below %sx your power; stopping the "
+                            "arena, handle it by hand", self.name, MAX_POWER_RATIO)
             return None
         ctx.log.info("%s: pick row %d (%d points, %sT)", self.name, pick.row + 1,
                      pick.points, pick.power)
@@ -255,13 +265,7 @@ class AutoArena(EventTask):
             return NO_TICKETS
         if self.wait(ctx, FIGHT_SETTLE):  # user: give the fight a couple of seconds
             return None
-        if not self._skip_fight(ctx):
-            return None
-        text = self.text_in(ctx, RESULT_TITLE)
-        result = next((r for r in ("victory", "defeat") if r in text), "unknown")
-        if not self.tap(ctx, OK_BTN, "OK"):
-            return None
-        return result
+        return self._finish_fight(ctx)
 
     def _clear_to_board(self, ctx: Context) -> bool:
         """Something took the Challenge tap (2026-10-04: on the first visit of a new
@@ -278,19 +282,49 @@ class AutoArena(EventTask):
                 return False
         return self._wait_for(ctx, "the arena leaderboard", board_ready, LOAD_TIMEOUT)
 
-    def _skip_fight(self, ctx: Context) -> bool:
-        """Tap Skip until the result's OK shows (a tap can be lost to the window
-        coming to the front)."""
+    def _finish_fight(self, ctx: Context) -> str | None:
+        """Skip the fight and close its result with OK, ending on the leaderboard.
+        "victory"/"defeat", "unknown" if the result wasn't read, or None on a
+        timeout or stop.
+
+        2026-10-04 (first Master Battle fight): the game was back on the
+        leaderboard while the old code still waited for the result's OK and kept
+        tapping Skip, so the run failed although the fight was won. Now the
+        leaderboard coming back also means the fight is over, Skip is only tapped
+        while the fight screen shows (the result screen still shows a dimmed Skip,
+        so the result is checked first), and the screen is saved if Skip needs a
+        second tap, to see what was showing."""
         end = time.time() + RESULT_TIMEOUT
+        last_skip = None
+        saved = False
         while time.time() < end:
-            if not self.tap(ctx, SKIP_BTN, "Skip"):
-                return False
-            if self._wait_for(ctx, None, result_up, SKIP_RETRY):
-                return True
-            if ctx.should_stop():
-                return False
+            frame = ctx.frame()
+            if result_up(frame):
+                if self.wait(ctx, SETTLE):
+                    return None
+                text = self.text_in(ctx, RESULT_TITLE)
+                result = next((r for r in ("victory", "defeat") if r in text), "unknown")
+                if not self.tap(ctx, OK_BTN, "OK"):
+                    return None
+                return result
+            if board_ready(frame):
+                ctx.log.info("%s: back on the leaderboard - the fight is over", self.name)
+                return "unknown"
+            if fight_up(frame) and (last_skip is None
+                                    or time.time() - last_skip >= SKIP_RETRY):
+                if last_skip is not None and not saved:
+                    saved = True
+                    shot = save_snapshot(ctx, "arena-skip-again")
+                    ctx.log.info("%s: no result yet; tapping Skip again%s", self.name,
+                                 f" (screen saved: {shot})" if shot else "")
+                if not self.tap(ctx, SKIP_BTN, "Skip"):
+                    return None
+                last_skip = time.time()
+                continue
+            if self.wait(ctx, POLL):
+                return None
         ctx.log.warning("%s: no result screen within %.0fs", self.name, RESULT_TIMEOUT)
-        return False
+        return None
 
     def _wait_for(self, ctx: Context, what: str | None, check, timeout: float,
                   settle: float = SETTLE) -> bool:
@@ -308,29 +342,50 @@ class AutoArena(EventTask):
             if self.wait(ctx, POLL):
                 return False
 
-    def _choose(self, ctx: Context, my_power: Decimal) -> Opponent | None:
-        """Pick from the open Challenge list. If none fits, use the Free Refresh
-        once (only while it says "Free", so no gems) and look again."""
-        for refreshed in (False, True):
-            opponents = read_opponents(ctx.frame())
-            for _ in range(LIST_READS - 1):  # a row can still misread now and then
-                if len(opponents) == len(ROW_Y) or self.wait(ctx, POLL):
-                    break
-                opponents = read_opponents(ctx.frame())
-            for o in opponents:
-                ctx.log.info("%s:   row %d: power %sT, %d points", self.name,
-                             o.row + 1, o.power, o.points)
-            pick = pick_opponent(opponents, my_power)
-            if pick is not None or refreshed:
-                return pick
-            if "free" not in self.text_in(ctx, REFRESH_LABEL):
-                ctx.log.warning("%s: no opponent fits and no free refresh left",
-                                self.name)
-                return None
-            ctx.log.info("%s: no opponent below %sx your power; Free Refresh",
-                         self.name, MAX_POWER_RATIO)
+    def _choose(self, ctx: Context, my_power: Decimal,
+                my_points: int | None) -> Opponent | None:
+        """Pick from the open Challenge list (user, 2026-10-04): the most points
+        among opponents below 1.2x my power that have more than 10 points over
+        mine. None of those -> use the Free Refresh once (only while it says
+        "Free", so no gems) and look again. Still none -> the most points below
+        1.2x my power. None only if nobody is below 1.2x."""
+        opponents = self._read_list(ctx)
+        if my_points is None:  # can't tell who's above me: take the best beatable
+            ctx.log.warning("%s: your points didn't read; picking the best opponent "
+                            "below %sx your power", self.name, MAX_POWER_RATIO)
+            return pick_opponent(opponents, my_power)
+        floor = my_points + MIN_POINT_GAP
+        pick = pick_opponent(opponents, my_power, floor)
+        if pick is not None:
+            return pick
+        if "free" in self.text_in(ctx, REFRESH_LABEL):
+            ctx.log.info("%s: no opponent below %sx your power with more than %d "
+                         "points; Free Refresh", self.name, MAX_POWER_RATIO, floor)
             if not self.tap(ctx, FREE_REFRESH, "Free Refresh"):
                 return None
             if not self._wait_for(ctx, "the refreshed list", list_open, LOAD_TIMEOUT):
                 return None
-        return None
+            opponents = self._read_list(ctx)
+            pick = pick_opponent(opponents, my_power, floor)
+            if pick is not None:
+                return pick
+        else:
+            ctx.log.info("%s: no free refresh left", self.name)
+        pick = pick_opponent(opponents, my_power)
+        if pick is not None:
+            ctx.log.info("%s: nobody with more than %d points below %sx your power; "
+                         "taking the best one below %sx", self.name, floor,
+                         MAX_POWER_RATIO, MAX_POWER_RATIO)
+        return pick
+
+    def _read_list(self, ctx: Context) -> list[Opponent]:
+        """Read the open Challenge list, re-reading while a row is missing."""
+        opponents = read_opponents(ctx.frame())
+        for _ in range(LIST_READS - 1):  # a row can still misread now and then
+            if len(opponents) == len(ROW_Y) or self.wait(ctx, POLL):
+                break
+            opponents = read_opponents(ctx.frame())
+        for o in opponents:
+            ctx.log.info("%s:   row %d: power %sT, %d points", self.name, o.row + 1,
+                         o.power, o.points)
+        return opponents

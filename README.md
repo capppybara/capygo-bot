@@ -248,11 +248,13 @@ Events so far:
   (the same one as its own card) until the picks run out, and backs out to the
   Events screen.
 - **Arena attacks** — Arena tab → Arena. Attacks 5 times. Each time it reads your
-  power and points from your banner, taps Challenge, and picks the opponent with
-  the most points whose power is below 1.5x yours (B and T are converted). If none
-  fits it uses the Free Refresh (only while it's free) and looks again; if still
-  none, it stops and flags it for you. It waits for the fight to load, taps Skip,
-  and taps OK on the result. Out of tickets, Challenge opens a ticket Purchase
+  power and points from your banner, taps Challenge, and picks an opponent whose
+  power is below 1.2x yours (B and T are converted): the one with the most points
+  among those more than 10 points above you. If there's none, it uses the Free
+  Refresh (only while it's free) and looks again; if there's still none, it takes
+  the one with the most points below 1.2x. If nobody is below 1.2x, it stops and
+  flags it for you. It waits for the fight to load, taps Skip, and taps OK on the
+  result (or carries on if the leaderboard is already back). Out of tickets, Challenge opens a ticket Purchase
   popup instead of a fight: it closes it and the list and finishes (it never buys
   tickets).
 - **Holy Grail War likes** — Arena tab → Holy Grail War (the Hero Plaza). Likes both
