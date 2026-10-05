@@ -17,6 +17,7 @@ Rules (user, 2026-10-04):
     badges (the badge emblem, matched by picture, with "x200" under it). Both
     pictures are templates in templates/guild-trade/. Nothing past slot 2 matters, and the
     cargo row is never dragged (a press on an item opens its info).
+  - Both a chest boat and a 200-badges boat on the sea: take the chest one.
   - A lost fight: move on. No suitable boat left: Refresh (free, no limit).
   - Stop at 4 looted today.
 """
@@ -240,33 +241,62 @@ class GuildTrade(GuildTask):
     # --- steps ------------------------------------------------------------
     def _pick(self, ctx: Context, tried: set) -> Boat | None:
         """Tap the map's gilded/golden boats not checked yet on this sea, one at a
-        time, until one passes the panel checks (left selected). None if none do."""
+        time, and leave the one to plunder selected. None if none passes.
+
+        A chest beats 200 badges (user): a chest boat is taken at once; a badge
+        boat is kept in reserve while the rest are checked for a chest, and is
+        selected again if none has one."""
+        reserve = last = None
         for boat in find_boats(ctx.frame()):
             key = (round(boat.at.x * 30), round(boat.at.y * 30))
             if key in tried:
                 continue
             tried.add(key)
-            if not self.tap(ctx, boat.at, f"{boat.kind} boat"):
+            panel = self._select(ctx, boat)
+            last = boat
+            if ctx.should_stop():
                 return None
-            if self.wait(ctx, SELECT_SETTLE - 1.0):  # tap already waited ~1s
-                return None
-            frame = ctx.frame()
-            if "character info" in _words(frame, PROFILE_TITLE).lower():
-                # the tap caught the owner's avatar after all: close it, move on
-                ctx.log.info("%s: opened the owner's profile by mistake; closing it",
-                             self.name)
-                x = find_sprite(ctx, frame, "close_x.png")
-                if x is None or not self.tap(ctx, x, "close X"):
-                    return None
+            if panel is None:
                 continue
-            panel = read_panel(frame)
             reason = why_not(panel)
-            if reason is None:
-                ctx.log.info("%s: %s boat %sT, %s -> plunder", self.name, boat.kind,
-                             panel.power, "chest" if panel.chest else "200 badges")
+            if reason is not None:
+                ctx.log.info("%s: skip %s boat: %s", self.name, boat.kind, reason)
+            elif panel.chest:
+                ctx.log.info("%s: %s boat %sT, chest -> plunder", self.name, boat.kind,
+                             panel.power)
                 return boat
-            ctx.log.info("%s: skip %s boat: %s", self.name, boat.kind, reason)
-        return None
+            elif reserve is None:
+                ctx.log.info("%s: %s boat %sT, 200 badges -> kept in case no chest "
+                             "boat turns up", self.name, boat.kind, panel.power)
+                reserve = boat
+        if reserve is None:
+            return None
+        if reserve is not last:  # later taps selected other boats: select it again
+            panel = self._select(ctx, reserve)
+            if panel is None or why_not(panel) is not None:
+                ctx.log.info("%s: the 200-badges boat didn't check out again", self.name)
+                return None
+        ctx.log.info("%s: no chest boat; plunder the %s boat with 200 badges", self.name,
+                     reserve.kind)
+        return reserve
+
+    def _select(self, ctx: Context, boat: Boat) -> Panel | None:
+        """Tap a boat and read its panel. None if the tap opened the owner's
+        profile instead (closed again) or a stop came."""
+        if not self.tap(ctx, boat.at, f"{boat.kind} boat"):
+            return None
+        if self.wait(ctx, SELECT_SETTLE - 1.0):  # tap already waited ~1s
+            return None
+        frame = ctx.frame()
+        if "character info" in _words(frame, PROFILE_TITLE).lower():
+            # the tap caught the owner's avatar after all: close it, move on
+            ctx.log.info("%s: opened the owner's profile by mistake; closing it",
+                         self.name)
+            x = find_sprite(ctx, frame, "close_x.png")
+            if x is not None:
+                self.tap(ctx, x, "close X")
+            return None
+        return read_panel(frame)
 
     def _plunder(self, ctx: Context) -> str | None:
         """Plunder the selected boat: fight, Skip, OK, back on the sea. The result

@@ -39,9 +39,6 @@ Templates in templates/hard-mode-autorun/ (captured from the live game):
   start_button (also used to detect that a run launched), jump_field,
   jump_button, select_button, confirm_ok (solo "start without a team" prompt),
   finish_success, finish_failure
-
-NOTE: template names/coords are placeholders until captured live; the
-chapter-tile click in particular needs the real screen to finalize.
 """
 
 from __future__ import annotations
@@ -62,7 +59,12 @@ ENERGY_COST_REGION = RelRect(0.412, 0.755, 0.198, 0.040)
 # Main-screen buttons sit at fixed positions (642x951) and never move; their
 # templates would pick up each chapter's background tint, so we click the
 # positions and verify by result (OCR cost / green outline) instead of matching.
-CHAPTER_BTN = Rel(0.612, 0.669)
+# Chapter is tapped on its "Chap..." LABEL, left part: the "New Invitation" tab
+# can slide over the right half of the button (icon) and never folds away on its
+# own; at the label's height the button stays uncovered from x~375 to ~405 px
+# (user's call; live-verified with the tab out, 2026-10-04). The old spot
+# (0.612, 0.669) sat right on the tab's edge and opened the friends panel.
+CHAPTER_BTN = Rel(0.600, 0.689)
 START_BTN = Rel(0.463, 0.744)
 PLUS_BTN = Rel(0.682, 0.834)
 MINUS_BTN = Rel(0.322, 0.834)
@@ -167,11 +169,11 @@ class HardModeAutorun(Task):
         Right after a run the main screen can still be settling, so a single
         click + fixed wait sometimes misses; poll for the jump field instead.
 
-        The "New Invitation" tab intermittently slides over the right half of the
-        Chapter button; a click that catches it opens the friends panel instead.
-        So before re-clicking, confirm we're still on the main screen (Start
-        visible). If we've drifted onto another panel, stop cleanly rather than
-        clicking the Chapter position on the wrong screen.
+        The "New Invitation" tab can slide over the right half of the Chapter
+        button, so CHAPTER_BTN is on the uncovered left part of its label. Should a
+        click still open another panel, confirm we're on the main screen (Start
+        visible) before re-clicking, and stop cleanly if not rather than clicking
+        the Chapter position on the wrong screen.
         """
         for attempt in range(3):
             if attempt > 0 and not self._present(ctx, "start_button"):

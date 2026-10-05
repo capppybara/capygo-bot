@@ -290,8 +290,9 @@ Two more groups are set up, with no chores yet, so they show nothing in the app:
     golden boats (orange sail) on the map, then checks the selected boat's panel:
     the banner must be UR orange (the map sometimes shows gold wrongly), not
     already plundered, power under 6T, and a golden chest or 200 badges in the
-    first 2 cargo slots. It skips the fight like the arena; a lost fight just moves
-    on. No suitable boat → the free Refresh (up to 30 times, then it flags it).
+    first 2 cargo slots. If the sea has both a chest boat and a 200-badges boat,
+    it takes the chest one. It skips the fight like the arena; a lost fight just
+    moves on. No suitable boat → the free Refresh (up to 30 times, then it flags it).
   - Maybe later: Guild Raid.
 - **Menu** (`auto_menu.py`, base: the menu drawer from the list icon under the
   profile picture). Template: `capygo/tasks/_menu_template.py`.
