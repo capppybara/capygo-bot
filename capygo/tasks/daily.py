@@ -230,6 +230,23 @@ def find_sprite(ctx: Context, frame, name: str,
     return best if best.found else None
 
 
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "logs")
+
+
+def save_snapshot(ctx: Context, label: str) -> str | None:
+    """Save the current screen to logs/<label>-<timestamp>.png, so a failed chore
+    can be worked out afterwards. None in a dry run or if the capture fails."""
+    if ctx.dry_run:
+        return None
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        path = os.path.join(LOG_DIR, f"{label}-{time.strftime('%Y%m%d-%H%M%S')}.png")
+        return path if cv2.imwrite(path, ctx.frame()) else None
+    except Exception:  # a failed screenshot must never break the run
+        return None
+
+
 def tap_to_close_up(frame) -> bool:
     """A reward popup's "Tap to close" is showing. The text is drawn over whatever
     is behind the popup, so OCR can glue it to that ("...Daily ChancTap to close");
@@ -453,8 +470,10 @@ class ChoreRunner(Task):
                     ctx.log.info("%s done", cls.name)
                 else:
                     failed.append(cls.name)
+                    shot = save_snapshot(ctx, f"failed-{cls.name}")
                     ctx.log.warning("%s did not finish; returning to the %s and moving "
-                                    "on", cls.name, group.base)
+                                    "on%s", cls.name, group.base,
+                                    f" (screen saved: {shot})" if shot else "")
                 if not group.go_base(ctx):
                     if ctx.should_stop():
                         break
@@ -515,6 +534,10 @@ class DailyTask(Task):
         ok = self.run_daily(ctx)
         if ok and not ctx.dry_run:  # a dry run did nothing, so it doesn't count
             mark_done(self.name)
+        if not ok and not ctx.should_stop():
+            shot = save_snapshot(ctx, f"failed-{self.name}")
+            if shot:
+                ctx.log.warning("%s: screen saved: %s", self.name, shot)
         if not ctx.should_stop():
             self.wrap_up(ctx, ok)
         ctx.log.info("%s %s", self.name, "done" if ok else "did not finish")

@@ -39,7 +39,7 @@ import cv2
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context, register
-from .daily import _crop
+from .daily import _crop, find_sprite, tap_to_close_up
 from .event import EventTask, go_events
 from .get_guild_member_list import GetGuildMemberList
 
@@ -76,6 +76,9 @@ FIGHT_TIMEOUT = 15.0   # black loading screen -> fight screen
 FIGHT_SETTLE = 2.0     # user: give the fight screen a couple of seconds before Skip
 SKIP_RETRY = 6.0       # no result this long after Skip -> tap Skip again
 RESULT_TIMEOUT = 30.0
+LIST_TIMEOUT = 5.0     # Challenge -> opponent list; then clear the screen and retry
+CHALLENGE_TRIES = 3
+DISMISS = Rel(0.5, 0.87)  # the board's "Maintain current ranking..." line: inert
 NO_TICKETS = "no tickets"
 
 POWER_TEXT = re.compile(r"\d[\d.,]*\s*[KMBT]", re.IGNORECASE)  # a unit is required
@@ -213,9 +216,20 @@ class AutoArena(EventTask):
         """One attack from the loaded leaderboard: pick, fight, Skip, OK. The result
         ("victory"/"defeat"/"unknown"), NO_TICKETS (back on the leaderboard), or
         None if it went wrong (logged)."""
-        if not self.tap(ctx, CHALLENGE_BTN, "Challenge"):
-            return None
-        if not self._wait_for(ctx, "the opponent list", list_open, LOAD_TIMEOUT):
+        for attempt in range(1, CHALLENGE_TRIES + 1):
+            if not self.tap(ctx, CHALLENGE_BTN, "Challenge"):
+                return None
+            if self._wait_for(ctx, None, list_open, LIST_TIMEOUT):
+                break
+            if ctx.should_stop():
+                return None
+            ctx.log.info("%s: the opponent list didn't open (try %d/%d); clearing the "
+                         "screen and trying again", self.name, attempt, CHALLENGE_TRIES)
+            if not self._clear_to_board(ctx):
+                return None
+        else:
+            ctx.log.warning("%s: the opponent list didn't open after %d tries",
+                            self.name, CHALLENGE_TRIES)
             return None
         pick = self._choose(ctx, my_power)
         if pick is None:
@@ -248,6 +262,21 @@ class AutoArena(EventTask):
         if not self.tap(ctx, OK_BTN, "OK"):
             return None
         return result
+
+    def _clear_to_board(self, ctx: Context) -> bool:
+        """Something took the Challenge tap (2026-10-04: on the first visit of a new
+        season the list didn't open; most likely a season popup ate the tap). Close
+        whatever is on top (an X, or a "Tap to close" popup) and wait for the
+        leaderboard again."""
+        frame = ctx.frame()
+        x = find_sprite(ctx, frame, "close_x.png")
+        if x is not None:
+            if not self.tap(ctx, x, "close X"):
+                return False
+        elif tap_to_close_up(frame):
+            if not self.tap(ctx, DISMISS, "dismiss the popup"):
+                return False
+        return self._wait_for(ctx, "the arena leaderboard", board_ready, LOAD_TIMEOUT)
 
     def _skip_fight(self, ctx: Context) -> bool:
         """Tap Skip until the result's OK shows (a tap can be lost to the window
