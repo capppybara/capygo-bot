@@ -313,7 +313,11 @@ Two more groups:
     twice; both reads must agree), skips anything already bought, and claims the
     free gold at the bottom. Cards are found by title while it scrolls, one row at
     a time; a wanted card it never finds is flagged in the summary.
-  - Placeholder: **Tasks** (3rd in the menu), to build later.
+  - **Daily tasks claim** — Tasks: taps the top task's green Claim again and
+    again (a claimed row drops to the bottom) until the top one isn't claimable
+    (an unfinished task shows "Go"), then closes the panel. It never taps "Claim
+    All" and never drags. It runs last in the Menu group, after the chores that
+    complete daily tasks.
 
 Auto Daily runs the groups in this order: Dailies, Events, Guild, Menu.
 

@@ -20,13 +20,13 @@ from .daily import ChoreGroup, ChoreRunner, chore_params
 from .menu import go_menu
 from .menu_black_market import BlackMarket
 from .menu_login import LoginClaim
+from .menu_tasks import TasksClaim
 
-MENU = [  # run order
+MENU = [  # run order: Tasks last, after the chores that complete daily tasks
     LoginClaim,
     BlackMarket,
     # --- menu chores go here (see _menu_template.py) ---
-    # PLACEHOLDER: Tasks (3rd item in the drawer) - to build later (user,
-    # 2026-10-04: "put placeholder for tasks for now we'll get back to it").
+    TasksClaim,
 ]
 
 MENU_GROUP = ChoreGroup("Menu", MENU, go_menu, "menu")

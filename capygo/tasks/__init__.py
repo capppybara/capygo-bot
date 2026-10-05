@@ -24,6 +24,7 @@ from . import get_guild_member_list  # noqa: F401
 from . import goblin_miner  # noqa: F401
 from . import menu_black_market  # noqa: F401
 from . import menu_login  # noqa: F401
+from . import menu_tasks  # noqa: F401
 from . import guild_hall  # noqa: F401
 from . import guild_trade  # noqa: F401
 from . import hard_mode_autorun  # noqa: F401
