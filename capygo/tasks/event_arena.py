@@ -204,7 +204,7 @@ class AutoArena(EventTask):
             start_points = start_points if start_points is not None else points
             ctx.log.info("%s: attack %d/%d - you: power %sT, %s points", self.name, n,
                          RUNS, power, points)
-            result = self._attack(ctx, power, points)
+            result = self._attack(ctx, n, power, points)
             if result is None:
                 return False
             if result == NO_TICKETS:
@@ -222,7 +222,7 @@ class AutoArena(EventTask):
                      results.count("defeat"), start_points, end_points)
         return go_events(ctx)  # back arrow -> the Events screen, for the next event
 
-    def _attack(self, ctx: Context, my_power: Decimal,
+    def _attack(self, ctx: Context, n: int, my_power: Decimal,
                 my_points: int | None) -> str | None:
         """One attack from the loaded leaderboard: pick, fight, Skip, OK. The result
         ("victory"/"defeat"/"unknown"), NO_TICKETS (back on the leaderboard), or
@@ -244,8 +244,10 @@ class AutoArena(EventTask):
             return None
         pick = self._choose(ctx, my_power, my_points)
         if pick is None:
-            ctx.log.warning("%s: FLAG - no opponent below %sx your power; stopping the "
-                            "arena, handle it by hand", self.name, MAX_POWER_RATIO)
+            self.flag(ctx, f"stopped at attack {n}/{RUNS} - no opponent below "
+                           f"{MAX_POWER_RATIO}x your power ({my_power * MAX_POWER_RATIO:.2f}T"
+                           f"; you: {my_power}T, {my_points} points), even after a "
+                           f"refresh. Handle the rest by hand.")
             return None
         ctx.log.info("%s: pick row %d (%d points, %sT)", self.name, pick.row + 1,
                      pick.points, pick.power)
@@ -254,8 +256,9 @@ class AutoArena(EventTask):
         if not self._wait_for(ctx, "the fight screen",
                               lambda f: fight_up(f) or purchase_up(f), FIGHT_TIMEOUT,
                               settle=0):
-            ctx.log.warning("%s: FLAG - the fight didn't start; stopping the arena",
-                            self.name)
+            self.flag(ctx, f"stopped at attack {n}/{RUNS} - the fight didn't start "
+                           f"(neither the fight nor the ticket popup showed). Check the "
+                           f"arena.")
             return None
         if purchase_up(ctx.frame()):  # no tickets: never buy, just close it and the list
             if not self.tap(ctx, PURCHASE_CLOSE, "close the ticket Purchase popup"):

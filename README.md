@@ -198,6 +198,11 @@ and a switched-on daily already ran today, the app asks first: **Run again**, **
 it** (run the rest without it), or **Cancel**. From the command line, an already-run
 daily is skipped unless you add `-p rerun=true`. Dry runs don't count as a run.
 
+At the end of a run the log shows a summary: what finished, what was skipped, and a
+**Needs your attention** list. That list has everything a chore flagged for you to
+handle by hand (for example, the arena stopping because no opponent was beatable)
+and every chore that failed, with the screenshot saved in `logs/` when it failed.
+
 Before starting, be on the main Adventure screen.
 
 Dailies so far:
@@ -267,15 +272,19 @@ Events so far:
   Hall). Same as Holy Grail War, but with three champions per zone: Supreme, then
   the middle option (Valiant), then the top option (Novice).
 
-Not built yet: Seal Battle (Arena tab). Gulu Mine (Challenge tab) and the Dungeon
-tab have no daily chores. To add an event, copy `capygo/tasks/_event_template.py` and add it
+Maybe later: Seal Battle (Arena tab). Gulu Mine (Challenge tab) and the Dungeon tab
+have no daily chores. To add an event, copy `capygo/tasks/_event_template.py` and add it
 to the list in `auto_events.py`.
 
 Two more groups are set up, with no chores yet, so they show nothing in the app:
 
 - **Guild** (`auto_guild.py`, base: the guild screen from the "Guild" button left of
-  Start). Planned: Guild Hall and Guild Trade, maybe Guild Raid later. Template:
-  `capygo/tasks/_guild_template.py`.
+  Start). Template: `capygo/tasks/_guild_template.py`.
+  - **Guild hall donations** — Guild Hall → Donate, then donates 5 times (the
+    first is free, then 25 purple cubes each); the game stops you after 5. Each
+    donation is checked by the "Chances Left Today" count going down. If Donate is
+    already grey (done today), it goes straight back.
+  - Planned: Guild Trade. Maybe later: Guild Raid.
 - **Menu** (`auto_menu.py`, base: the menu drawer from the list icon under the
   profile picture). Template: `capygo/tasks/_menu_template.py`.
 

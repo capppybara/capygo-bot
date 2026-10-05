@@ -38,7 +38,7 @@ EVENTS = [  # run order
     AutoArena,
     HolyGrailWar,
     MartialArts,
-    # --- future events go here (see _event_template.py). Not built yet: ---
+    # --- future events go here (see _event_template.py). Maybe later: ---
     # Arena tab:     Seal Battle
     # (Nothing to build for Gulu Mine on the Challenge tab or the Dungeon tab: no
     # daily chores there.)

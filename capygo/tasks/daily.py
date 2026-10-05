@@ -443,7 +443,7 @@ class ChoreRunner(Task):
         ctx.log.info("to run: %s", ", ".join(c.name for c in todo))
 
         finished: list[str] = []
-        failed: list[str] = []
+        failed: dict[str, str] = {}  # chore name -> why, for the summary
         for group in self.GROUPS:
             chores = [c for c in group.chores if c in todo]
             if not chores or ctx.should_stop():
@@ -454,7 +454,8 @@ class ChoreRunner(Task):
                     break
                 ctx.log.warning("couldn't get to the %s -> skipping %s", group.base,
                                 ", ".join(c.name for c in chores))
-                failed += [c.name for c in chores]
+                for c in chores:
+                    failed[c.name] = f"not run: couldn't get to the {group.base}"
                 continue
             for i, cls in enumerate(chores):
                 if ctx.should_stop():
@@ -469,8 +470,9 @@ class ChoreRunner(Task):
                         mark_done(cls.name)
                     ctx.log.info("%s done", cls.name)
                 else:
-                    failed.append(cls.name)
                     shot = save_snapshot(ctx, f"failed-{cls.name}")
+                    failed[cls.name] = "did not finish (see the log above)" + (
+                        f"; screen saved: {shot}" if shot else "")
                     ctx.log.warning("%s did not finish; returning to the %s and moving "
                                     "on%s", cls.name, group.base,
                                     f" (screen saved: {shot})" if shot else "")
@@ -481,16 +483,43 @@ class ChoreRunner(Task):
                     ctx.log.warning("couldn't get back to the %s after %s -> skipping "
                                     "the rest of %s%s", group.base, cls.name, group.name,
                                     f" ({', '.join(c.name for c in rest)})" if rest else "")
-                    failed += [c.name for c in rest]
+                    for c in rest:
+                        failed[c.name] = f"not run: couldn't get back to the {group.base}"
                     break
 
         if not ctx.should_stop():
             self.finish(ctx)
-        ctx.log.info("%s: %d of %d done%s%s%s", self.name, len(finished), len(todo),
-                     f" ({', '.join(finished)})" if finished else "",
-                     f"; failed: {', '.join(failed)}" if failed else "",
-                     f"; skipped (already ran today): "
-                     f"{', '.join(c.name for c in skipped)}" if skipped else "")
+        self._summary(ctx, todo, finished, failed, skipped)
+
+    def _summary(self, ctx: Context, todo, finished, failed, skipped) -> None:
+        """The end-of-run summary in the log: what ran, what was skipped, and a
+        "Needs your attention" list - every flag a chore raised (things to handle
+        by hand, e.g. the arena running out of beatable opponents) and every chore
+        that failed, with its saved screen."""
+        log = ctx.log
+        log.info("==================== %s summary ====================", self.title())
+        if ctx.kill.stop:
+            log.info("Stopped early.")
+        log.info("Done %d of %d%s", len(finished), len(todo),
+                 f": {', '.join(finished)}" if finished else "")
+        if skipped:
+            log.info("Skipped, already ran today: %s", ", ".join(c.name for c in skipped))
+        attention = [[who, what] for who, what in ctx.flags]
+        for name, why in failed.items():
+            flags = [line for line in attention if line[0] == name]
+            if flags:  # its flag already says what went wrong; add the screen to it
+                shot = why.partition("screen saved: ")[2]
+                if shot:
+                    flags[-1][1] += f" (screen saved: {shot})"
+            else:
+                attention.append([name, why])
+        attention = [f"{who}: {what}" for who, what in attention]
+        if attention:
+            log.warning("Needs your attention (%d):", len(attention))
+            for line in attention:
+                log.warning("  • %s", line)
+        else:
+            log.info("Nothing needs your attention.")
 
 
 class DailyTask(Task):
@@ -560,6 +589,12 @@ class DailyTask(Task):
     # --- helpers ----------------------------------------------------------
     def wait(self, ctx: Context, seconds: float) -> bool:
         return wait(ctx, seconds)
+
+    def flag(self, ctx: Context, message: str) -> None:
+        """Something the player should handle by hand: logged now, and listed under
+        "Needs your attention" in the runner's end-of-run summary."""
+        ctx.log.warning("%s: FLAG - %s", self.name, message)
+        ctx.flags.append((self.name, message))
 
     def tap(self, ctx: Context, target: Rel | Match, what: str) -> bool:
         """Log and tap (a Rel or a found Match), then the standard ~1s pause. False

@@ -16,10 +16,12 @@ from __future__ import annotations
 from ..task import register
 from .daily import ChoreGroup, ChoreRunner, chore_params
 from .guild import go_guild
+from .guild_hall import GuildHall
 
 GUILD = [  # run order
+    GuildHall,
     # --- guild chores go here (see _guild_template.py). Not built yet: ---
-    # Guild Hall, Guild Trade (planned); maybe Guild Raid later
+    # Guild Trade (planned); maybe Guild Raid later
 ]
 
 GUILD_GROUP = ChoreGroup("Guild", GUILD, go_guild, "guild screen")

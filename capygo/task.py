@@ -116,6 +116,9 @@ class Context:
         self.dry_run = dry_run
 
         self.iteration = 0
+        # (who, what) a task wants the player to handle by hand; a runner lists them
+        # under "Needs your attention" at the end of the run.
+        self.flags: list[tuple[str, str]] = []
         self._scale = 1.0
         self._threshold = config["match"]["threshold"]
         self._click_jitter = config["safety"]["click_jitter_px"]
