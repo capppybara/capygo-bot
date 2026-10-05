@@ -16,6 +16,12 @@ def _post(event) -> None:
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
 
+def move_screen(x: float, y: float) -> None:
+    """Move the cursor to (x, y) in screen points without clicking."""
+    _post(Quartz.CGEventCreateMouseEvent(
+        None, Quartz.kCGEventMouseMoved, (float(x), float(y)), Quartz.kCGMouseButtonLeft))
+
+
 def click_screen(x: float, y: float, jitter_px: int = 0, hold: float = 0.03) -> None:
     """Move to (x, y) in screen points and left-click, with optional jitter."""
     if jitter_px:

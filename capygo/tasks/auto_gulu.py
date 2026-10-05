@@ -331,13 +331,14 @@ class AutoGulu(Task):
         """From the team screen (or a skill screen already up): every 5s look for
         a skill screen or the result. Battle 1 has two 2-pick screens, battles 2-4
         two 1-pick screens; all taps at fixed positions with the user's waits.
+        Each skill screen is handled on its own and the screen is checked again
+        right after (no 5s wait), so nothing is tapped once a screen has closed.
         Ends on the result: OK -> "victory"/"defeat". None on a stop, a timeout,
         or the team going away before a start (logged)."""
         if ctx.dry_run:
-            for _ in range(2):
-                for what, pos, after in RUN_TAPS[:6]:
-                    if not self._tap(ctx, Rel(*_rel(pos)), what, after):
-                        return None
+            for two in (True, True, False, False):
+                if not self._pick_skills(ctx, two_picks=two):
+                    return None
             return "dry run"
         started = None
         wait_start = time.time()
@@ -348,9 +349,12 @@ class AutoGulu(Task):
                 return self._dismiss_result(ctx, frame, result)
             if "choose skill" in _words(frame, CHOOSE_TITLE):
                 started = started or time.time()
-                if not self._pick_skills(ctx, two_picks=_picks(frame) == 2):
+                picks = _picks(frame)
+                ctx.log.info("auto-gulu: skill screen (%d pick%s)", picks,
+                             "s" if picks > 1 else "")
+                if not self._pick_skills(ctx, two_picks=picks == 2):
                     return None
-                continue
+                continue  # check again at once: the next screen may be up
             if started is None:
                 if not in_gulu(frame) and home_state(frame) == HOME:
                     ctx.log.info("auto-gulu: back home before a start (the host left)")
@@ -368,25 +372,39 @@ class AutoGulu(Task):
                 return None
 
     def _pick_skills(self, ctx: Context, two_picks: bool) -> bool:
-        """Both skill screens of one battle, top cards, user's waits."""
+        """ONE skill screen: the top card(s), Select, then park the cursor on the
+        top card. One screen at a time (the caller checks again before the next):
+        a run-4 batch of both screens kept tapping after the 2nd screen had
+        closed, and its last "Select" (321,833) lands inside the battle's Skills
+        button (358,818), opening the Skills panel. The parked cursor keeps a
+        stray click off that button too (user)."""
         if two_picks:
-            ctx.log.info("auto-gulu: skill screen: 2 picks x 2")
-            taps = RUN_TAPS[:6]
+            taps = [("skill (top)", SKILL_TOP, 1.0), ("skill (second)", SKILL_SECOND, 1.0)]
         else:
-            ctx.log.info("auto-gulu: skill screen: 1 pick x 2")
-            taps = [("skill", SKILL_ONE, 1.0), ("Select Skills", SELECT_BTN, 3.0)] * 2
+            taps = [("skill (top)", SKILL_ONE, 1.0)]
+        taps.append(("Select Skills", SELECT_BTN, 3.0))
         for what, pos, after in taps:
             if not self._tap(ctx, Rel(*_rel(pos)), what, after):
                 return False
+        ctx.hover_rel(Rel(*_rel(SKILL_TOP)))
         return True
 
     def _dismiss_result(self, ctx: Context, frame, result: str) -> str | None:
-        """Victory shows an OK button; the Defeat screen closes with a tap above."""
-        if "ok" in _words(frame, RESULT_OK_LABEL).split():
-            ok = self._tap(ctx, Rel(*_rel(RESULT_OK)), f"OK ({result})", 2.0)
-        else:
-            ok = self._tap(ctx, Rel(*_rel(RESULT_DISMISS)), f"dismiss ({result})", 2.0)
-        return result if ok else None
+        """Close the result screen: its OK button (Victory or Defeat, always at
+        RESULT_OK when there is one - user), else a tap above everything (the
+        quit-Defeat screen just says "Tap to close"). Retried until it's gone."""
+        for _ in range(3):
+            if "ok" in _words(frame, RESULT_OK_LABEL).split():
+                target, what = Rel(*_rel(RESULT_OK)), f"OK ({result})"
+            else:
+                target, what = Rel(*_rel(RESULT_DISMISS)), f"dismiss ({result})"
+            if not self._tap(ctx, target, what, 2.0):
+                return None
+            frame = ctx.frame()
+            if not result_title(frame):
+                return result
+        ctx.log.warning("auto-gulu: the %s screen won't close", result)
+        return None
 
     # --- step 6: run, then quit at once ----------------------------------------
     def _run_and_quit(self, ctx: Context) -> bool:

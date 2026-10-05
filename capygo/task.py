@@ -179,6 +179,16 @@ class Context:
         click_screen(sx, sy, jitter_px=self._click_jitter)
         self.log.debug("clicked %s at screen (%.0f, %.0f)", label, sx, sy)
 
+    def hover_rel(self, rel: Rel) -> None:
+        """Move the cursor to a window-relative point without clicking (e.g. to
+        park it away from a button a stray click could hit)."""
+        if self.dry_run:
+            self.log.debug("DRY-RUN hover rel(%.3f,%.3f)", rel.x, rel.y)
+            return
+        from .input import move_screen
+
+        move_screen(*self.window.to_screen(rel))
+
     def drag_rel(self, start: Rel, end: Rel, steps: int = 25, duration: float = 0.6) -> None:
         """Click-and-drag between two window-relative points (e.g. to scroll a list)."""
         b = self.window.bounds()
