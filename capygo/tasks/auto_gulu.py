@@ -15,8 +15,17 @@ Hosting (user, 2026-10-05):
   3. Invite the friend from the Friend tab (first page only, no scrolling).
   4. Every 30s, for up to 30 minutes, check whether they joined (never
      re-invite); on a timeout the task stops.
-  5-7. The run loop (stay / don't stay): NOT BUILT YET - its screens haven't
-     been captured. For now the task stops here with the team ready.
+  5. The "stay" setting (an app input) picks the loop.
+  6. Stay off: Start Challenge, pick the top two skills on both skill screens,
+     then quit the run at once: Skills (in battle) -> home (bottom-left) ->
+     "Tips: Exiting will immediately settle rewards..." OK -> dismiss the
+     "Defeat" result -> home; an occasional second confirmation gets Cancel.
+     Then back to step 2, until the number of runs is done. The skill screens
+     always look the same, so it's all fixed positions with the user's waits
+     (the Skills panel does NOT pause the run: be quick, or the next day's
+     skill picker comes up).
+  7. Stay on: NOT BUILT YET (the Victory/Defeat end of a full run hasn't been
+     captured).
 """
 
 from __future__ import annotations
@@ -30,7 +39,7 @@ import cv2
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
-from .daily import _crop, find_sprite, tap, wait
+from .daily import HOME, _crop, find_sprite, go_home, home_state, tap, wait
 from .event import TABS, go_events
 
 CARD_NAME = RelRect(0.12, 0.595, 0.50, 0.05)       # Challenge tab, 4th: "Gulu Mine"
@@ -49,6 +58,27 @@ FRIEND_TAB = Rel(0.500, 0.849)
 FRIEND_NAMES = (180, 400, 180, 640)                # px x0, x1, y0, y1: first page
 ROW_INVITE_X, ROW_INVITE_DY = 463, 18              # a row's Invite: name y + 18
 ROW_STATUS = (400, 530, -12, 48)                   # x0, x1, dy0, dy1: "Invited"
+
+# The run (px at 642x951) and the user's waits after each tap, in seconds.
+START_BTN = (217, 718)                             # "Start Challenge"
+SKILL_TOP, SKILL_SECOND = (320, 320), (320, 450)   # the top two skill cards
+SELECT_BTN = (321, 833)                            # "2/2 Select Skills"
+SKILLS_BTN = (358, 818)                            # in battle, bottom bar
+HOME_BTN = (105, 852)                              # Skills panel, bottom-left
+QUIT_OK = (210, 601)                               # "Tips: Exiting..." OK
+RESULT_DISMISS = (321, 104)                        # "Defeat" screen, above it all
+CHOOSE_TITLE = RelRect(0.25, 0.140, 0.50, 0.070)   # "Choose skill"
+TIPS_TEXT = RelRect(0.10, 0.480, 0.80, 0.075)      # "Exiting will immediately..."
+DIALOG_BUTTONS = RelRect(0.15, 0.610, 0.70, 0.045)  # a confirmation's "OK  Cancel"
+RUN_TAPS = [  # (what, position, wait after) - user's timings
+    ("skill 1", SKILL_TOP, 1.0), ("skill 2", SKILL_SECOND, 1.0),
+    ("Select Skills", SELECT_BTN, 3.0),
+    ("skill 3", SKILL_TOP, 1.0), ("skill 4", SKILL_SECOND, 1.0),
+    ("Select Skills", SELECT_BTN, 3.0),
+    ("Skills", SKILLS_BTN, 2.0), ("home", HOME_BTN, 2.0),
+]
+START_WAIT = 4.0          # user: 2s was too soon for the 1st skill pick
+HOME_TIMEOUT = 15.0
 
 JOIN_POLL = 30.0          # user: check every 30 seconds
 JOIN_TIMEOUT = 30 * 60    # user: give up after 30 minutes and stop
@@ -86,6 +116,10 @@ def partner(frame) -> str:
     return _words(frame, PARTNER_NAME) or "a partner"
 
 
+def _rel(pos: tuple[int, int]) -> tuple[float, float]:
+    return pos[0] / 642, pos[1] / 951
+
+
 def _same_name(a: str, b: str) -> bool:
     a, b = re.sub(r"\s", "", a.lower()), re.sub(r"\s", "", b.lower())
     return a == b or SequenceMatcher(None, a, b).ratio() >= NAME_MATCH
@@ -114,10 +148,62 @@ class AutoGulu(Task):
         p = self.params
         ctx.log.info("auto-gulu: hosting difficulty %d with %s, %d run(s), stay=%s",
                      p["difficulty"], p["friend"], p["runs"], p["stay"])
-        if not self._team_ready(ctx):
+        if p["stay"]:
+            ctx.log.warning("auto-gulu: the stay loop (step 7) isn't built yet -> "
+                            "stopping")
             return
-        ctx.log.info("auto-gulu: the team is ready; the run loop (steps 5-7) isn't "
-                     "built yet -> stopping here")
+        for n in range(1, p["runs"] + 1):
+            if ctx.should_stop() or not self._team_ready(ctx):
+                break
+            ctx.log.info("auto-gulu: run %d/%d", n, p["runs"])
+            if not self._run_and_quit(ctx):
+                ctx.log.warning("auto-gulu: run %d didn't finish cleanly -> stopping", n)
+                break
+            ctx.log.info("auto-gulu: run %d/%d done", n, p["runs"])
+        else:
+            ctx.log.info("auto-gulu: all %d run(s) done", p["runs"])
+
+    # --- step 6: run, then quit at once ----------------------------------------
+    def _run_and_quit(self, ctx: Context) -> bool:
+        """Start, pick the top two skills twice, quit via Skills -> home -> OK,
+        dismiss the result, and get home. Fixed positions and the user's waits."""
+        if not self._tap(ctx, Rel(*_rel(START_BTN)), "Start Challenge", START_WAIT):
+            return False
+        if not ctx.dry_run and "choose skill" not in _words(ctx.frame(), CHOOSE_TITLE):
+            ctx.log.warning("auto-gulu: no skill screen after Start")
+            return False
+        for what, pos, after in RUN_TAPS:
+            if not self._tap(ctx, Rel(*_rel(pos)), what, after):
+                return False
+        if not ctx.dry_run and "exiting" not in _words(ctx.frame(), TIPS_TEXT):
+            ctx.log.warning("auto-gulu: no exit confirmation after home")
+            return False
+        if not self._tap(ctx, Rel(*_rel(QUIT_OK)), "OK (leave the run)", 2.0):
+            return False
+        if not self._second_confirmation(ctx):
+            return False
+        if not self._tap(ctx, Rel(*_rel(RESULT_DISMISS)), "dismiss the result", 2.0):
+            return False
+        if ctx.dry_run:
+            return True
+        end = time.time() + HOME_TIMEOUT
+        while time.time() < end:
+            if home_state(ctx.frame()) == HOME:
+                return True
+            if not self._second_confirmation(ctx):
+                return False
+            if wait(ctx, 0.5):
+                return False
+        ctx.log.warning("auto-gulu: not home after leaving the run; backing out")
+        return go_home(ctx)
+
+    def _second_confirmation(self, ctx: Context) -> bool:
+        """User: an occasional second confirmation shows up; its button sits about
+        where the first one's OK was, so if a dialog's buttons are showing, tap
+        that spot. False only on a stop."""
+        if ctx.dry_run or "cancel" not in _words(ctx.frame(), DIALOG_BUTTONS):
+            return True
+        return self._tap(ctx, Rel(*_rel(QUIT_OK)), "second confirmation", 2.0)
 
     # --- steps 1-4 ----------------------------------------------------------
     def _team_ready(self, ctx: Context) -> bool:
@@ -209,7 +295,7 @@ class AutoGulu(Task):
         sx0, sx1, dy0, dy1 = ROW_STATUS
         status = " ".join(t for t, _, _ in ocr_lines(ctx.frame()[
             int((name_y + dy0) * ky):int((name_y + dy1) * ky), int(sx0 * kx):int(sx1 * kx)]))
-        if "invited" not in status.lower():
+        if "vited" not in status.lower():  # OCR has read "Invited" as "Unvited"
             ctx.log.warning("auto-gulu: %s's row reads %r, not Invited", friend, status)
         return self._close_popup(ctx)
 
@@ -247,11 +333,12 @@ class AutoGulu(Task):
             return False
         return self._tap(ctx, x, "close the invitation popup")
 
-    def _tap(self, ctx: Context, target, what: str) -> bool:
+    def _tap(self, ctx: Context, target, what: str, after: float = 1.0) -> bool:
+        """Log, tap, then wait `after` seconds. False if a stop was requested."""
         if ctx.should_stop():
             return False
         ctx.log.info("auto-gulu: tap %s", what)
-        return tap(ctx, target)
+        return tap(ctx, target, after)
 
     def _until(self, ctx: Context, check, timeout: float = OPEN_TIMEOUT) -> bool:
         end = time.time() + timeout
