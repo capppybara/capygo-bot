@@ -5,6 +5,7 @@ Add a new task module here so its @register decorator runs.
 
 from . import auto_daily  # noqa: F401
 from . import auto_events  # noqa: F401
+from . import auto_gulu  # noqa: F401
 from . import auto_guild  # noqa: F401
 from . import auto_menu  # noqa: F401
 from . import compare_guild_power  # noqa: F401
