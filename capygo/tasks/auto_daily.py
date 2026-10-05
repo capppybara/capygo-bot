@@ -42,12 +42,13 @@ from .auto_menu import MENU_GROUP
 from .daily import ChoreGroup, ChoreRunner, chore_params, go_home
 from .daily_adventure_assistant import AdventureAssistant
 from .daily_calendar import ClaimCalendar
+from .daily_capymon import Capymon
 from .daily_claim_cards import ClaimCards
 from .daily_energy_claim import EnergyClaim
 from .daily_shop import DailyShop
 
 DAILIES = [EnergyClaim, AdventureAssistant, DailyShop, ClaimCards,
-           ClaimCalendar]  # run order
+           ClaimCalendar, Capymon]  # run order
 
 
 @register("auto-daily")

@@ -192,6 +192,15 @@ it; otherwise it taps the back arrow at the bottom-left. Failed dailies are list
 the log at the end. If it still can't reach the home screen, it skips the rest of the
 dailies and goes on to the events.
 
+**Capymon** (`capymon`, the last daily): Equip (helmet) → Capymon. On the Card
+Table: the gift pack's free welfare package (AD) and the Gem Work Gift Pack (500
+purple cubes), found by their row titles (sold-out packs move down the list, so
+positions can't be trusted); "Draw 10 times" until the game won't (tickets, then
+the day's purple-cube draws), skipping each animation; then every points-bar chest
+with a red "!". Then Capy Grand Voyage → Travel: collect a finished travel, and
+send the team again for 20 hours (24h preset, minus once, Quick, Dispatch). The
+voyage map's adventure button goes home.
+
 Each daily runs once per game day, and each tracks that on its own. The game day
 resets at midnight UTC (5 PM Pacific in summer, 4 PM in winter). If you press Start
 and a switched-on daily already ran today, the app asks first: **Run again**, **Skip
@@ -276,7 +285,7 @@ Maybe later: Seal Battle (Arena tab). Gulu Mine (Challenge tab) and the Dungeon 
 have no daily chores. To add an event, copy `capygo/tasks/_event_template.py` and add it
 to the list in `auto_events.py`.
 
-Two more groups are set up, with no chores yet, so they show nothing in the app:
+Two more groups:
 
 - **Guild** (`auto_guild.py`, base: the guild screen from the "Guild" button left of
   Start). Template: `capygo/tasks/_guild_template.py`.
@@ -296,6 +305,15 @@ Two more groups are set up, with no chores yet, so they show nothing in the app:
   - Maybe later: Guild Raid.
 - **Menu** (`auto_menu.py`, base: the menu drawer from the list icon under the
   profile picture). Template: `capygo/tasks/_menu_template.py`.
+  - **Log In reward** — Log In → the 7-day sign-in panel: taps the day whose
+    header reads "Claim", dismisses the reward, closes the panel. Nothing to claim
+    (already done today) → just closes it.
+  - **Black Market deals** — buys Silver Chest, Gold Chest, Pet Chest, Gold Key,
+    Pet Egg and Gold Horseshoe only when their value tag is 40% or more (read
+    twice; both reads must agree), skips anything already bought, and claims the
+    free gold at the bottom. Cards are found by title while it scrolls, one row at
+    a time; a wanted card it never finds is flagged in the summary.
+  - Placeholder: **Tasks** (3rd in the menu), to build later.
 
 Auto Daily runs the groups in this order: Dailies, Events, Guild, Menu.
 

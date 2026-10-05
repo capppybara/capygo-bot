@@ -10,6 +10,7 @@ from . import auto_menu  # noqa: F401
 from . import compare_guild_power  # noqa: F401
 from . import daily_adventure_assistant  # noqa: F401
 from . import daily_calendar  # noqa: F401
+from . import daily_capymon  # noqa: F401
 from . import daily_claim_cards  # noqa: F401
 from . import daily_energy_claim  # noqa: F401
 from . import daily_shop  # noqa: F401
@@ -21,6 +22,8 @@ from . import event_martial_arts  # noqa: F401
 from . import event_tower_challenge  # noqa: F401
 from . import get_guild_member_list  # noqa: F401
 from . import goblin_miner  # noqa: F401
+from . import menu_black_market  # noqa: F401
+from . import menu_login  # noqa: F401
 from . import guild_hall  # noqa: F401
 from . import guild_trade  # noqa: F401
 from . import hard_mode_autorun  # noqa: F401

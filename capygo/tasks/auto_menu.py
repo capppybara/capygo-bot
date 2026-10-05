@@ -18,9 +18,15 @@ from __future__ import annotations
 from ..task import register
 from .daily import ChoreGroup, ChoreRunner, chore_params
 from .menu import go_menu
+from .menu_black_market import BlackMarket
+from .menu_login import LoginClaim
 
 MENU = [  # run order
-    # --- menu chores go here (see _menu_template.py). None built yet. ---
+    LoginClaim,
+    BlackMarket,
+    # --- menu chores go here (see _menu_template.py) ---
+    # PLACEHOLDER: Tasks (3rd item in the drawer) - to build later (user,
+    # 2026-10-04: "put placeholder for tasks for now we'll get back to it").
 ]
 
 MENU_GROUP = ChoreGroup("Menu", MENU, go_menu, "menu")
