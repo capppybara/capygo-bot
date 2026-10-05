@@ -13,7 +13,7 @@ Hosting (user, 2026-10-05):
   1. Already on the Gulu team screen at this difficulty with a partner -> step 5.
   2. Otherwise enter Gulu and pick the difficulty (tap ◀ down from the max).
   3. Invite the friend from the Friend tab (first page only, no scrolling).
-  4. Every 30s, for up to 30 minutes, check whether they joined (never
+  4. Every 10s, for up to 30 minutes, check whether they joined (never
      re-invite); on a timeout the task stops.
   5. The "stay" setting (an app input) picks the loop.
   6. Stay off: Start Challenge, pick the top two skills on both skill screens,
@@ -80,7 +80,7 @@ RUN_TAPS = [  # (what, position, wait after) - user's timings
 START_WAIT = 4.0          # user: 2s was too soon for the 1st skill pick
 HOME_TIMEOUT = 15.0
 
-JOIN_POLL = 30.0          # user: check every 30 seconds
+JOIN_POLL = 10.0          # user: check every 10 seconds (was 30)
 JOIN_TIMEOUT = 30 * 60    # user: give up after 30 minutes and stop
 NAME_MATCH = 0.8
 SETTLE = 1.0
@@ -300,7 +300,7 @@ class AutoGulu(Task):
         return self._close_popup(ctx)
 
     def _wait_join(self, ctx: Context) -> bool:
-        """Check every 30s, up to 30 minutes, for a partner; never re-invite."""
+        """Check every 10s, up to 30 minutes, for a partner; never re-invite."""
         if ctx.dry_run:
             return True
         start = time.time()
