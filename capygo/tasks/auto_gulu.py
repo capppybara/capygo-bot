@@ -185,9 +185,8 @@ def _same_name(a: str, b: str) -> bool:
 class AutoGulu(Task):
     TITLE = "Auto Gulu"
     ICON = "💎"
-    DESCRIPTION = ("Gulu Mine with a friend. Hosting: enter Gulu at your difficulty, "
-                   "invite your friend, wait for them, and run it the number of times "
-                   "you set.")
+    DESCRIPTION = ("Gulu Mine with a friend, the number of times you set. Host: enter "
+                   "Gulu at your difficulty and invite them. Join: accept their invite.")
     START_HINT = ("Start anywhere in the game. If you're already on the Gulu team "
                   "screen with your friend in it, it carries on from there.")
     PARAMS = [
