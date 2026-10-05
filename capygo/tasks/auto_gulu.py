@@ -1,4 +1,4 @@
-"""Task: auto-gulu (Gulu Mine with a friend). HOSTING mode; joining comes later.
+"""Task: auto-gulu (Gulu Mine with a friend): hosting, or joining (the Join switch).
 
 Gulu Mine is reached from home: Events -> Challenge tab -> the 4th card "Gulu
 Mine" -> a panel that always opens on your highest unlocked difficulty ("28
@@ -26,6 +26,22 @@ Hosting (user, 2026-10-05):
      skill picker comes up).
   7. Stay on: NOT BUILT YET (the Victory/Defeat end of a full run hasn't been
      captured).
+
+Joining (user, 2026-10-05):
+  Already on a Gulu team screen -> carry on. Otherwise, every 10s for up to 30
+  minutes: find the "New Invitation" banner (right edge) -> open it ("Team
+  Invitation") -> make sure the mode selector (top-left) says Gulu Mine, else
+  open it and pick the top option (Gulu Mine is always first) -> find the
+  friend's invite -> tap its ✓. No banner / no invite from the friend: close it,
+  wait 10s, look again. Never the ✗, "Reject all", or the "No longer show
+  invitation messages" box.
+  Then the run, always played to the end: every 5s look for a skill screen or
+  the result. Battle 1 has two screens of 2 picks (the hosting positions and
+  waits); battles 2-4 have two screens of 1 pick (the top of 3 cards). The
+  result: Victory has an OK button; Defeat closes with a tap. Where that leaves
+  you says whether the host stayed: the Gulu team screen -> wait (5s checks) for
+  the host's next start, which brings battle 1's 2x2 picks again; home -> the
+  invitation flow. Repeat until the number of runs is done.
 """
 
 from __future__ import annotations
@@ -80,6 +96,27 @@ RUN_TAPS = [  # (what, position, wait after) - user's timings
 START_WAIT = 4.0          # user: 2s was too soon for the 1st skill pick
 HOME_TIMEOUT = 15.0
 
+# Joining: the invitation banner and popup
+BANNER_BAND = (420, 642, 450, 700)                 # px x0, x1, y0, y1: "New Invitation"
+BANNER_DY = 13                                     # tap a bit below its label
+INVITES_TITLE = RelRect(0.28, 0.179, 0.42, 0.042)  # "Team Invitation"
+MODE_LABEL = RelRect(0.218, 0.240, 0.25, 0.032)    # the selector: "Gulu Mine"
+MODE_SELECTOR = (220, 240)
+MODE_TOP_OPTION = (220, 277)                       # drop-down: Gulu Mine is always first
+INVITE_NAMES = (180, 380, 260, 640)                # px x0, x1, y0, y1: host names
+ACCEPT_X, ACCEPT_DY = 476, 21                      # a card's ✓: host name y + 21
+# Joining: the run
+SKILL_ONE = (320, 385)                             # 1-pick screens: the top of 3 cards
+PICK_COUNT = RelRect(0.31, 0.845, 0.38, 0.060)     # "0/2 Select Skills" / "0/1 ..."
+RESULT_TITLE = RelRect(0.25, 0.385, 0.50, 0.065)   # "Victory" / "Defeat"
+RESULT_OK = (320, 812)                             # Victory screen's OK
+RESULT_OK_LABEL = RelRect(0.35, 0.830, 0.30, 0.050)
+SKILL_POLL = 5.0          # user: look for the skill screen every 5 seconds
+START_TIMEOUT = 30 * 60   # waiting for the host to start
+RUN_TIMEOUT = 15 * 60     # a run that has started should end well before this
+INVITE_POLL = 10.0        # user: look again every 10 seconds
+INVITE_TIMEOUT = 30 * 60  # user: give up after 30 minutes
+
 JOIN_POLL = 10.0          # user: check every 10 seconds (was 30)
 JOIN_TIMEOUT = 30 * 60    # user: give up after 30 minutes and stop
 NAME_MATCH = 0.8
@@ -116,6 +153,23 @@ def partner(frame) -> str:
     return _words(frame, PARTNER_NAME) or "a partner"
 
 
+def in_gulu(frame) -> bool:
+    """On a Gulu team screen, or a Gulu skill screen (the host already started)."""
+    return team_level(frame) is not None or "choose skill" in _words(frame, CHOOSE_TITLE)
+
+
+def result_title(frame) -> str:
+    """ "victory" / "defeat" while a run's result screen is up, else ""."""
+    text = _words(frame, RESULT_TITLE)
+    return next((r for r in ("victory", "defeat") if r in text), "")
+
+
+def _picks(frame) -> int:
+    """How many skills this screen wants (2 on battle 1's screens, else 1)."""
+    m = re.search(r"/\s*(\d)", _words(frame, PICK_COUNT))
+    return int(m.group(1)) if m else 1
+
+
 def _rel(pos: tuple[int, int]) -> tuple[float, float]:
     return pos[0] / 642, pos[1] / 951
 
@@ -135,17 +189,24 @@ class AutoGulu(Task):
     START_HINT = ("Start anywhere in the game. If you're already on the Gulu team "
                   "screen with your friend in it, it carries on from there.")
     PARAMS = [
-        Param("difficulty", "int", 25, "Difficulty", min=1, max=999,
-              help="Gulu Mine difficulty to host (the panel opens on your max)"),
-        Param("friend", "str", "pinkdolly", "Friend to invite",
-              help="their name on your Friend list (first page)"),
+        Param("join", "bool", False, "Join instead of host",
+              help="on: wait for the friend's invite and join it; off: host"),
+        Param("friend", "str", "pinkdolly", "Friend",
+              help="hosting: who to invite; joining: whose invite to accept"),
         Param("runs", "int", 4, "Runs", min=1, max=100),
-        Param("stay", "bool", False, "Stay",
+        Param("difficulty", "int", 25, "Difficulty (hosting)", min=1, max=999,
+              help="Gulu Mine difficulty to host (the panel opens on your max)"),
+        Param("stay", "bool", False, "Stay (hosting)",
               help="hosting: stay in the run to the end instead of quitting it"),
     ]
 
     def run(self, ctx: Context) -> None:
         p = self.params
+        if p["join"]:
+            ctx.log.info("auto-gulu: joining %s's Gulu, %d run(s)", p["friend"],
+                         p["runs"])
+            self._join_loop(ctx)
+            return
         ctx.log.info("auto-gulu: hosting difficulty %d with %s, %d run(s), stay=%s",
                      p["difficulty"], p["friend"], p["runs"], p["stay"])
         if p["stay"]:
@@ -162,6 +223,170 @@ class AutoGulu(Task):
             ctx.log.info("auto-gulu: run %d/%d done", n, p["runs"])
         else:
             ctx.log.info("auto-gulu: all %d run(s) done", p["runs"])
+
+    # --- joining: find and accept the friend's invite ----------------------------
+    def _join(self, ctx: Context) -> bool:
+        """Accept the friend's Gulu invite: look every 10s, up to 30 minutes."""
+        if ctx.dry_run:
+            return self._accept_from_popup(ctx, Rel(0.810, 0.595)) is not False
+        if in_gulu(ctx.frame()):
+            ctx.log.info("auto-gulu: already in Gulu")
+            return True
+        start = time.time()
+        next_note = start + 300
+        while time.time() - start < INVITE_TIMEOUT:
+            frame = ctx.frame()
+            already_open = "invitation" in _words(frame, INVITES_TITLE)
+            banner = None if already_open else self._find_banner(frame)
+            if already_open or banner is not None:
+                result = self._accept_from_popup(ctx, banner)
+                if result is None:   # a stop, or it couldn't get back
+                    return False
+                if result:
+                    return True
+            if time.time() >= next_note:
+                next_note += 300
+                ctx.log.info("auto-gulu: still waiting for %s's invite (%.0f min)",
+                             self.params["friend"], (time.time() - start) / 60)
+            if wait(ctx, INVITE_POLL):
+                return False
+        ctx.log.warning("auto-gulu: no invite from %s in %d minutes -> stopping",
+                        self.params["friend"], INVITE_TIMEOUT // 60)
+        return False
+
+    @staticmethod
+    def _find_banner(frame) -> Rel | None:
+        """Where to tap the "New Invitation" banner, if it's showing."""
+        h, w = frame.shape[:2]
+        kx, ky = w / 642, h / 951
+        x0, x1, y0, y1 = BANNER_BAND
+        crop = frame[int(y0 * ky):int(y1 * ky), int(x0 * kx):int(x1 * kx)]
+        for t, cx, cy in ocr_lines(crop):
+            if "invitation" in t.lower():
+                return Rel((cx / kx + x0) / 642, (cy / ky + y0 + BANNER_DY) / 951)
+        return None
+
+    def _accept_from_popup(self, ctx: Context, banner: Rel | None) -> bool | None:
+        """Open the invitations (banner None = already open), make sure they're
+        Gulu Mine's, and accept the friend's. True = joined; False = no invite
+        from them (popup closed); None = a stop or a problem (logged)."""
+        friend = self.params["friend"]
+        if banner is not None and not self._tap(ctx, banner, "New Invitation"):
+            return None
+        if ctx.dry_run:
+            return True
+        if not self._until(ctx, lambda: "invitation" in _words(ctx.frame(), INVITES_TITLE)):
+            ctx.log.warning("auto-gulu: the Team Invitation popup didn't open")
+            return None
+        if "gulu" not in _words(ctx.frame(), MODE_LABEL):
+            if not (self._tap(ctx, Rel(*_rel(MODE_SELECTOR)), "mode selector")
+                    and self._tap(ctx, Rel(*_rel(MODE_TOP_OPTION)), "Gulu Mine (top)")):
+                return None
+            if "gulu" not in _words(ctx.frame(), MODE_LABEL):
+                ctx.log.warning("auto-gulu: couldn't switch the invitations to Gulu "
+                                "Mine")
+                return None if not self._close_popup(ctx) else False
+        frame = ctx.frame()
+        h, w = frame.shape[:2]
+        kx, ky = w / 642, h / 951
+        x0, x1, y0, y1 = INVITE_NAMES
+        crop = frame[int(y0 * ky):int(y1 * ky), int(x0 * kx):int(x1 * kx)]
+        name_y = next((cy / ky + y0 for t, _, cy in ocr_lines(crop)
+                       if _same_name(t, friend)), None)
+        if name_y is None:
+            ctx.log.info("auto-gulu: no Gulu invite from %s yet", friend)
+            return False if self._close_popup(ctx) else None
+        if not self._tap(ctx, Rel(ACCEPT_X / 642, (name_y + ACCEPT_DY) / 951),
+                         f"accept {friend}'s invite (✓)"):
+            return None
+        # the host may start at once, so the skill screen counts as joined too
+        if not self._until(ctx, lambda: in_gulu(ctx.frame())):
+            ctx.log.warning("auto-gulu: accepted, but no Gulu team screen")
+            return None
+        ctx.log.info("auto-gulu: joined %s's team", friend)
+        return True
+
+    # --- joining: play each run to the end ---------------------------------------
+    def _join_loop(self, ctx: Context) -> None:
+        """User: the joiner always finishes the run. Where the result screen leaves
+        it tells whether the host stayed (no setting needed): back on the Gulu
+        team screen -> wait for the host's next start; home -> the invitation
+        flow (_join skips it when already in Gulu)."""
+        runs = self.params["runs"]
+        done = 0
+        while done < runs and not ctx.should_stop():
+            if not self._join(ctx):
+                return
+            result = self._play_joined_run(ctx)
+            if result is None:
+                return
+            done += 1
+            ctx.log.info("auto-gulu: run %d/%d done (%s)", done, runs, result)
+            if done < runs and not ctx.dry_run and wait(ctx, 2.0):
+                return
+        if done >= runs:
+            ctx.log.info("auto-gulu: all %d run(s) done", runs)
+
+    def _play_joined_run(self, ctx: Context) -> str | None:
+        """From the team screen (or a skill screen already up): every 5s look for
+        a skill screen or the result. Battle 1 has two 2-pick screens, battles 2-4
+        two 1-pick screens; all taps at fixed positions with the user's waits.
+        Ends on the result: OK -> "victory"/"defeat". None on a stop, a timeout,
+        or the team going away before a start (logged)."""
+        if ctx.dry_run:
+            for _ in range(2):
+                for what, pos, after in RUN_TAPS[:6]:
+                    if not self._tap(ctx, Rel(*_rel(pos)), what, after):
+                        return None
+            return "dry run"
+        started = None
+        wait_start = time.time()
+        while True:
+            frame = ctx.frame()
+            result = result_title(frame)
+            if result:
+                return self._dismiss_result(ctx, frame, result)
+            if "choose skill" in _words(frame, CHOOSE_TITLE):
+                started = started or time.time()
+                if not self._pick_skills(ctx, two_picks=_picks(frame) == 2):
+                    return None
+                continue
+            if started is None:
+                if not in_gulu(frame) and home_state(frame) == HOME:
+                    ctx.log.info("auto-gulu: back home before a start (the host left)")
+                    return None if self._join(ctx) is False else \
+                        self._play_joined_run(ctx)
+                if time.time() - wait_start >= START_TIMEOUT:
+                    ctx.log.warning("auto-gulu: the host didn't start in %d minutes",
+                                    START_TIMEOUT // 60)
+                    return None
+            elif time.time() - started >= RUN_TIMEOUT:
+                self.flag(ctx, f"a joined run didn't end within {RUN_TIMEOUT // 60} "
+                               "minutes. Check the game.")
+                return None
+            if wait(ctx, SKILL_POLL):
+                return None
+
+    def _pick_skills(self, ctx: Context, two_picks: bool) -> bool:
+        """Both skill screens of one battle, top cards, user's waits."""
+        if two_picks:
+            ctx.log.info("auto-gulu: skill screen: 2 picks x 2")
+            taps = RUN_TAPS[:6]
+        else:
+            ctx.log.info("auto-gulu: skill screen: 1 pick x 2")
+            taps = [("skill", SKILL_ONE, 1.0), ("Select Skills", SELECT_BTN, 3.0)] * 2
+        for what, pos, after in taps:
+            if not self._tap(ctx, Rel(*_rel(pos)), what, after):
+                return False
+        return True
+
+    def _dismiss_result(self, ctx: Context, frame, result: str) -> str | None:
+        """Victory shows an OK button; the Defeat screen closes with a tap above."""
+        if "ok" in _words(frame, RESULT_OK_LABEL).split():
+            ok = self._tap(ctx, Rel(*_rel(RESULT_OK)), f"OK ({result})", 2.0)
+        else:
+            ok = self._tap(ctx, Rel(*_rel(RESULT_DISMISS)), f"dismiss ({result})", 2.0)
+        return result if ok else None
 
     # --- step 6: run, then quit at once ----------------------------------------
     def _run_and_quit(self, ctx: Context) -> bool:
