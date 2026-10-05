@@ -284,7 +284,15 @@ Two more groups are set up, with no chores yet, so they show nothing in the app:
     first is free, then 25 purple cubes each); the game stops you after 5. Each
     donation is checked by the "Chances Left Today" count going down. If Donate is
     already grey (done today), it goes straight back.
-  - Planned: Guild Trade. Maybe later: Guild Raid.
+  - **Guild trade plunder** — Guild Trade → Others' Trades (the Plunder sea), then
+    plunders until "Looted today" reaches 4/4. It looks for gilded boats (gold
+    barge with a crown; it taps the hull, not the owner's avatar above it) and
+    golden boats (orange sail) on the map, then checks the selected boat's panel:
+    the banner must be UR orange (the map sometimes shows gold wrongly), not
+    already plundered, power under 6T, and a golden chest or 200 badges in the
+    first 2 cargo slots. It skips the fight like the arena; a lost fight just moves
+    on. No suitable boat → the free Refresh (up to 30 times, then it flags it).
+  - Maybe later: Guild Raid.
 - **Menu** (`auto_menu.py`, base: the menu drawer from the list icon under the
   profile picture). Template: `capygo/tasks/_menu_template.py`.
 

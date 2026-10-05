@@ -22,5 +22,6 @@ from . import event_tower_challenge  # noqa: F401
 from . import get_guild_member_list  # noqa: F401
 from . import goblin_miner  # noqa: F401
 from . import guild_hall  # noqa: F401
+from . import guild_trade  # noqa: F401
 from . import hard_mode_autorun  # noqa: F401
 from . import pet_armament_chest  # noqa: F401
