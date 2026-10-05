@@ -112,6 +112,7 @@ RESULT_TITLE = RelRect(0.25, 0.385, 0.50, 0.065)   # "Victory" / "Defeat"
 RESULT_OK = (320, 812)                             # Victory screen's OK
 RESULT_OK_LABEL = RelRect(0.35, 0.830, 0.30, 0.050)
 SKILL_POLL = 5.0          # user: look for the skill screen every 5 seconds
+SKILL_SETTLE = 2.0        # user: wait 2s after spotting a skill screen, then pick
 START_TIMEOUT = 30 * 60   # waiting for the host to start
 RUN_TIMEOUT = 15 * 60     # a run that has started should end well before this
 INVITE_POLL = 10.0        # user: look again every 10 seconds
@@ -164,10 +165,11 @@ def result_title(frame) -> str:
     return next((r for r in ("victory", "defeat") if r in text), "")
 
 
-def _picks(frame) -> int:
-    """How many skills this screen wants (2 on battle 1's screens, else 1)."""
-    m = re.search(r"/\s*(\d)", _words(frame, PICK_COUNT))
-    return int(m.group(1)) if m else 1
+def _picks(frame) -> tuple[int, int] | None:
+    """The Select button's "picked/wanted" ("0/2 Select Skills" -> (0, 2)); None
+    if unreadable. Wanted is 2 on battle 1's screens, else 1."""
+    m = re.search(r"(\d)\s*/\s*(\d)", _words(frame, PICK_COUNT))
+    return (int(m.group(1)), int(m.group(2))) if m else None
 
 
 def _rel(pos: tuple[int, int]) -> tuple[float, float]:
@@ -350,11 +352,24 @@ class AutoGulu(Task):
             if "choose skill" in _words(frame, CHOOSE_TITLE):
                 started = started or time.time()
                 picks = _picks(frame)
-                ctx.log.info("auto-gulu: skill screen (%d pick%s)", picks,
-                             "s" if picks > 1 else "")
-                if not self._pick_skills(ctx, two_picks=picks == 2):
+                # Only a FRESH screen (0 picked). After Select the screen can stay
+                # up a moment (waiting for the teammate) reading "2/2"/"1/1";
+                # re-picking that un-picked the cards and its Select could land on
+                # the battle's Skills button once the screen closed.
+                if picks is not None and picks[0] == 0:
+                    ctx.log.info("auto-gulu: skill screen (%d pick%s)", picks[1],
+                                 "s" if picks[1] > 1 else "")
+                    # user: the first pick was missed - the cards were still
+                    # coming in; let the screen settle first (hosting waits 4s
+                    # after Start for the same reason)
+                    if wait(ctx, SKILL_SETTLE):
+                        return None
+                    if not self._pick_skills(ctx, two_picks=picks[1] == 2):
+                        return None
+                    continue  # check again at once: the next screen may be up
+                if wait(ctx, 1.0):  # picked already, or unreadable: look again soon
                     return None
-                continue  # check again at once: the next screen may be up
+                continue
             if started is None:
                 if not in_gulu(frame) and home_state(frame) == HOME:
                     ctx.log.info("auto-gulu: back home before a start (the host left)")
@@ -382,10 +397,17 @@ class AutoGulu(Task):
             taps = [("skill (top)", SKILL_TOP, 1.0), ("skill (second)", SKILL_SECOND, 1.0)]
         else:
             taps = [("skill (top)", SKILL_ONE, 1.0)]
-        taps.append(("Select Skills", SELECT_BTN, 3.0))
         for what, pos, after in taps:
             if not self._tap(ctx, Rel(*_rel(pos)), what, after):
                 return False
+        # Never tap Select unless the skill screen is still up: Select sits inside
+        # the battle's Skills button.
+        if not ctx.dry_run and "choose skill" not in _words(ctx.frame(), CHOOSE_TITLE):
+            ctx.log.info("auto-gulu: the skill screen closed before Select")
+            ctx.hover_rel(Rel(*_rel(SKILL_TOP)))
+            return True
+        if not self._tap(ctx, Rel(*_rel(SELECT_BTN)), "Select Skills", 3.0):
+            return False
         ctx.hover_rel(Rel(*_rel(SKILL_TOP)))
         return True
 
