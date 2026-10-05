@@ -60,6 +60,8 @@ class AutoDaily(ChoreRunner):
     START_HINT = ("Start on the main Adventure screen. If the capy switch next to "
                   "Start is red, the bot taps it back to blue first.")
 
+    # Menu must stay LAST (user): it runs after capymon and everything else, so the
+    # daily tasks those chores complete are there to claim.
     GROUPS = [ChoreGroup("Dailies", DAILIES, go_home, "home screen"), EVENTS_GROUP,
               GUILD_GROUP, MENU_GROUP]
     PARAMS = chore_params(GROUPS)
