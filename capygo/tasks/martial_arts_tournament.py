@@ -42,11 +42,12 @@ import cv2
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
-from .daily import (_crop, find_sprite, go_home, restart_game, save_snapshot, tap,
-                    tap_to_close_up, wait)
+from .daily import (_crop, find_sprite, go_home, save_snapshot, tap, tap_to_close_up,
+                    wait)
 from .event import TABS, go_events
 from .event_arena import OK_BTN, OK_LABEL, RESULT_TITLE, SKIP_BTN, _power, fight_up
 from .event_martial_arts import MartialArts
+from .restart import restart_game
 
 HALL_TITLE = RelRect(0.30, 0.070, 0.40, 0.050)     # "Martial Arts Hall"
 SCHEDULE_BTN = Rel(0.671, 0.955)
@@ -308,7 +309,8 @@ class MartialArtsTournament(Task):
                     ctx.log.warning("martial: stuck, and no time left to restart")
                     break
                 self.restarts += 1
-                if not (restart_game(ctx) and self._open_qualifiers(ctx)):
+                if not (restart_game(ctx, "the fight is stuck")
+                        and self._open_qualifiers(ctx)):
                     break
                 continue
             if result is None:

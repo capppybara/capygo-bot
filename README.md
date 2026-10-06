@@ -436,7 +436,7 @@ needs no UI changes.
 ```
 run.py                      command-line entry point (runs one task)
 run.sh                      launcher: the app with no arguments, a task with arguments
-config.yaml                 window owner name, match threshold, stop key
+config.yaml                 window owner name, app path, match threshold, stop key
 capygo/
   window.py                 find the game window and its position
   capture.py                capture the window as an image
@@ -449,6 +449,7 @@ capygo/
   tasks/
     auto_daily.py           Auto Daily: the four groups and their order
     daily.py                shared chore engine: going home, once-a-day, summary
+    restart.py              kill the game, open it again, close the start-up notices
     daily_*.py              the Dailies
     event.py, event_*.py    the Events screen and each event
     guild.py, guild_*.py    the guild screen and each guild chore
@@ -487,6 +488,7 @@ setting, `-n` is a dry run, and `--list` shows every task and its settings.
 ./run.sh martial-arts-tournament -p my_cp=5.23 -p ratio=1.1
 ./run.sh martial-arts-tournament -p sniping=true   # waits for 6:50 AM Pacific
 ./run.sh pet-armament-chest -p runs=20 -n
+./run.sh restart-game                      # kill the game, reopen it, get to home
 ```
 
 Manual setup, instead of `run.sh`:
@@ -525,6 +527,12 @@ python -m ui.app
 Each `Param` becomes an input in the app and a `-p key=value` flag. `Context`
 gives you `frame()`, `find()`, `click_rel()`, `click_match()`, `drag_rel()`,
 `hover_rel()` and `should_stop()`.
+
+If the game gets stuck, `restart_game(ctx, reason)` from `capygo/tasks/restart.py`
+kills it, opens it again, and closes each start-up notice until the home screen
+stays clear for 3 seconds. It returns True once home. Its steps are public too:
+`quit_game`, `launch_game` (also starts a game that isn't running) and
+`wait_for_home`.
 
 ### Adding an Auto Daily chore
 

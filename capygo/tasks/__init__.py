@@ -27,6 +27,7 @@ from . import martial_arts_tournament  # noqa: F401
 from . import menu_black_market  # noqa: F401
 from . import menu_login  # noqa: F401
 from . import menu_tasks  # noqa: F401
+from . import restart  # noqa: F401
 from . import guild_hall  # noqa: F401
 from . import guild_trade  # noqa: F401
 from . import hard_mode_autorun  # noqa: F401
