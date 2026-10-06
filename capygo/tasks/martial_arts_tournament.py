@@ -59,8 +59,9 @@ SCROLL_UP = ((116, 300), (116, 560))
 
 REFRESHES = 5             # user: up to 5, paid or free
 RATIO_STEP = Decimal("0.1")
-SNIPE_UTC = (13, 50)      # user: 6:50 AM Pacific in summer
-CUTOFF_UTC = (13, 55)     # no challenges in the last 5 minutes
+SNIPE_UTC = "13:50"       # user: 6:50 AM Pacific in summer (a hidden setting)
+WINDOW = timedelta(minutes=5)  # the snipe time to the cutoff (no challenges in
+                               # the round's last 5 minutes)
 CUTOFF_MARGIN = 20        # don't start a fight this close to the cutoff
 FIGHT_TIMEOUT = 15.0
 FIGHT_SETTLE = 2.0        # user (arena): a couple of seconds before Skip
@@ -141,10 +142,12 @@ def best(foes: list[Foe], cap: Decimal) -> Foe | None:
     return max(ok, key=lambda f: (f.points, -f.power), default=None)
 
 
-def next_snipe(now: datetime | None = None) -> datetime:
-    """The next 13:50 UTC (6:50 AM Pacific in summer, 5:50 AM in winter)."""
+def next_snipe(hhmm: str = SNIPE_UTC, now: datetime | None = None) -> datetime:
+    """The next time `hhmm` (UTC) comes round. 13:50 UTC = 6:50 AM Pacific in
+    summer, 5:50 AM in winter."""
+    hour, minute = (int(v) for v in hhmm.strip().split(":"))
     now = now or datetime.now(timezone.utc)
-    t = now.replace(hour=SNIPE_UTC[0], minute=SNIPE_UTC[1], second=0, microsecond=0)
+    t = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     return t if t > now else t + timedelta(days=1)
 
 
@@ -167,6 +170,8 @@ class MartialArtsTournament(Task):
         Param("sniping", "bool", False, "Sniping mode",
               help="wait for 6:50 AM Pacific (13:50 UTC) and use every attack then"),
         Param("max_attacks", "int", 0, "Max attacks (0 = all)", min=0, max=99),
+        Param("snipe_utc", "str", SNIPE_UTC, "Snipe time (UTC, HH:MM)", hidden=True,
+              help="for tests: -p snipe_utc=HH:MM; the cutoff is 5 minutes later"),
     ]
 
     def run(self, ctx: Context) -> None:
@@ -174,12 +179,13 @@ class MartialArtsTournament(Task):
         cp = Decimal(str(p["my_cp"]))
         deadline = None
         if p["sniping"]:
-            at = next_snipe()
+            at = next_snipe(p["snipe_utc"])
             local = at.astimezone().strftime("%a %-I:%M %p %Z")
-            ctx.log.info("martial: sniping - waiting until %s (13:50 UTC)", local)
+            ctx.log.info("martial: sniping - waiting until %s (%s UTC)", local,
+                         at.strftime("%H:%M"))
             if not self._wait_until(ctx, at):
                 return
-            deadline = at.replace(minute=CUTOFF_UTC[1]) - timedelta(seconds=CUTOFF_MARGIN)
+            deadline = at + WINDOW - timedelta(seconds=CUTOFF_MARGIN)
         started = time.time()
         if not self._open_qualifiers(ctx):
             return
