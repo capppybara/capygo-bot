@@ -7,7 +7,9 @@ window:
   owner: "CapybaraGo"
   # Optional extra filter on the window title. Leave "" to ignore.
   title_contains: ""
-  # The game's bundle ID, used to restart it when it gets stuck.
+  # Where the game is installed, used to restart it when it gets stuck.
+  app_path: "/Applications/CapybaraGo!.app"
+  # The game's bundle ID: the fallback for the restart if app_path is missing.
   bundle_id: "com.habby.capybara"
 
 match:

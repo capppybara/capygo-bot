@@ -341,16 +341,21 @@ def restart_game(ctx: Context) -> bool:
         return True
     import subprocess
 
-    bundle = ctx.config["window"].get("bundle_id", "com.habby.capybara")
-    try:
-        pid = ctx.window.pid()
-    except Exception:
-        pid = None
-    shot = save_snapshot(ctx, "before-restart")
+    import os
+
+    win = ctx.config["window"]
+    app = win.get("app_path", "/Applications/CapybaraGo!.app")
+    launch = (["open", app] if os.path.isdir(app)
+              else ["open", "-b", win.get("bundle_id", "com.habby.capybara")])
+    pid = _game_pid(ctx)
+    shot = save_snapshot(ctx, "before-restart") if _window_on_screen(ctx) else None
     ctx.log.warning("restarting the game (it looks stuck)%s",
                     f"; screen saved: {shot}" if shot else "")
-    subprocess.run(["osascript", "-e", f'tell application id "{bundle}" to quit'],
-                   capture_output=True, timeout=20)
+    # The game is an iPhone app running on the Mac: it never answers an
+    # AppleScript "quit" (that hung for 20s), so end its process with a signal:
+    # SIGTERM first, SIGKILL after QUIT_TIMEOUT. No extra macOS permission needed.
+    if pid:
+        subprocess.run(["kill", "-TERM", str(pid)], capture_output=True)
     end = time.time() + QUIT_TIMEOUT
     while _window_up(ctx) and time.time() < end:
         if wait(ctx, 0.5):
@@ -362,9 +367,9 @@ def restart_game(ctx: Context) -> bool:
         if wait(ctx, 2.0):
             return False
     ctx.log.info("the game is closed; opening it again")
-    subprocess.run(["open", "-b", bundle], capture_output=True, timeout=20)
+    subprocess.run(launch, capture_output=True, timeout=20)
     end = time.time() + LAUNCH_TIMEOUT
-    while not _window_up(ctx):
+    while not _window_on_screen(ctx):
         if time.time() >= end:
             ctx.log.warning("the game's window didn't come back")
             return False
@@ -399,7 +404,31 @@ def restart_game(ctx: Context) -> bool:
     return False
 
 
+def _game_window_info(ctx: Context) -> dict | None:
+    """The game's main window, on screen or not (hidden, minimized, other Space)."""
+    import Quartz
+
+    owner = ctx.window.owner.lower()
+    for w in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll,
+                                               Quartz.kCGNullWindowID) or []:
+        if owner in (w.get("kCGWindowOwnerName") or "").lower():
+            b = w.get("kCGWindowBounds", {})
+            if b.get("Width", 0) >= 300 and b.get("Height", 0) >= 300:
+                return w
+    return None
+
+
 def _window_up(ctx: Context) -> bool:
+    """The game is running (its window exists, on screen or not)."""
+    return _game_window_info(ctx) is not None
+
+
+def _game_pid(ctx: Context) -> int | None:
+    w = _game_window_info(ctx)
+    return int(w["kCGWindowOwnerPID"]) if w else None
+
+
+def _window_on_screen(ctx: Context) -> bool:
     from ..window import WindowNotFound
 
     try:
