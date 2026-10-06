@@ -34,7 +34,7 @@ import cv2
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
-from .daily import _crop, find_sprite, go_home, tap, wait
+from .daily import _crop, find_sprite, go_home, save_snapshot, tap, wait
 from .event import TABS, go_events
 from .event_arena import OK_BTN, OK_LABEL, RESULT_TITLE, SKIP_BTN, _power, fight_up
 from .event_martial_arts import MartialArts
@@ -67,9 +67,34 @@ FIGHT_TIMEOUT = 15.0
 FIGHT_SETTLE = 2.0        # user (arena): a couple of seconds before Skip
 SKIP_RETRY = 6.0
 RESULT_TIMEOUT = 30.0
+FROZEN_AFTER = 10.0       # a fight screen this long without any change = frozen
+STILL_DIFF = 1.0          # mean pixel change (80x120 grey) below this = no change
 OPEN_TIMEOUT = 8.0
 POLL = 0.5
 SETTLE = 1.0
+
+
+class _Stillness:
+    """Spots a frozen fight: the screen not changing at all for FROZEN_AFTER
+    seconds (a running fight always animates). 2026-10-06's snipe hit one: the
+    fight sat on screen, Skip did nothing, and no result came."""
+
+    def __init__(self):
+        self.last = None
+        self.since = time.time()
+        self.reported = False
+
+    def frozen(self, frame) -> bool:
+        """True once, the first time the screen has been still long enough."""
+        small = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (80, 120),
+                           interpolation=cv2.INTER_AREA).astype("int16")
+        if self.last is None or abs(small - self.last).mean() >= STILL_DIFF:
+            self.last, self.since = small, time.time()
+            return False
+        if not self.reported and time.time() - self.since >= FROZEN_AFTER:
+            self.reported = True
+            return True
+        return False
 
 
 @dataclass
@@ -305,6 +330,7 @@ class MartialArtsTournament(Task):
                      if f.power == foe.power and f.points == foe.points]
             if not match:
                 ctx.log.warning("martial: lost track of the pick after scrolling")
+                self._snapshot(ctx, "martial-lost-pick")
                 return None
             foe = match[0]
         if not self._tap(ctx, _px((CHALLENGE_X, foe.y - 2)), "Challenge"):
@@ -320,8 +346,12 @@ class MartialArtsTournament(Task):
             return None
         end = time.time() + RESULT_TIMEOUT
         last_skip = 0.0
+        still = _Stillness()
         while time.time() < end:
             frame = ctx.frame()
+            if still.frozen(frame):
+                ctx.log.warning("martial: the fight froze (no change for %.0fs) - a game "
+                                "issue, not the bot", FROZEN_AFTER)
             title = _words(frame, RESULT_TITLE)
             if "victory" in title or "defeat" in title or "ok" in _words(
                     frame, OK_LABEL).split():
@@ -341,7 +371,9 @@ class MartialArtsTournament(Task):
                 continue
             if wait(ctx, POLL):
                 return None
-        ctx.log.warning("martial: no result screen within %.0fs", RESULT_TIMEOUT)
+        ctx.log.warning("martial: no result screen within %.0fs%s", RESULT_TIMEOUT,
+                        " (the fight was frozen)" if still.reported else "")
+        self._snapshot(ctx, "martial-no-result")
         return None
 
     def _ok(self, ctx: Context) -> bool:
@@ -362,11 +394,19 @@ class MartialArtsTournament(Task):
     def _no_fight(self, ctx: Context) -> None:
         """No fight after Challenge (out of tickets?): close any popup, stop."""
         ctx.log.info("martial: the fight didn't start (out of tickets?) -> stopping")
+        self._snapshot(ctx, "martial-no-fight")
         x = find_sprite(ctx, ctx.frame(), "close_x.png")
         if x is not None:
             self._tap(ctx, x, "close the popup")
 
     # --- helpers -----------------------------------------------------------------
+    @staticmethod
+    def _snapshot(ctx: Context, label: str) -> None:
+        """Save the screen to logs/ when something goes wrong, so it can be seen."""
+        shot = save_snapshot(ctx, label)
+        if shot:
+            ctx.log.warning("martial: screen saved: %s", shot)
+
     def _scroll(self, ctx: Context, drag) -> None:
         (x0, y0), (x1, y1) = drag
         ctx.drag_rel(_px((x0, y0)), _px((x1, y1)), steps=30, duration=0.8)
