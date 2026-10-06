@@ -360,7 +360,7 @@ Schedule (the Qualifiers) itself.
 | Your CP (T) | 5.23 | Your power in trillions; opponents are compared against it |
 | Power ratio | 1.1 | Fight only opponents below this x your CP |
 | Sniping mode | off | Wait for 6:50 AM Pacific and use every attack then |
-| Max attacks (0 = all) | 0 | Stop after this many attacks; 0 uses every ticket |
+| Attacks (0 = until tickets run out) | 0 | 0 uses every ticket and stops. A number: always do that many, buying tickets if needed |
 
 For each attack the bot:
 
@@ -370,7 +370,13 @@ For each attack the bot:
 3. If none qualifies, taps Refresh (free or paid) and looks again, raising the
    ratio by 0.1 each time: 1.1, 1.2, up to 1.6 after 5 refreshes. If there is
    still none, it stops.
-4. Skips the fight and taps OK on the result, like the arena.
+4. Skips the fight and taps OK on the result, like the arena. If Skip is still
+   showing after 30 seconds, the fight is stuck: it restarts the game (once per
+   run), goes back to the Qualifiers, and carries on.
+
+Out of tickets, Challenge opens a ticket Purchase popup instead of a fight. With
+**Attacks** at 0 the bot closes it and finishes. With a number set, it always
+does that many attacks, buying a ticket each time it runs out.
 
 **Normal mode** attacks until the tickets run out. **Sniping mode** waits for the
 next 13:50 UTC: 6:50 AM Pacific in summer, 5:50 AM in winter. The round closes at

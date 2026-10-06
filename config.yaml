@@ -7,6 +7,8 @@ window:
   owner: "CapybaraGo"
   # Optional extra filter on the window title. Leave "" to ignore.
   title_contains: ""
+  # The game's bundle ID, used to restart it when it gets stuck.
+  bundle_id: "com.habby.capybara"
 
 match:
   threshold: 0.85        # template-match confidence required to count as "found"

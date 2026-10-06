@@ -328,6 +328,87 @@ def go_home(ctx: Context, max_steps: int = 10) -> bool:
     return home_state(ctx.frame()) == HOME
 
 
+QUIT_TIMEOUT = 10.0       # the game gets this long to quit before it's forced
+LAUNCH_TIMEOUT = 90.0     # relaunched game: its window must show by then
+LOAD_TIMEOUT = 180.0      # then the home screen, through loading and popups
+
+
+def restart_game(ctx: Context) -> bool:
+    """Quit the game and open it again, then get to the home screen. For when the
+    game is stuck (e.g. a frozen fight). True once on the home screen."""
+    if ctx.dry_run:
+        ctx.log.info("DRY-RUN restart the game")
+        return True
+    import subprocess
+
+    bundle = ctx.config["window"].get("bundle_id", "com.habby.capybara")
+    try:
+        pid = ctx.window.pid()
+    except Exception:
+        pid = None
+    shot = save_snapshot(ctx, "before-restart")
+    ctx.log.warning("restarting the game (it looks stuck)%s",
+                    f"; screen saved: {shot}" if shot else "")
+    subprocess.run(["osascript", "-e", f'tell application id "{bundle}" to quit'],
+                   capture_output=True, timeout=20)
+    end = time.time() + QUIT_TIMEOUT
+    while _window_up(ctx) and time.time() < end:
+        if wait(ctx, 0.5):
+            return False
+    if _window_up(ctx):
+        ctx.log.warning("the game didn't quit; forcing it")
+        if pid:
+            subprocess.run(["kill", "-9", str(pid)], capture_output=True)
+        if wait(ctx, 2.0):
+            return False
+    ctx.log.info("the game is closed; opening it again")
+    subprocess.run(["open", "-b", bundle], capture_output=True, timeout=20)
+    end = time.time() + LAUNCH_TIMEOUT
+    while not _window_up(ctx):
+        if time.time() >= end:
+            ctx.log.warning("the game's window didn't come back")
+            return False
+        if wait(ctx, 1.0):
+            return False
+    ctx.log.info("the game's window is back; waiting for the home screen")
+    end = time.time() + LOAD_TIMEOUT
+    unknowns = 0
+    while time.time() < end:
+        if ctx.should_stop():
+            return False
+        frame = ctx.frame()
+        move, target = next_move(ctx, frame)
+        if move == "home":
+            ctx.log.info("the game restarted and is on the home screen")
+            return True
+        if move in ("unknown", "stuck"):  # loading, or a start-up screen
+            unknowns += 1
+            if unknowns % 4 == 0:   # every few seconds, tap an empty spot
+                ctx.log.info("restart: tap an empty spot")
+                tap(ctx, NEUTRAL)
+            elif wait(ctx, 1.0):
+                return False
+            continue
+        unknowns = 0
+        ctx.log.info("restart: %s", _MOVE_LOG.get(move, move))
+        if not tap(ctx, target, SWITCH_SETTLE if move == "switch" else TAP_SETTLE):
+            return False
+    shot = save_snapshot(ctx, "restart-not-home")
+    ctx.log.warning("the restarted game didn't reach the home screen%s",
+                    f"; screen saved: {shot}" if shot else "")
+    return False
+
+
+def _window_up(ctx: Context) -> bool:
+    from ..window import WindowNotFound
+
+    try:
+        ctx.window.bounds()
+        return True
+    except WindowNotFound:
+        return False
+
+
 def go_screen(ctx: Context, name: str, on_screen: Callable, button: Rel,
               max_steps: int = 12) -> bool:
     """Get to a screen opened by a home-screen button (Events, Guild, the menu) from

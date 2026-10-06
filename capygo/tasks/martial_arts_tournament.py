@@ -12,7 +12,15 @@ User (2026-10-05): take the points you can win. Each attack:
      (both app inputs; B and T are converted). None -> Refresh (free or paid),
      up to 5 times, raising the ratio by 0.1 each time (1.1 -> 1.2 -> ... 1.6).
      Still none -> stop and flag it.
-  3. The fight is the arena's: Skip, then OK on the result.
+  3. The fight is the arena's: Skip (every 5s while it shows), then OK on the
+     result. If Skip is still showing after 30s the fight is stuck (it never
+     goes back to the list): the game is restarted (once per run), the bot goes
+     back to the Qualifiers and carries on.
+  4. Out of tickets, Challenge opens a "Purchase" ticket popup instead of a
+     fight. With "Max attacks" at 0 that ends the run (closed, nothing bought).
+     With a number set, that many attacks are always done (user): it buys a
+     ticket and taps Challenge again. If neither the fight nor that popup
+     shows, Challenge is tapped once more.
 Normal mode attacks until the tickets run out. Sniping mode waits for the next
 13:50 UTC (6:50 AM Pacific in summer, 5:50 AM in winter: 10 minutes before the
 round closes at 14:00 UTC, so 5 minutes before challenges stop) and uses every
@@ -34,7 +42,8 @@ import cv2
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
-from .daily import _crop, find_sprite, go_home, save_snapshot, tap, wait
+from .daily import (_crop, find_sprite, go_home, restart_game, save_snapshot, tap,
+                    tap_to_close_up, wait)
 from .event import TABS, go_events
 from .event_arena import OK_BTN, OK_LABEL, RESULT_TITLE, SKIP_BTN, _power, fight_up
 from .event_martial_arts import MartialArts
@@ -64,9 +73,13 @@ WINDOW = timedelta(minutes=5)  # the snipe time to the cutoff (no challenges in
                                # the round's last 5 minutes)
 CUTOFF_MARGIN = 20        # don't start a fight this close to the cutoff
 FIGHT_TIMEOUT = 15.0
+PURCHASE_TEXT = RelRect(0.10, 0.20, 0.80, 0.35)    # out of tickets: "Purchase ..." popup
+PURCHASE_CLOSE = Rel(0.5, 0.714)                   # its X, if the sprite isn't found
+NO_TICKETS, STUCK = "no tickets", "stuck"
+RESTARTS = 1              # restart the game at most this often per run
 FIGHT_SETTLE = 2.0        # user (arena): a couple of seconds before Skip
-SKIP_RETRY = 6.0
-RESULT_TIMEOUT = 30.0
+SKIP_RETRY = 5.0         # user: tap Skip every 5 seconds while it shows
+RESULT_TIMEOUT = 30.0    # user: Skip still showing after 30s = stuck
 FROZEN_AFTER = 10.0       # a fight screen this long without any change = frozen
 STILL_DIFF = 1.0          # mean pixel change (80x120 grey) below this = no change
 OPEN_TIMEOUT = 8.0
@@ -194,7 +207,8 @@ class MartialArtsTournament(Task):
               help="fight only opponents below this x your CP (+0.1 per refresh)"),
         Param("sniping", "bool", False, "Sniping mode",
               help="wait for 6:50 AM Pacific (13:50 UTC) and use every attack then"),
-        Param("max_attacks", "int", 0, "Max attacks (0 = all)", min=0, max=99),
+        Param("max_attacks", "int", 0, "Attacks (0 = until tickets run out)", min=0,
+              max=99, help="a number: always do that many, buying tickets if needed"),
         Param("snipe_utc", "str", SNIPE_UTC, "Snipe time (UTC, HH:MM)", hidden=True,
               help="for tests: -p snipe_utc=HH:MM; the cutoff is 5 minutes later"),
     ]
@@ -266,6 +280,7 @@ class MartialArtsTournament(Task):
     def _attacks(self, ctx: Context, cp: Decimal, base: Decimal, limit: int,
                  deadline: datetime | None) -> int:
         done = 0
+        self.restarts = 0
         while not ctx.should_stop():
             if limit and done >= limit:
                 ctx.log.info("martial: %d attack(s) done (the limit)", done)
@@ -281,7 +296,21 @@ class MartialArtsTournament(Task):
             foe = self._choose(ctx, cp, base)
             if foe is None:
                 break
-            result = self._fight(ctx, foe)
+            result = self._fight(ctx, foe, buy=limit > 0)
+            if result == NO_TICKETS:
+                ctx.log.info("martial: out of tickets (the Purchase popup) -> done")
+                break
+            if result == STUCK:
+                if self.restarts >= RESTARTS:
+                    ctx.log.warning("martial: stuck again after a restart -> stopping")
+                    break
+                if deadline and datetime.now(timezone.utc) >= deadline:
+                    ctx.log.warning("martial: stuck, and no time left to restart")
+                    break
+                self.restarts += 1
+                if not (restart_game(ctx) and self._open_qualifiers(ctx)):
+                    break
+                continue
             if result is None:
                 break
             done += 1
@@ -296,10 +325,7 @@ class MartialArtsTournament(Task):
             self._scroll(ctx, SCROLL_DOWN)
             frame = ctx.frame()
             foes = read_foes(frame)
-            left = tickets(frame, foes)
-            if left == 0:
-                ctx.log.info("martial: out of tickets")
-                return None
+            left = tickets(frame, foes)  # for the log; the Purchase popup ends the run
             cap = cp * ratio
             for f in foes:
                 ctx.log.info("martial:   %sT, %d points%s", f.power, f.points,
@@ -321,7 +347,7 @@ class MartialArtsTournament(Task):
                         "stopping; attack the rest by hand", ratio, REFRESHES)
         return None
 
-    def _fight(self, ctx: Context, foe: Foe) -> str | None:
+    def _fight(self, ctx: Context, foe: Foe, buy: bool = False) -> str | None:
         """Tap the foe's Challenge (scrolling up first if it's row 1), Skip the
         fight, OK the result. "victory"/"defeat"/"unknown", or None if no fight."""
         if not TAPPABLE[0] <= foe.y - 2 <= TAPPABLE[1]:
@@ -333,15 +359,34 @@ class MartialArtsTournament(Task):
                 self._snapshot(ctx, "martial-lost-pick")
                 return None
             foe = match[0]
-        if not self._tap(ctx, _px((CHALLENGE_X, foe.y - 2)), "Challenge"):
+        started = None
+        bought = False
+        for attempt in (1, 2, 3):
+            if not self._tap(ctx, _px((CHALLENGE_X, foe.y - 2)), "Challenge"):
+                return None
+            started = self._fight_or_purchase(ctx)
+            if started == NO_TICKETS and buy and not bought:
+                # user: a set number of attacks is always done, buying tickets
+                if not self._buy_ticket(ctx):
+                    return None
+                bought = True
+                continue
+            if started in ("fight", NO_TICKETS, None):
+                break
+            # neither the fight nor the Purchase popup: maybe a lost tap
+            ctx.log.info("martial: no fight after Challenge (try %d/2)", attempt)
+            x = find_sprite(ctx, ctx.frame(), "close_x.png")
+            if x is not None:
+                self._tap(ctx, x, "close the popup")
+        if started is None:
             return None
-        end = time.time() + FIGHT_TIMEOUT
-        while not fight_up(ctx.frame()):
-            if time.time() >= end:
-                self._no_fight(ctx)
-                return None
-            if wait(ctx, POLL):
-                return None
+        if started == NO_TICKETS:
+            self._close_purchase(ctx)
+            return NO_TICKETS
+        if started != "fight":
+            ctx.log.warning("martial: the fight didn't start after 2 tries -> stopping")
+            self._snapshot(ctx, "martial-no-fight")
+            return None
         if wait(ctx, FIGHT_SETTLE):
             return None
         end = time.time() + RESULT_TIMEOUT
@@ -371,10 +416,12 @@ class MartialArtsTournament(Task):
                 continue
             if wait(ctx, POLL):
                 return None
-        ctx.log.warning("martial: no result screen within %.0fs%s", RESULT_TIMEOUT,
-                        " (the fight was frozen)" if still.reported else "")
+        stuck = fight_up(ctx.frame())
+        ctx.log.warning("martial: no result screen within %.0fs%s%s", RESULT_TIMEOUT,
+                        " (the fight was frozen)" if still.reported else "",
+                        "; Skip still showing -> the fight is stuck" if stuck else "")
         self._snapshot(ctx, "martial-no-result")
-        return None
+        return STUCK if stuck else None
 
     def _ok(self, ctx: Context) -> bool:
         """The result's OK: the arena's spot if it reads there, else wherever "OK"
@@ -391,13 +438,58 @@ class MartialArtsTournament(Task):
             return False
         return self._until(ctx, lambda: "qualifier" in _words(ctx.frame(), STAGE_TITLE))
 
-    def _no_fight(self, ctx: Context) -> None:
-        """No fight after Challenge (out of tickets?): close any popup, stop."""
-        ctx.log.info("martial: the fight didn't start (out of tickets?) -> stopping")
-        self._snapshot(ctx, "martial-no-fight")
+    def _fight_or_purchase(self, ctx: Context) -> str | None:
+        """After Challenge: "fight" once the fight screen shows, NO_TICKETS on the
+        Purchase (ticket) popup (user: that's how you know you're out), "" if
+        neither shows within FIGHT_TIMEOUT, None on a stop."""
+        end = time.time() + FIGHT_TIMEOUT
+        while time.time() < end:
+            frame = ctx.frame()
+            if fight_up(frame):
+                return "fight"
+            if "purchase" in _words(frame, PURCHASE_TEXT):
+                return NO_TICKETS
+            if wait(ctx, POLL):
+                return None
+        return ""
+
+    def _buy_ticket(self, ctx: Context) -> bool:
+        """Buy one ticket from the Purchase popup: tap its "Purchase" button (the
+        lowest "Purchase" text; the title is the top one). Never anything that
+        looks like real money. True once the popup has closed."""
+        frame = ctx.frame()
+        h, w = frame.shape[:2]
+        lines = [(t.lower(), cx, cy) for t, cx, cy in ocr_lines(frame)]
+        words = " ".join(t for t, _, _ in lines)
+        if "top up" in words or "top-up" in words or "$" in words:
+            ctx.log.warning("martial: the ticket popup looks like real money -> not "
+                            "buying")
+            self._snapshot(ctx, "martial-ticket-popup")
+            self._close_purchase(ctx)
+            return False
+        buttons = [(cx, cy) for t, cx, cy in lines if "purchase" in t or t.strip() == "buy"]
+        if len(buttons) < 2:  # need the title AND a button below it
+            ctx.log.warning("martial: no Purchase button found on the ticket popup")
+            self._snapshot(ctx, "martial-ticket-popup")
+            self._close_purchase(ctx)
+            return False
+        cx, cy = max(buttons, key=lambda b: b[1])
+        ctx.log.info("martial: out of tickets -> buying one (a set number of attacks)")
+        if not self._tap(ctx, Rel(cx / w, cy / h), "Purchase (1 ticket)", 2.0):
+            return False
+        if tap_to_close_up(ctx.frame()):
+            self._tap(ctx, _px(TITLE_TAP), "close the reward")
+        if "purchase" in _words(ctx.frame(), PURCHASE_TEXT):
+            ctx.log.warning("martial: the ticket popup is still open after buying")
+            self._snapshot(ctx, "martial-ticket-popup")
+            self._close_purchase(ctx)
+            return False
+        return True
+
+    def _close_purchase(self, ctx: Context) -> None:
+        """Close the ticket Purchase popup. Never buys."""
         x = find_sprite(ctx, ctx.frame(), "close_x.png")
-        if x is not None:
-            self._tap(ctx, x, "close the popup")
+        self._tap(ctx, x if x is not None else PURCHASE_CLOSE, "close the Purchase popup")
 
     # --- helpers -----------------------------------------------------------------
     @staticmethod
