@@ -249,7 +249,15 @@ class GuildTrade(GuildTask):
             wins += result == "victory"
             losses += result == "defeat"
             ctx.log.info("%s: plunder -> %s", self.name, result)
-            if result in ("defeat", GONE):
+            if result == GONE:
+                # user: no battle = a fake boat, and the game refreshes the boats
+                # itself -> a new sea: forget it all, let it settle, check again
+                tried.clear()
+                skip.clear()
+                if self.wait(ctx, SETTLE):
+                    return False
+                continue
+            if result == "defeat":
                 skip.add(_key(boat))
             tried = set(skip)  # check every other gold boat again
         return go_guild(ctx)  # back arrow -> the guild screen
@@ -375,7 +383,8 @@ class GuildTrade(GuildTask):
         """After Plunder: True once the fight screen is up (then settled); GONE if
         the sea stays on screen for GONE_AFTER seconds without ever going to the
         loading screen (user: a boat that doesn't exist any more just clears when
-        plundered); False if no fight by FIGHT_TIMEOUT; None on a stop."""
+        plundered, and the game then refreshes the boats itself); False if no fight
+        by FIGHT_TIMEOUT; None on a stop."""
         start = time.time()
         left_sea = False
         while time.time() - start < FIGHT_TIMEOUT:
