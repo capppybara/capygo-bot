@@ -47,7 +47,7 @@ REFRESH_BTN = (484, 140)
 REFRESH_LABEL = RelRect(0.67, 0.122, 0.17, 0.045)  # "Free Refresh" / a price
 LIST_Y = (180, 610)                                # the opponent list, px
 ROW_FIND_X = (320, 410)                            # the points column, to find rows
-POWER_X, POINTS_X = (222, 312), (322, 408)
+POWER_X, POINTS_X = (239, 312), (322, 408)        # power: right of the sword icon
 ROW_H = 32
 CHALLENGE_X = 485                                  # a row's button: points y - 2
 TICKETS_DY = -21                                   # "9/1" above "Challenge"
@@ -91,12 +91,20 @@ def _cell(frame, xs: tuple[int, int], y: float, scale: int = 2) -> str:
 
 
 def _power_at(frame, y: float) -> Decimal | None:
-    """A row's power. The OCR sometimes reads the "T" as a "1" ("2.131"), and a
-    power without its unit is rejected, so try a few nearby crops."""
-    for dy, scale in ((0, 2), (-1, 2), (1, 2), (0, 3)):
+    """A row's power, only once two separate reads agree (user: accuracy).
+    The crop starts after the sword icon: with the icon in it, OCR added stray
+    digits ("112.54T" for 2.54T, "412.58T" live). Single reads can still drop
+    the unit ("2.131") or read the dot as a comma, so reads are repeated at
+    shifted crops and sizes until one value comes up twice. None if no two
+    agree: that opponent is skipped rather than guessed."""
+    seen: list[Decimal] = []
+    for dy, scale in ((0, 2), (0, 3), (-1, 2), (1, 2), (-1, 3), (1, 3)):
         power = _power(_cell(frame, POWER_X, y + dy, scale))
-        if power is not None:
+        if power is None:
+            continue
+        if power in seen:
             return power
+        seen.append(power)
     return None
 
 
@@ -151,7 +159,7 @@ class MartialArtsTournament(Task):
                    "power limit until the tickets run out, now or at 6:50 AM (sniping).")
     START_HINT = "Start anywhere in the game. Set your CP (power) first."
     PARAMS = [
-        Param("my_cp", "float", 5.23, "Your CP (T)", min=0.01, max=10000,
+        Param("my_cp", "float", 4.7, "Your CP (T)", min=0.01, max=10000,
               help="your power in trillions; opponents are compared against it"),
         Param("ratio", "float", 1.1, "Power ratio", min=0.5, max=5,
               help="fight only opponents below this x your CP (+0.1 per refresh)"),
