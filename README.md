@@ -17,6 +17,7 @@ automation in a desktop app, set a few options, and press Start.
 - [Get Guild Member List](#get-guild-member-list)
 - [Goblin Miner](#goblin-miner)
 - [Hard Mode Autorun](#hard-mode-autorun)
+- [Martial Arts Tournament](#martial-arts-tournament)
 - [Pet Armament Chest](#pet-armament-chest)
 - [Files it writes](#files-it-writes)
 - [Developer guide](#developer-guide)
@@ -73,6 +74,7 @@ Any of these stops a run within a second:
 | [Get Guild Member List](#get-guild-member-list) | Exports a guild's members (UID and power) to a CSV, or collects top powers to compare guilds | A guild's Guild Info screen |
 | [Goblin Miner](#goblin-miner) | Mines Goblin Miner floors for the Capy King statue | The Goblin Miner grid |
 | [Hard Mode Autorun](#hard-mode-autorun) | Runs a Hard Mode chapter over and over | The Hard Mode screen |
+| [Martial Arts Tournament](#martial-arts-tournament) | Fights the Qualifiers opponents worth the most points that you can beat, now or at 6:50 AM | Anywhere |
 | [Pet Armament Chest](#pet-armament-chest) | Opens Pet Armament chests, upgrading when it is worth it | The locked chest screen |
 
 ## Auto Daily
@@ -344,6 +346,39 @@ the result. It checks the energy cost on the Start button to confirm the
 multiple. It stops early when a run is lost, when energy runs short, or when
 Hard Mode is off.
 
+## Martial Arts Tournament
+
+Martial Arts Tournament spends your Qualifier tickets on the opponents worth the
+most points that you can beat. It runs now, or waits and runs just before the
+round closes (sniping).
+
+**Start on:** anywhere. It opens Events → Arena → Martial Arts Tournament →
+Schedule (the Qualifiers) itself.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| Your CP (T) | 5.23 | Your power in trillions; opponents are compared against it |
+| Power ratio | 1.1 | Fight only opponents below this x your CP |
+| Sniping mode | off | Wait for 6:50 AM Pacific and use every attack then |
+| Max attacks (0 = all) | 0 | Stop after this many attacks; 0 uses every ticket |
+
+For each attack the bot:
+
+1. Scrolls the list a little so all 6 opponents show, and reads each one's power
+   and points. B and T are converted (1T = 1000B).
+2. Fights the one with the most points whose power is below the ratio x your CP.
+3. If none qualifies, taps Refresh (free or paid) and looks again, raising the
+   ratio by 0.1 each time: 1.1, 1.2, up to 1.6 after 5 refreshes. If there is
+   still none, it stops.
+4. Skips the fight and taps OK on the result, like the arena.
+
+**Normal mode** attacks until the tickets run out. **Sniping mode** waits for the
+next 13:50 UTC: 6:50 AM Pacific in summer, 5:50 AM in winter. The round closes at
+14:00 UTC and challenges stop 5 minutes before that, so it has 5 minutes. It
+stops starting fights 20 seconds before the cutoff. One attack takes about 15
+seconds, so 9 tickets take about 2.5 minutes. While it waits it keeps the Mac
+awake; the app must stay open and the game window visible.
+
 ## Pet Armament Chest
 
 Pet Armament Chest opens chests one at a time. For each chest it takes the 3
@@ -417,6 +452,7 @@ capygo/
     auto_gulu.py            Auto Gulu
     get_guild_member_list.py, compare_guild_power.py
     goblin_miner.py, hard_mode_autorun.py, pet_armament_chest.py
+    martial_arts_tournament.py
 templates/<task-name>/      reference images matched at runtime
 ui/                         the PySide6 app: home and task screens, theme, icons
 tools/
@@ -442,6 +478,8 @@ setting, `-n` is a dry run, and `--list` shows every task and its settings.
 ./run.sh compare-guild-power               # graph the hedgemony collection
 ./run.sh goblin-miner -p min_picks=0
 ./run.sh hard-mode-autorun -p chapter=180 -p energy_multiple=20 -p runs=10
+./run.sh martial-arts-tournament -p my_cp=5.23 -p ratio=1.1
+./run.sh martial-arts-tournament -p sniping=true   # waits for 6:50 AM Pacific
 ./run.sh pet-armament-chest -p runs=20 -n
 ```
 

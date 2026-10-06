@@ -23,6 +23,7 @@ from . import event_martial_arts  # noqa: F401
 from . import event_tower_challenge  # noqa: F401
 from . import get_guild_member_list  # noqa: F401
 from . import goblin_miner  # noqa: F401
+from . import martial_arts_tournament  # noqa: F401
 from . import menu_black_market  # noqa: F401
 from . import menu_login  # noqa: F401
 from . import menu_tasks  # noqa: F401
