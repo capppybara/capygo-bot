@@ -48,6 +48,7 @@ REFRESH_LABEL = RelRect(0.67, 0.122, 0.17, 0.045)  # "Free Refresh" / a price
 LIST_Y = (180, 610)                                # the opponent list, px
 ROW_FIND_X = (320, 410)                            # the points column, to find rows
 POWER_X, POINTS_X = (239, 312), (322, 408)        # power: right of the sword icon
+PLAUSIBLE = (Decimal("0.1"), Decimal(100))         # 100B..100T: one read is enough
 ROW_H = 32
 CHALLENGE_X = 485                                  # a row's button: points y - 2
 TICKETS_DY = -21                                   # "9/1" above "Challenge"
@@ -91,18 +92,18 @@ def _cell(frame, xs: tuple[int, int], y: float, scale: int = 2) -> str:
 
 
 def _power_at(frame, y: float) -> Decimal | None:
-    """A row's power, only once two separate reads agree (user: accuracy).
-    The crop starts after the sword icon: with the icon in it, OCR added stray
-    digits ("112.54T" for 2.54T, "412.58T" live). Single reads can still drop
-    the unit ("2.131") or read the dot as a comma, so reads are repeated at
-    shifted crops and sizes until one value comes up twice. None if no two
-    agree: that opponent is skipped rather than guessed."""
+    """A row's power. The crop starts after the sword icon: with the icon in it,
+    OCR added stray digits ("112.54T" for 2.54T, "412.58T" live). A read with no
+    unit ("2.131") is retried at a shifted crop or size. A value between 100B and
+    100T is taken at once; one outside that range is suspicious (user: read
+    again) and counts only once a second read agrees. None if that never
+    happens: the opponent is skipped rather than guessed."""
     seen: list[Decimal] = []
     for dy, scale in ((0, 2), (0, 3), (-1, 2), (1, 2), (-1, 3), (1, 3)):
         power = _power(_cell(frame, POWER_X, y + dy, scale))
         if power is None:
             continue
-        if power in seen:
+        if PLAUSIBLE[0] <= power <= PLAUSIBLE[1] or power in seen:
             return power
         seen.append(power)
     return None
