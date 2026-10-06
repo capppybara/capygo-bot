@@ -70,7 +70,8 @@ VOYAGE_BTN = Rel(0.822, 0.832)                   # "Capy Grand Voyage"
 TRAVEL_BTN = Rel(0.836, 0.493)                   # right column of the sea map
 TRAVEL_PANEL = RelRect(0.25, 0.155, 0.50, 0.05)  # "Travel Team"
 TRAVEL_TITLE_TAP = Rel(0.5, 0.180)
-SLOT1 = Rel(0.5, 0.442)                          # the first team slot
+SLOT1 = Rel(0.5, 0.442)                          # the first team slot ("+ Send")
+TRAVEL_DONE_BTN = Rel(0.743, 0.440)              # its green ✓ "Travel completed"
 SLOT1_TEXT = RelRect(0.15, 0.395, 0.70, 0.10)    # "Travel completed" / "Send Capymon"
 ISLAND_TITLE = RelRect(0.25, 0.090, 0.50, 0.050)  # "Island Travel" (setup)
 CLAIM_TRAVEL = Rel(0.5, 0.713)                   # Island Travel (finished): Claim
@@ -247,13 +248,20 @@ class Capymon(DailyTask):
             ctx.log.warning("%s: the Travel Team panel didn't open", self.name)
             return False
         if "completed" in _words(ctx.frame(), SLOT1_TEXT):
-            if not self.tap(ctx, SLOT1, "Travel completed"):
+            # the green ✓ "Travel completed" on the right of the slot; the middle
+            # of the slot is the reward items row (a tap there only opens an
+            # item's info - 2026-10-05's miss)
+            if not self.tap(ctx, TRAVEL_DONE_BTN, "Travel completed"):
                 return False
             if not self.tap(ctx, CLAIM_TRAVEL, "Claim (travel rewards)"):
                 return False
             if self._wait(ctx, lambda: tap_to_close_up(ctx.frame()), REWARD_TIMEOUT):
                 if not self._close_reward(ctx, TRAVEL_TITLE_TAP):
                     return False
+            else:
+                self.flag(ctx, "the finished travel didn't give its rewards. Collect "
+                               "and re-send the team by hand.")
+                return self._close_x(ctx)
         if "send" in _words(ctx.frame(), SLOT1_TEXT):
             if not self._dispatch(ctx):
                 return False

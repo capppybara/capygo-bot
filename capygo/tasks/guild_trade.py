@@ -72,6 +72,8 @@ SELECT_SETTLE = 1.2        # tap a boat -> its panel
 LOAD_TIMEOUT = 10.0
 FIGHT_TIMEOUT = 15.0
 FIGHT_SETTLE = 2.0         # user: give the fight a couple of seconds before Skip
+GONE_AFTER = 5.0           # still on the sea this long after Plunder: the boat is gone
+GONE = "gone"
 SKIP_RETRY = 6.0
 RESULT_TIMEOUT = 30.0
 
@@ -130,6 +132,11 @@ def find_boats(frame) -> list[Boat]:
         elif bw > bh and area >= 400 * k * k:
             boats.append(Boat("golden", Rel(cx / w, cy / h)))
     return boats
+
+
+def _key(boat: Boat) -> tuple[int, int]:
+    """A boat's identity on this sea: its map position, rounded."""
+    return round(boat.at.x * 30), round(boat.at.y * 30)
 
 
 def read_panel(frame) -> Panel:
@@ -201,7 +208,12 @@ class GuildTrade(GuildTask):
         if not self._wait_for(ctx, "the Plunder sea", on_plunder, LOAD_TIMEOUT):
             return False
 
-        tried: set[tuple[int, int]] = set()   # boats already checked on this sea
+        # Boats already checked since the last plunder or refresh. After EVERY
+        # plunder this resets (user): all gold boats are checked again before a
+        # refresh, which catches a second eligible boat and a boat that allows 2
+        # plunders. Boats lost to, or found gone, are skipped until a refresh.
+        tried: set[tuple[int, int]] = set()
+        skip: set[tuple[int, int]] = set()
         refreshes = wins = losses = 0
         while True:
             count = looted(ctx.frame())
@@ -229,6 +241,7 @@ class GuildTrade(GuildTask):
                 if self.wait(ctx, SETTLE):
                     return False
                 tried.clear()
+                skip.clear()
                 continue
             result = self._plunder(ctx)
             if result is None:
@@ -236,6 +249,9 @@ class GuildTrade(GuildTask):
             wins += result == "victory"
             losses += result == "defeat"
             ctx.log.info("%s: plunder -> %s", self.name, result)
+            if result in ("defeat", GONE):
+                skip.add(_key(boat))
+            tried = set(skip)  # check every other gold boat again
         return go_guild(ctx)  # back arrow -> the guild screen
 
     # --- steps ------------------------------------------------------------
@@ -248,7 +264,7 @@ class GuildTrade(GuildTask):
         selected again if none has one."""
         reserve = last = None
         for boat in find_boats(ctx.frame()):
-            key = (round(boat.at.x * 30), round(boat.at.y * 30))
+            key = _key(boat)
             if key in tried:
                 continue
             tried.add(key)
@@ -269,6 +285,9 @@ class GuildTrade(GuildTask):
                 ctx.log.info("%s: %s boat %sT, 200 badges -> kept in case no chest "
                              "boat turns up", self.name, boat.kind, panel.power)
                 reserve = boat
+            else:
+                ctx.log.info("%s: %s boat %sT, 200 badges -> another badge boat (one "
+                             "is already kept)", self.name, boat.kind, panel.power)
         if reserve is None:
             return None
         if reserve is not last:  # later taps selected other boats: select it again
@@ -304,7 +323,14 @@ class GuildTrade(GuildTask):
         on a stop or a timeout (logged)."""
         if not self.tap(ctx, PLUNDER_BTN, "Plunder"):
             return None
-        if not self._wait_for(ctx, None, fight_up, FIGHT_TIMEOUT, settle=FIGHT_SETTLE):
+        started = self._fight_or_gone(ctx)
+        if started is None:
+            return None
+        if started == GONE:
+            ctx.log.info("%s: that boat is gone (cleared from the sea) -> next boat",
+                         self.name)
+            return GONE
+        if not started:
             if ctx.should_stop():
                 return None
             ctx.log.info("%s: the fight didn't start; clearing the screen", self.name)
@@ -344,6 +370,25 @@ class GuildTrade(GuildTask):
                 return None
         ctx.log.warning("%s: no result screen within %.0fs", self.name, RESULT_TIMEOUT)
         return None
+
+    def _fight_or_gone(self, ctx: Context) -> bool | str | None:
+        """After Plunder: True once the fight screen is up (then settled); GONE if
+        the sea stays on screen for GONE_AFTER seconds without ever going to the
+        loading screen (user: a boat that doesn't exist any more just clears when
+        plundered); False if no fight by FIGHT_TIMEOUT; None on a stop."""
+        start = time.time()
+        left_sea = False
+        while time.time() - start < FIGHT_TIMEOUT:
+            frame = ctx.frame()
+            if fight_up(frame):
+                return not self.wait(ctx, FIGHT_SETTLE) or None
+            if not on_plunder(frame):
+                left_sea = True  # the black loading screen: a fight is coming
+            elif not left_sea and time.time() - start >= GONE_AFTER:
+                return GONE
+            if self.wait(ctx, POLL):
+                return None
+        return False
 
     def _wait_for(self, ctx: Context, what: str | None, check, timeout: float,
                   settle: float = SETTLE) -> bool:

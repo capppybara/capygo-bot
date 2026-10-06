@@ -39,6 +39,11 @@ WANTED = ["silver chest", "gold chest", "pet chest", "gold key", "pet egg",
           "gold horseshoe"]        # list positions 3, 4, 5, 7, 8, 11
 MIN_VALUE = 40                     # user: buy only at a 40%+ value tag
 FREE_TITLE = "some gold"           # the Gold section's left card, "Free"
+# User (2026-10-05): some days the Gold Key isn't in the shop (a Silver Key sits
+# in its place) - that's fine, no flag. The Silver Key is never bought; it's
+# listed so a misread can't make it match "Silver Chest" (0.7 similar).
+SOMETIMES_MISSING = {"gold key"}
+NEVER = ["silver key"]
 TITLE_MATCH = 0.8                  # how close an OCR'd title must be to a name
 
 HEADER = RelRect(0.30, 0.255, 0.40, 0.04)   # "Black Market" bar under the banner
@@ -90,8 +95,10 @@ def titles(frame) -> dict[str, tuple[int, int]]:
     out = {}
     for text, cx, cy in ocr_lines(frame[y0:int(LIST_BOTTOM * h / 951)]):
         key = _norm(text)
-        name = max(WANTED + [FREE_TITLE],
+        name = max(WANTED + [FREE_TITLE] + NEVER,
                    key=lambda n: SequenceMatcher(None, key, _norm(n)).ratio())
+        if name in NEVER:
+            continue  # closest to an item we never buy
         if SequenceMatcher(None, key, _norm(name)).ratio() >= TITLE_MATCH:
             out[name] = (round(cx * 642 / w), round((cy + y0) * 951 / h))
     return out
@@ -155,7 +162,11 @@ class BlackMarket(MenuTask):
                 break  # the free gold is the last card
             if not self._scroll(ctx):
                 break  # the bottom
-        missing = [n for n in WANTED + [FREE_TITLE] if n not in handled]
+        absent_ok = [n for n in SOMETIMES_MISSING if n not in handled]
+        if absent_ok:
+            ctx.log.info("%s: %s not in the shop today", self.name, ", ".join(absent_ok))
+        missing = [n for n in WANTED + [FREE_TITLE]
+                   if n not in handled and n not in SOMETIMES_MISSING]
         if missing:
             self.flag(ctx, f"didn't find {', '.join(missing)} in the Black Market. "
                            "Check those by hand.")
