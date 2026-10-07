@@ -32,3 +32,4 @@ from . import guild_hall  # noqa: F401
 from . import guild_trade  # noqa: F401
 from . import hard_mode_autorun  # noqa: F401
 from . import pet_armament_chest  # noqa: F401
+from . import pet_synthesis  # noqa: F401

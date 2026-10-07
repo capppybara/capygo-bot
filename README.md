@@ -76,6 +76,7 @@ Any of these stops a run within a second:
 | [Hard Mode Autorun](#hard-mode-autorun) | Runs a Hard Mode chapter over and over | The Hard Mode screen |
 | [Martial Arts Tournament](#martial-arts-tournament) | Fights the Qualifiers opponents worth the most points that you can beat, now or at 6:50 AM | Anywhere |
 | [Pet Armament Chest](#pet-armament-chest) | Opens Pet Armament chests, upgrading when it is worth it | The locked chest screen |
+| [Pet Synthesis](#pet-synthesis) | Turns surplus pet fragments into new pets until none are left | Anywhere |
 
 ## Auto Daily
 
@@ -399,6 +400,25 @@ Each upgrade succeeds (✓) or fails (✗).
 | Free failure threshold | 2 | After the free upgrades, open the chest if it has this many failures or more. 0 means free upgrades only, never pay. |
 | Total failure threshold | 2 | In the paid stage, open the chest once total failures reach this |
 
+## Pet Synthesis
+
+Pet Synthesis turns surplus pet fragments into new pets. It keeps going until
+the game has no fragments left to use. It has no settings.
+
+**Start on:** anywhere. If you are already on the Pets page or in the Pet
+Synthesis popup, it starts there. Otherwise it goes home, then Equip, then Pets.
+
+Each synthesis:
+
+1. Opens Pet Synthesis (bottom right of the Pets page).
+2. Taps Synthesize, then OK on the "fragments will be consumed" confirm. The bot
+   taps OK only on that confirm.
+3. Closes the Rewards popup with the new pets, which returns to the Pets page.
+
+When the popup reads "No surplus pet fragments available", Synthesize does
+nothing. The bot then closes the popup and goes home. Each synthesis takes about
+7 seconds.
+
 ## Files it writes
 
 | Path | What |
@@ -458,7 +478,7 @@ capygo/
     _event_template.py, _guild_template.py, _menu_template.py   copy to add a chore
     auto_gulu.py            Auto Gulu
     get_guild_member_list.py, compare_guild_power.py
-    goblin_miner.py, hard_mode_autorun.py, pet_armament_chest.py
+    goblin_miner.py, hard_mode_autorun.py, pet_armament_chest.py, pet_synthesis.py
     martial_arts_tournament.py
 templates/<task-name>/      reference images matched at runtime
 ui/                         the PySide6 app: home and task screens, theme, icons
@@ -488,6 +508,7 @@ setting, `-n` is a dry run, and `--list` shows every task and its settings.
 ./run.sh martial-arts-tournament -p my_cp=5.23 -p ratio=1.1
 ./run.sh martial-arts-tournament -p sniping=true   # waits for 6:50 AM Pacific
 ./run.sh pet-armament-chest -p runs=20 -n
+./run.sh pet-synthesis
 ./run.sh restart-game                      # kill the game, reopen it, get to home
 ```
 
