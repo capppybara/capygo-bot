@@ -236,8 +236,9 @@ For each run, the bot:
    on the home screen.
 
 For each skill screen the bot waits until it shows "0/2", gives the cards 2
-seconds to slide in, then picks. It taps Select only while the screen is still
-up. The Skills panel does not pause the run, so the quit has to be quick. If a
+seconds to slide in, then picks. If the counter still reads short (a tap didn't
+register), it picks the next card down. It taps Select only while the screen is
+still up. The Skills panel does not pause the run, so the quit has to be quick. If a
 run fails, the bot saves a screenshot to `logs/`.
 
 ### Joining

@@ -23,7 +23,8 @@ Hosting (user, 2026-10-05):
      Then back to step 2, until the number of runs is done. Each skill screen
      is picked the way joining does it: wait for a fresh "0/2" screen, let it
      settle 2s (the cards slide in), tap the top two, and Select only while the
-     screen is still up. (2026-10-06: the old fixed-timing taps missed a pick
+     screen is still up; a counter still short then (a swallowed tap) gets
+     the next card(s) first. (2026-10-06: the old fixed-timing taps missed a pick
      and every later tap landed a screen behind, so the quit never happened.)
      Skills goes in once the skill screen has closed; the Skills panel does NOT
      pause the run, so Skills -> home -> OK keep the user's quick waits.
@@ -109,6 +110,10 @@ INVITE_NAMES = (180, 380, 260, 640)                # px x0, x1, y0, y1: host nam
 ACCEPT_X, ACCEPT_DY = 476, 21                      # a card's ✓: host name y + 21
 # Joining: the run
 SKILL_ONE = (320, 385)                             # 1-pick screens: the top of 3 cards
+# If a pick didn't register (2026-10-06: a connection overlay swallowed a tap),
+# the counter reads short before Select: tap the next unpicked card(s) instead.
+SPARE_TWO = [(320, 578), (320, 706)]               # 2-pick screens: cards 3 and 4
+SPARE_ONE = [(320, 513), (320, 642)]               # 1-pick screens: cards 2 and 3
 PICK_COUNT = RelRect(0.31, 0.845, 0.38, 0.060)     # "0/2 Select Skills" / "0/1 ..."
 RESULT_TITLE = RelRect(0.25, 0.385, 0.50, 0.065)   # "Victory" / "Defeat"
 RESULT_OK = (320, 812)                             # Victory screen's OK
@@ -403,6 +408,17 @@ class AutoGulu(Task):
         for what, pos, after in taps:
             if not self._tap(ctx, Rel(*_rel(pos)), what, after):
                 return False
+        if not ctx.dry_run:
+            picks = _picks(ctx.frame())
+            if picks is not None and picks[0] < picks[1]:
+                missing = picks[1] - picks[0]
+                ctx.log.info("auto-gulu: only %d/%d picked (a tap didn't register) "
+                             "-> the next card%s", picks[0], picks[1],
+                             "s" if missing > 1 else "")
+                spare = SPARE_TWO if two_picks else SPARE_ONE
+                for i, pos in enumerate(spare[:missing], 1):
+                    if not self._tap(ctx, Rel(*_rel(pos)), f"skill (spare {i})", 1.0):
+                        return False
         # Never tap Select unless the skill screen is still up: Select sits inside
         # the battle's Skills button.
         if not ctx.dry_run and "choose skill" not in _words(ctx.frame(), CHOOSE_TITLE):
