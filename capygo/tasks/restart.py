@@ -12,11 +12,15 @@ request (an AppleScript "quit" hung for 20s), so it is ended with a signal:
 SIGTERM, then SIGKILL if it's still running after QUIT_TIMEOUT. Its process is
 found by bundle ID, so this works with the window hidden or on another Space.
 
-Seen on a relaunch (2026-10-06, home in ~17s): splash -> "Checking for updates"
--> "Logging in" -> a "Game Notice" popup (closed by its X) -> home. Other days can
-bring a series of notices (events, rewards, offers). Each one is closed the way
-go_home closes popups (the X, "Tap to close", the back arrow) or by an OK / Close
-button; a screen nothing places gets a tap on an empty spot now and then. Home
+Seen on a relaunch: splash -> "Checking for updates" -> "Logging in" -> a series
+of notices -> home. 2026-10-06 17:38 brought eight (home in 46s): Game Notice,
+an Epic Special Offer, Moonlit Adventure, Limited-Time Inheritance UP, Martial
+Arts Tournament, Champion Team, Today's Showdown, a 10% Bonus ad. Most have an X;
+Moonlit Adventure and Inheritance UP have only Go buttons. Every notice says "Do
+not show again today" (a checkbox the bot never taps). Each one is closed the way
+go_home closes popups (the X, "Tap to close", the back arrow), else by an OK /
+Close button, else (no X but "Do not show") by a tap on an empty spot above the
+panel. Other unplaced screens (loading) get an empty-spot tap now and then. Home
 only counts once it has stayed clear for HOME_STEADY seconds, because a notice can
 pop up just after the home screen shows.
 """
@@ -46,6 +50,7 @@ UNKNOWN_TAP_EVERY = 4     # a screen nothing places: tap an empty spot every 4th
 # labels only, and never on a screen that mentions money.
 CLOSE_LABELS = {"ok", "close", "confirm", "got it"}
 MONEY_WORDS = ("$", "top up", "purchase", "buy", "pay", "recharge")
+NOTICE_HINTS = ("do not show", "don't show")  # every notice's "Do not show again today"
 
 
 def _bundle(ctx: Context) -> str:
@@ -132,17 +137,19 @@ def launch_game(ctx: Context) -> bool:
     return True
 
 
-def _close_button(frame) -> Rel | None:
-    """An OK / Close button on a notice nothing else places. None on a screen that
-    mentions money."""
+def _read_notice(frame) -> tuple[str, Rel] | None:
+    """What to tap on a screen nothing else places, as (log text, target): its OK /
+    Close button (never on a screen that mentions money), or an empty spot for a
+    notice without an X. None if it reads as neither (e.g. a loading screen)."""
     lines = ocr_lines(frame)
     text = " ".join(t for t, _, _ in lines).lower()
-    if any(w in text for w in MONEY_WORDS):
-        return None
-    h, w = frame.shape[:2]
-    for t, cx, cy in lines:
-        if t.strip().lower() in CLOSE_LABELS:
-            return Rel(cx / w, cy / h)
+    if not any(w in text for w in MONEY_WORDS):
+        h, w = frame.shape[:2]
+        for t, cx, cy in lines:
+            if t.strip().lower() in CLOSE_LABELS:
+                return "tap the notice's OK / Close", Rel(cx / w, cy / h)
+    if any(hint in text for hint in NOTICE_HINTS):
+        return "notice without an X -> tap an empty spot", NEUTRAL
     return None
 
 
@@ -173,9 +180,9 @@ def wait_for_home(ctx: Context, timeout: float = LOAD_TIMEOUT) -> bool:
             continue
         if move == "unknown":  # loading, or a notice nothing else places
             unknowns += 1
-            button = _close_button(frame) if unknowns >= 2 else None
-            if button is not None:
-                what, target = "tap the notice's OK / Close", button
+            notice = _read_notice(frame) if unknowns >= 2 else None
+            if notice is not None:
+                what, target = notice
                 unknowns = 0
                 closed += 1
             elif unknowns % UNKNOWN_TAP_EVERY == 0:
