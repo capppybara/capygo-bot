@@ -73,6 +73,8 @@ QGroupBox#SettingsBox { padding: 2px 6px; }
 
 /* the Settings form scrolls inside its box when it's long (Auto Daily) */
 #SettingsScroll, #SettingsScroll > QWidget, #SettingsForm { background: transparent; }
+/* the home screen's task cards scroll under its header */
+#HomeScroll, #HomeScroll > QWidget, #HomeList { background: transparent; }
 QScrollBar:vertical {
     background: #D9BC8C;
     border: 2px solid #241D14;

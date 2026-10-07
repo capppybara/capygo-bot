@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -83,21 +84,37 @@ class HomeScreen(QWidget):
         hb.addStretch(1)
         lay.addWidget(header)
 
+        # Everything below the header scrolls, so each card keeps its full height
+        # (with many tasks the window used to squeeze them and cut off their text).
+        listing = QWidget()
+        listing.setObjectName("HomeList")
+        col = QVBoxLayout(listing)
+        col.setContentsMargins(0, 0, 10, 0)  # room for the scrollbar
+        col.setSpacing(12)
+
         sub = QLabel("Pick an automation to run")
         sub.setObjectName("SubHeader")
-        lay.addWidget(sub)
-        lay.addSpacing(10)
+        col.addWidget(sub)
+        col.addSpacing(10)
 
         for name in list_tasks():
             if getattr(get_task_class(name), "HIDDEN", False):
                 continue  # e.g. compare-guild-power: reached via a button, not a card
-            lay.addWidget(TaskCard(name, on_select))
+            col.addWidget(TaskCard(name, on_select))
 
-        lay.addStretch(1)
+        col.addStretch(1)
 
         note = QLabel("Built and tested on a MacBook Pro M3 16\" with the native "
                       "Capybara Go! Mac app using the default window size. "
                       "No guarantees it works in a different setup.")
         note.setObjectName("Hint")
         note.setWordWrap(True)
-        lay.addWidget(note)
+        col.addWidget(note)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("HomeScroll")
+        scroll.setWidget(listing)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        lay.addWidget(scroll, 1)
