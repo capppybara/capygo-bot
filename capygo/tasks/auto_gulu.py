@@ -20,10 +20,13 @@ Hosting (user, 2026-10-05):
      then quit the run at once: Skills (in battle) -> home (bottom-left) ->
      "Tips: Exiting will immediately settle rewards..." OK -> dismiss the
      "Defeat" result -> home; an occasional second confirmation gets Cancel.
-     Then back to step 2, until the number of runs is done. The skill screens
-     always look the same, so it's all fixed positions with the user's waits
-     (the Skills panel does NOT pause the run: be quick, or the next day's
-     skill picker comes up).
+     Then back to step 2, until the number of runs is done. Each skill screen
+     is picked the way joining does it: wait for a fresh "0/2" screen, let it
+     settle 2s (the cards slide in), tap the top two, and Select only while the
+     screen is still up. (2026-10-06: the old fixed-timing taps missed a pick
+     and every later tap landed a screen behind, so the quit never happened.)
+     Skills goes in once the skill screen has closed; the Skills panel does NOT
+     pause the run, so Skills -> home -> OK keep the user's quick waits.
   7. Stay on: NOT BUILT YET (the Victory/Defeat end of a full run hasn't been
      captured).
 
@@ -55,7 +58,8 @@ import cv2
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
-from .daily import HOME, _crop, find_sprite, go_home, home_state, tap, wait
+from .daily import (HOME, _crop, find_sprite, go_home, home_state, save_snapshot, tap,
+                    wait)
 from .event import TABS, go_events
 
 CARD_NAME = RelRect(0.12, 0.595, 0.50, 0.05)       # Challenge tab, 4th: "Gulu Mine"
@@ -86,14 +90,12 @@ RESULT_DISMISS = (321, 104)                        # "Defeat" screen, above it a
 CHOOSE_TITLE = RelRect(0.25, 0.140, 0.50, 0.070)   # "Choose skill"
 TIPS_TEXT = RelRect(0.10, 0.480, 0.80, 0.075)      # "Exiting will immediately..."
 DIALOG_BUTTONS = RelRect(0.15, 0.610, 0.70, 0.045)  # a confirmation's "OK  Cancel"
-RUN_TAPS = [  # (what, position, wait after) - user's timings
-    ("skill 1", SKILL_TOP, 1.0), ("skill 2", SKILL_SECOND, 1.0),
-    ("Select Skills", SELECT_BTN, 3.0),
-    ("skill 3", SKILL_TOP, 1.0), ("skill 4", SKILL_SECOND, 1.0),
-    ("Select Skills", SELECT_BTN, 3.0),
+QUIT_TAPS = [  # (what, position, wait after) - user's timings
     ("Skills", SKILLS_BTN, 2.0), ("home", HOME_BTN, 2.0),
 ]
-START_WAIT = 4.0          # user: 2s was too soon for the 1st skill pick
+START_WAIT = 2.0          # user: 2s after Start, then look for the skill screen
+HOST_SKILL_TIMEOUT = 30.0  # each skill screen must come up by then
+BATTLE_TIMEOUT = 30.0     # after the 2nd Select: the skill screen closes by then
 HOME_TIMEOUT = 15.0
 
 # Joining: the invitation banner and popup
@@ -219,7 +221,9 @@ class AutoGulu(Task):
                 break
             ctx.log.info("auto-gulu: run %d/%d", n, p["runs"])
             if not self._run_and_quit(ctx):
-                ctx.log.warning("auto-gulu: run %d didn't finish cleanly -> stopping", n)
+                shot = None if ctx.should_stop() else save_snapshot(ctx, "gulu-host-failed")
+                ctx.log.warning("auto-gulu: run %d didn't finish cleanly -> stopping%s",
+                                n, f"; screen saved: {shot}" if shot else "")
                 break
             ctx.log.info("auto-gulu: run %d/%d done", n, p["runs"])
         else:
@@ -359,8 +363,8 @@ class AutoGulu(Task):
                     ctx.log.info("auto-gulu: skill screen (%d pick%s)", picks[1],
                                  "s" if picks[1] > 1 else "")
                     # user: the first pick was missed - the cards were still
-                    # coming in; let the screen settle first (hosting waits 4s
-                    # after Start for the same reason)
+                    # coming in; let the screen settle first (hosting does the
+                    # same, in _host_skill_screen)
                     if wait(ctx, SKILL_SETTLE):
                         return None
                     if not self._pick_skills(ctx, two_picks=picks[1] == 2):
@@ -429,14 +433,17 @@ class AutoGulu(Task):
 
     # --- step 6: run, then quit at once ----------------------------------------
     def _run_and_quit(self, ctx: Context) -> bool:
-        """Start, pick the top two skills twice, quit via Skills -> home -> OK,
-        dismiss the result, and get home. Fixed positions and the user's waits."""
+        """Start, pick the top two skills on both skill screens, quit via Skills ->
+        home -> OK, dismiss the result, and get home."""
         if not self._tap(ctx, Rel(*_rel(START_BTN)), "Start Challenge", START_WAIT):
             return False
-        if not ctx.dry_run and "choose skill" not in _words(ctx.frame(), CHOOSE_TITLE):
-            ctx.log.warning("auto-gulu: no skill screen after Start")
+        for n in (1, 2):
+            if not self._host_skill_screen(ctx, n):
+                return False
+        if not ctx.dry_run and not self._battle_on(ctx):
+            ctx.log.warning("auto-gulu: the skill screen didn't close")
             return False
-        for what, pos, after in RUN_TAPS:
+        for what, pos, after in QUIT_TAPS:
             if not self._tap(ctx, Rel(*_rel(pos)), what, after):
                 return False
         if not ctx.dry_run and "exiting" not in _words(ctx.frame(), TIPS_TEXT):
@@ -460,6 +467,37 @@ class AutoGulu(Task):
                 return False
         ctx.log.warning("auto-gulu: not home after leaving the run; backing out")
         return go_home(ctx)
+
+    def _host_skill_screen(self, ctx: Context, n: int) -> bool:
+        """Wait for skill screen n to come up fresh ("0/2"; after the 1st Select
+        that screen can stay up a moment reading "2/2"), let it settle, and pick.
+        False if it doesn't come up within HOST_SKILL_TIMEOUT, or on a stop."""
+        if ctx.dry_run:
+            return self._pick_skills(ctx, two_picks=True)
+        end = time.time() + HOST_SKILL_TIMEOUT
+        while time.time() < end:
+            frame = ctx.frame()
+            if "choose skill" in _words(frame, CHOOSE_TITLE):
+                picks = _picks(frame)
+                if picks is not None and picks[0] == 0:
+                    ctx.log.info("auto-gulu: skill screen %d", n)
+                    if wait(ctx, SKILL_SETTLE):
+                        return False
+                    return self._pick_skills(ctx, two_picks=picks[1] == 2)
+            if wait(ctx, 0.5):
+                return False
+        ctx.log.warning("auto-gulu: skill screen %d didn't come up within %.0fs", n,
+                        HOST_SKILL_TIMEOUT)
+        return False
+
+    def _battle_on(self, ctx: Context) -> bool:
+        """The last skill screen has closed (the battle is on). No settle after it:
+        the Skills panel must go in quickly."""
+        end = time.time() + BATTLE_TIMEOUT
+        while "choose skill" in _words(ctx.frame(), CHOOSE_TITLE):
+            if time.time() >= end or wait(ctx, 0.5):
+                return False
+        return True
 
     def _second_confirmation(self, ctx: Context) -> bool:
         """User: an occasional second confirmation shows up; its button sits about

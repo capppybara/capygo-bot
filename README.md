@@ -235,8 +235,10 @@ For each run, the bot:
    quits the run at once: Skills → home → OK. It dismisses the result and lands
    on the home screen.
 
-The skill screens always look the same, so the bot taps fixed positions with
-set waits. The Skills panel does not pause the run, so the quit has to be quick.
+For each skill screen the bot waits until it shows "0/2", gives the cards 2
+seconds to slide in, then picks. It taps Select only while the screen is still
+up. The Skills panel does not pause the run, so the quit has to be quick. If a
+run fails, the bot saves a screenshot to `logs/`.
 
 ### Joining
 
