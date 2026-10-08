@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+import re
+
+from PySide6.QtCore import QProcess, Qt
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -16,6 +19,7 @@ import capygo.tasks  # noqa: F401  (registers all tasks)
 from capygo.task import get_task_class, list_tasks
 
 from .icons import app_icon_pixmap, task_icon_pixmap
+from .task_view import task_process
 
 
 class TaskCard(QFrame):
@@ -84,6 +88,29 @@ class HomeScreen(QWidget):
         hb.addStretch(1)
         lay.addWidget(header)
 
+        # "Pick an automation" with a Restart game button beside it (user): one
+        # click runs the restart-game task (kill the game, open it again, get to
+        # its home screen) in the background, no task screen.
+        bar = QHBoxLayout()
+        bar.setSpacing(8)
+        sub = QLabel("Pick an automation to run")
+        sub.setObjectName("SubHeader")
+        bar.addWidget(sub)
+        bar.addStretch(1)
+        self.restart_note = QLabel("")
+        self.restart_note.setObjectName("SubHeader")
+        bar.addWidget(self.restart_note)
+        self.restart_btn = QPushButton("Restart game")
+        self.restart_btn.setObjectName("SmallBtn")
+        self.restart_btn.setCursor(Qt.PointingHandCursor)
+        self.restart_btn.setToolTip("Kill the game, open it again, and get to its "
+                                    "home screen, closing the start-up notices")
+        self.restart_btn.clicked.connect(self._restart_game)
+        bar.addWidget(self.restart_btn)
+        lay.addLayout(bar)
+        self.restart_proc: QProcess | None = None
+        self._restart_out: list[bytes] = []
+
         # Everything below the header scrolls, so each card keeps its full height
         # (with many tasks the window used to squeeze them and cut off their text).
         listing = QWidget()
@@ -91,11 +118,6 @@ class HomeScreen(QWidget):
         col = QVBoxLayout(listing)
         col.setContentsMargins(0, 0, 10, 0)  # room for the scrollbar
         col.setSpacing(12)
-
-        sub = QLabel("Pick an automation to run")
-        sub.setObjectName("SubHeader")
-        col.addWidget(sub)
-        col.addSpacing(10)
 
         for name in list_tasks():
             if getattr(get_task_class(name), "HIDDEN", False):
@@ -118,3 +140,34 @@ class HomeScreen(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         lay.addWidget(scroll, 1)
+
+    # --- the Restart game button -------------------------------------------------
+    def _restart_game(self) -> None:
+        if self.restart_proc is not None and self.restart_proc.state() != QProcess.NotRunning:
+            return
+        self._restart_out = []
+        proc = task_process(self, ["-u", "run.py", "restart-game"])
+        proc.setProcessChannelMode(QProcess.MergedChannels)
+        proc.readyReadStandardOutput.connect(
+            lambda: self._restart_out.append(bytes(proc.readAllStandardOutput())))
+        proc.finished.connect(self._restart_done)
+        proc.errorOccurred.connect(self._restart_error)
+        self.restart_proc = proc
+        self.restart_btn.setEnabled(False)
+        self.restart_btn.setText("Restarting…")
+        self.restart_note.setText("")
+        proc.start()
+
+    def _restart_done(self, exit_code, exit_status) -> None:
+        out = b"".join(self._restart_out).decode(errors="replace")
+        m = re.search(r"the game restarted in (\d+)s", out)
+        self.restart_btn.setEnabled(True)
+        self.restart_btn.setText("Restart game")
+        self.restart_note.setText(f"Game restarted ({m.group(1)}s)" if m and exit_code == 0
+                                  else "Restart failed, see logs/")
+
+    def _restart_error(self, err) -> None:
+        if err == QProcess.FailedToStart:  # no finished() follows
+            self.restart_btn.setEnabled(True)
+            self.restart_btn.setText("Restart game")
+            self.restart_note.setText("Couldn't start the restart")

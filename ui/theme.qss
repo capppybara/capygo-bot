@@ -189,6 +189,7 @@ QPushButton#SmallBtn {
     font-size: 12px;
 }
 QPushButton#SmallBtn:hover { background: #F7EFD8; }
+QPushButton#SmallBtn:disabled { color: #9C8B6E; border-color: #6B5C42; }
 
 /* --- log (parchment inset) --- */
 #LogStatus { font-size: 15px; font-weight: bold; color: #33261B; background: transparent; }

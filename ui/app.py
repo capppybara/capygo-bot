@@ -57,6 +57,8 @@ class MainWindow(QMainWindow):
             proc = getattr(screen, "proc", None)
             if proc is not None:
                 proc.kill()
+        if self.home.restart_proc is not None:  # the Restart game button's run
+            self.home.restart_proc.kill()
         super().closeEvent(event)
 
 

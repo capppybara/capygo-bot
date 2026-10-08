@@ -53,6 +53,11 @@ takes a minute. You can also double-click `launch.command` in Finder.
 Tick **Dry run** (next to the log status) to see what it would tap without
 tapping anything.
 
+If the game gets stuck, press **Restart game** on the home screen, next to "Pick
+an automation to run". It kills the game, opens it again, and closes the
+start-up notices until the game's home screen shows. A note beside the button
+says how it went.
+
 **Keep the game window visible while it runs.** The bot taps screen positions.
 A window on top of the game, a minimized game, or a game on another Space makes
 those taps miss. The window does not need to be full screen.

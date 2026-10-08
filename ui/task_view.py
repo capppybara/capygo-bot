@@ -71,6 +71,22 @@ class ChoiceSpinBox(QSpinBox):
         return self._choices[self._nearest_index(v)]
 
 
+def task_process(parent, args) -> QProcess:
+    """A QProcess (not started) that runs `python <args>` from the project root,
+    the way the app runs every task (e.g. ["-u", "run.py", "restart-game"])."""
+    env = QProcessEnvironment.systemEnvironment()
+    env.insert("PYTHONPATH", ROOT)
+    env.insert("PYTHONUNBUFFERED", "1")
+    # So the task process exits if this app is killed (see run.py).
+    env.insert("CAPYGO_PARENT_PID", str(os.getpid()))
+    proc = QProcess(parent)
+    proc.setWorkingDirectory(ROOT)
+    proc.setProcessEnvironment(env)
+    proc.setProgram(sys.executable)
+    proc.setArguments(args)
+    return proc
+
+
 class TaskScreen(QWidget):
     def __init__(self, name: str, on_back):
         super().__init__()
@@ -477,18 +493,8 @@ class TaskScreen(QWidget):
         return "cancel"
 
     def _start_proc(self, args, on_finish=None):
-        env = QProcessEnvironment.systemEnvironment()
-        env.insert("PYTHONPATH", ROOT)
-        env.insert("PYTHONUNBUFFERED", "1")
-        # So the task process exits if this app is killed (see run.py).
-        env.insert("CAPYGO_PARENT_PID", str(os.getpid()))
-
         self._pending_on_finish = on_finish
-        self.proc = QProcess(self)
-        self.proc.setWorkingDirectory(ROOT)
-        self.proc.setProcessEnvironment(env)
-        self.proc.setProgram(sys.executable)
-        self.proc.setArguments(args)
+        self.proc = task_process(self, args)
         self.proc.readyReadStandardOutput.connect(
             lambda: self._append(self.proc.readAllStandardOutput())
         )
