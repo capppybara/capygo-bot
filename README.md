@@ -248,7 +248,7 @@ For each run, the bot:
 1. Checks every 10 seconds, for up to 30 minutes, for the "New Invitation"
    banner. It opens it, makes sure the invitations are Gulu Mine's, and accepts
    the friend's invite. It never taps Reject or "No longer show".
-2. Plays the run to the end. Every 5 seconds it looks for a skill screen and
+2. Plays the run to the end. Every 2 seconds it looks for a skill screen and
    picks the top cards: two picks on each of battle 1's two screens, one pick
    on each later screen.
 3. Taps OK on the Victory or Defeat screen.

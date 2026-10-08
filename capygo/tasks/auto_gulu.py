@@ -39,11 +39,11 @@ Joining (user, 2026-10-05):
   friend's invite -> tap its ✓. No banner / no invite from the friend: close it,
   wait 10s, look again. Never the ✗, "Reject all", or the "No longer show
   invitation messages" box.
-  Then the run, always played to the end: every 5s look for a skill screen or
+  Then the run, always played to the end: every 2s look for a skill screen or
   the result. Battle 1 has two screens of 2 picks (the hosting positions and
   waits); battles 2-4 have two screens of 1 pick (the top of 3 cards). The
   result: Victory has an OK button; Defeat closes with a tap. Where that leaves
-  you says whether the host stayed: the Gulu team screen -> wait (5s checks) for
+  you says whether the host stayed: the Gulu team screen -> wait (2s checks) for
   the host's next start, which brings battle 1's 2x2 picks again; home -> the
   invitation flow. Repeat until the number of runs is done.
 """
@@ -118,7 +118,9 @@ PICK_COUNT = RelRect(0.31, 0.845, 0.38, 0.060)     # "0/2 Select Skills" / "0/1 
 RESULT_TITLE = RelRect(0.25, 0.385, 0.50, 0.065)   # "Victory" / "Defeat"
 RESULT_OK = (320, 812)                             # Victory screen's OK
 RESULT_OK_LABEL = RelRect(0.35, 0.830, 0.30, 0.050)
-SKILL_POLL = 5.0          # user: look for the skill screen every 5 seconds
+SKILL_POLL = 2.0          # user: look for the skill screen every 2 seconds (was 5)
+SELECT_WAIT = 2.0         # user: look again 2s after Select (was 3; the next
+                          # screen shows ~1s after Select)
 SKILL_SETTLE = 2.0        # user: wait 2s after spotting a skill screen, then pick
 START_TIMEOUT = 30 * 60   # waiting for the host to start
 RUN_TIMEOUT = 15 * 60     # a run that has started should end well before this
@@ -338,11 +340,11 @@ class AutoGulu(Task):
             ctx.log.info("auto-gulu: all %d run(s) done", runs)
 
     def _play_joined_run(self, ctx: Context) -> str | None:
-        """From the team screen (or a skill screen already up): every 5s look for
+        """From the team screen (or a skill screen already up): every 2s look for
         a skill screen or the result. Battle 1 has two 2-pick screens, battles 2-4
         two 1-pick screens; all taps at fixed positions with the user's waits.
         Each skill screen is handled on its own and the screen is checked again
-        right after (no 5s wait), so nothing is tapped once a screen has closed.
+        right after (no 2s wait), so nothing is tapped once a screen has closed.
         Ends on the result: OK -> "victory"/"defeat". None on a stop, a timeout,
         or the team going away before a start (logged)."""
         if ctx.dry_run:
@@ -425,7 +427,7 @@ class AutoGulu(Task):
             ctx.log.info("auto-gulu: the skill screen closed before Select")
             ctx.hover_rel(Rel(*_rel(SKILL_TOP)))
             return True
-        if not self._tap(ctx, Rel(*_rel(SELECT_BTN)), "Select Skills", 3.0):
+        if not self._tap(ctx, Rel(*_rel(SELECT_BTN)), "Select Skills", SELECT_WAIT):
             return False
         ctx.hover_rel(Rel(*_rel(SKILL_TOP)))
         return True
