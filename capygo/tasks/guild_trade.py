@@ -20,6 +20,15 @@ Rules (user, 2026-10-04):
   - Both a chest boat and a 200-badges boat on the sea: take the chest one.
   - A lost fight: move on. No suitable boat left: Refresh (free, no limit).
   - Stop at 4 looted today.
+
+Popups (user, 2026-10-07: "build in some fail safes to dismiss popups"): opening
+Guild Trade can bring a "Bountiful Return" letter (a guild-mate's cargo ship came
+back; dividends) under a "Rewards / Tap to close" popup, and the sea can be
+covered by a boat owner's Character Info or a cargo item's info. Neither the
+Guild Trade screen nor the Plunder sea has a round X or "Tap to close" of its
+own, and both still READ as themselves under a popup's dimming, so every wait
+and every turn of the plunder loop first closes whatever popup is up: a reward
+with a tap above its band, a panel with its X.
 """
 
 from __future__ import annotations
@@ -37,7 +46,7 @@ import numpy as np
 from ..geometry import Rel, RelRect
 from ..perception import load_template, ocr_lines
 from ..task import Context, register
-from .daily import _crop, find_sprite, tap_to_close_up
+from .daily import NEUTRAL, _crop, find_sprite, tap_to_close_up
 from .event_arena import SKIP_BTN, _power, fight_up
 from .guild import GuildTask, go_guild
 
@@ -76,6 +85,7 @@ GONE_AFTER = 5.0           # still on the sea this long after Plunder: the boat 
 GONE = "gone"
 SKIP_RETRY = 6.0
 RESULT_TIMEOUT = 30.0
+MAX_POPUPS = 6             # popups closed in a row before giving up (a loop)
 
 
 @dataclass
@@ -216,6 +226,8 @@ class GuildTrade(GuildTask):
         skip: set[tuple[int, int]] = set()
         refreshes = wins = losses = 0
         while True:
+            if not self._close_popups(ctx):
+                return False
             count = looted(ctx.frame())
             if count is None:
                 if not self._wait_for(ctx, "the Plunder sea", on_plunder, LOAD_TIMEOUT):
@@ -319,11 +331,13 @@ class GuildTrade(GuildTask):
             # the tap caught the owner's avatar after all: close it, move on
             ctx.log.info("%s: opened the owner's profile by mistake; closing it",
                          self.name)
-            x = find_sprite(ctx, frame, "close_x.png")
-            if x is not None:
-                self.tap(ctx, x, "close X")
-            return None
-        return read_panel(frame)
+        elif self._popup(ctx, frame) is not None:
+            ctx.log.info("%s: a popup opened instead of the boat's panel; closing it",
+                         self.name)
+        else:
+            return read_panel(frame)
+        self._close_popups(ctx, frame)
+        return None
 
     def _plunder(self, ctx: Context) -> str | None:
         """Plunder the selected boat: fight, Skip, OK, back on the sea. The result
@@ -342,12 +356,6 @@ class GuildTrade(GuildTask):
             if ctx.should_stop():
                 return None
             ctx.log.info("%s: the fight didn't start; clearing the screen", self.name)
-            frame = ctx.frame()
-            x = find_sprite(ctx, frame, "close_x.png")
-            if x is not None:
-                self.tap(ctx, x, "close X")
-            elif tap_to_close_up(frame):
-                self.tap(ctx, OK_BTN, "dismiss the popup")
             return "no fight" if self._wait_for(ctx, "the Plunder sea", on_plunder,
                                                 LOAD_TIMEOUT) else None
         end = time.time() + RESULT_TIMEOUT
@@ -401,11 +409,23 @@ class GuildTrade(GuildTask):
 
     def _wait_for(self, ctx: Context, what: str | None, check, timeout: float,
                   settle: float = SETTLE) -> bool:
-        """Poll until check(frame) holds, then let the screen settle. False on a
-        timeout (logged, if `what` names the screen) or a stop."""
+        """Poll until check(frame) holds, then let the screen settle. A popup in the
+        way is closed first (the screens read as themselves under one), and each
+        closed popup gives the screen another `timeout`. False on a timeout
+        (logged, if `what` names the screen) or a stop."""
         end = time.time() + timeout
+        popups = 0
         while True:
-            if check(ctx.frame()):
+            frame = ctx.frame()
+            popup = self._popup(ctx, frame) if popups < MAX_POPUPS else None
+            if popup is not None:
+                popups += 1
+                what_popup, target = popup
+                if not self.tap(ctx, target, f"close {what_popup}"):
+                    return False
+                end = max(end, time.time() + timeout)
+                continue
+            if check(frame):
                 return not self.wait(ctx, settle)
             if time.time() >= end:
                 if what:
@@ -414,3 +434,31 @@ class GuildTrade(GuildTask):
                 return False
             if self.wait(ctx, POLL):
                 return False
+
+    def _popup(self, ctx: Context, frame) -> tuple[str, Rel] | None:
+        """A popup covering the screen, as (what, where to tap to close it): a
+        reward's "Tap to close" (a tap above its band) or a panel's round X.
+        None if the screen is clear."""
+        if tap_to_close_up(frame):
+            return "the reward popup", NEUTRAL
+        x = find_sprite(ctx, frame, "close_x.png")
+        if x is not None:
+            return "the popup (X)", x
+        return None
+
+    def _close_popups(self, ctx: Context, frame=None) -> bool:
+        """Close popups until the screen is clear (e.g. Rewards over a Bountiful
+        Return letter: two in a row). False on a stop, or if MAX_POPUPS in a row
+        didn't clear it (logged)."""
+        for _ in range(MAX_POPUPS):
+            popup = self._popup(ctx, frame if frame is not None else ctx.frame())
+            if popup is None:
+                return True
+            what, target = popup
+            if not self.tap(ctx, target, f"close {what}"):
+                return False
+            frame = None
+        if self._popup(ctx, ctx.frame()) is None:
+            return True
+        ctx.log.warning("%s: %d popups in a row and still one up", self.name, MAX_POPUPS)
+        return False

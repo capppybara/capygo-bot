@@ -197,6 +197,10 @@ If the sea has both a chest boat and a badge boat, it takes the chest. A lost
 fight just moves on. With no suitable boat it taps the free Refresh, up to 30
 times, then flags it.
 
+Popups can cover Guild Trade, such as the "Bountiful Return" letter with its
+Rewards when a guild-mate's ship comes back. The bot closes any popup it finds
+before each step: a reward with a tap above it, a panel with its X.
+
 ### Menu
 
 | Chore | What it does |
