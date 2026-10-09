@@ -28,8 +28,14 @@ Hosting (user, 2026-10-05):
      and every later tap landed a screen behind, so the quit never happened.)
      Skills goes in once the skill screen has closed; the Skills panel does NOT
      pause the run, so Skills -> home -> OK keep the user's quick waits.
-  7. Stay on: NOT BUILT YET (the Victory/Defeat end of a full run hasn't been
-     captured).
+  7. Stay on (user, 2026-10-08): play each run to the end with the joiner's run
+     code (every skill screen picked, then the result's OK). That leaves the
+     host on the team screen with the teammate still in: Start Challenge again,
+     every 5s until it takes (it may not until the teammate is ready). Not
+     started within ~5 minutes: maybe a bug, so Remove the teammate (the red
+     button under their name), invite them again, and keep trying. Start is
+     only tapped while it reads "Start Challenge": with nobody in, the same
+     button is Random Match.
 
 Joining (user, 2026-10-05):
   Already on a Gulu team screen -> carry on. Otherwise, every 10s for up to 30
@@ -98,6 +104,15 @@ START_WAIT = 2.0          # user: 2s after Start, then look for the skill screen
 HOST_SKILL_TIMEOUT = 30.0  # each skill screen must come up by then
 BATTLE_TIMEOUT = 30.0     # after the 2nd Select: the skill screen closes by then
 HOME_TIMEOUT = 15.0
+# Stay mode (hosting)
+START_LABEL = RelRect(0.20, 0.735, 0.28, 0.040)    # "Start Challenge" / "Random Match"
+REMOVE_BTN = (438, 587)                            # red "Remove" under the teammate
+REMOVE_LABEL = RelRect(0.60, 0.594, 0.16, 0.040)
+DIALOG_AREA = RelRect(0.10, 0.35, 0.80, 0.40)      # where a confirm's OK would be
+START_RETRY = 5.0         # user: tap Start again every 5s until the teammate is ready
+STUCK_AFTER = 5 * 60      # user: not started in ~5 min -> Remove them, invite again
+TEAM_BACK_TIMEOUT = 15.0  # after a result: the team screen is back by then
+REMOVE_TIMEOUT = 6.0
 
 # Joining: the invitation banner and popup
 BANNER_BAND = (420, 642, 450, 700)                 # px x0, x1, y0, y1: "New Invitation"
@@ -174,6 +189,17 @@ def result_title(frame) -> str:
     return next((r for r in ("victory", "defeat") if r in text), "")
 
 
+def _dialog_ok(frame) -> Rel | None:
+    """A confirm dialog's OK / Confirm button (an exact label in the middle of the
+    screen), or None. The plain team screen has none."""
+    h, w = frame.shape[:2]
+    x0, y0, _, _ = DIALOG_AREA.to_pixels(w, h)
+    for t, cx, cy in ocr_lines(_crop(frame, DIALOG_AREA)):
+        if t.strip().lower() in ("ok", "confirm"):
+            return Rel((x0 + cx) / w, (y0 + cy) / h)
+    return None
+
+
 def _picks(frame) -> tuple[int, int] | None:
     """The Select button's "picked/wanted" ("0/2 Select Skills" -> (0, 2)); None
     if unreadable. Wanted is 2 on battle 1's screens, else 1."""
@@ -220,8 +246,7 @@ class AutoGulu(Task):
         ctx.log.info("auto-gulu: hosting difficulty %d with %s, %d run(s), stay=%s",
                      p["difficulty"], p["friend"], p["runs"], p["stay"])
         if p["stay"]:
-            ctx.log.warning("auto-gulu: the stay loop (step 7) isn't built yet -> "
-                            "stopping")
+            self._stay_loop(ctx)
             return
         for n in range(1, p["runs"] + 1):
             if ctx.should_stop() or not self._team_ready(ctx):
@@ -329,7 +354,7 @@ class AutoGulu(Task):
         while done < runs and not ctx.should_stop():
             if not self._join(ctx):
                 return
-            result = self._play_joined_run(ctx)
+            result = self._play_run(ctx)
             if result is None:
                 return
             done += 1
@@ -339,20 +364,22 @@ class AutoGulu(Task):
         if done >= runs:
             ctx.log.info("auto-gulu: all %d run(s) done", runs)
 
-    def _play_joined_run(self, ctx: Context) -> str | None:
-        """From the team screen (or a skill screen already up): every 2s look for
-        a skill screen or the result. Battle 1 has two 2-pick screens, battles 2-4
-        two 1-pick screens; all taps at fixed positions with the user's waits.
-        Each skill screen is handled on its own and the screen is checked again
-        right after (no 2s wait), so nothing is tapped once a screen has closed.
-        Ends on the result: OK -> "victory"/"defeat". None on a stop, a timeout,
-        or the team going away before a start (logged)."""
+    def _play_run(self, ctx: Context, hosting: bool = False) -> str | None:
+        """Play a run to the end. Joining: from the team screen (or a skill screen
+        already up), waiting for the host's start. Hosting (stay): right after a
+        Start that took. Every 2s look for a skill screen or the result. Battle 1
+        has two 2-pick screens, battles 2-4 two 1-pick screens; all taps at fixed
+        positions with the user's waits. Each skill screen is handled on its own
+        and the screen is checked again right after (no 2s wait), so nothing is
+        tapped once a screen has closed. Ends on the result: OK ->
+        "victory"/"defeat". None on a stop, a timeout, or (joining) the team
+        going away before a start (logged)."""
         if ctx.dry_run:
             for two in (True, True, False, False):
                 if not self._pick_skills(ctx, two_picks=two):
                     return None
             return "dry run"
-        started = None
+        started = time.time() if hosting else None
         wait_start = time.time()
         while True:
             frame = ctx.frame()
@@ -384,13 +411,13 @@ class AutoGulu(Task):
                 if not in_gulu(frame) and home_state(frame) == HOME:
                     ctx.log.info("auto-gulu: back home before a start (the host left)")
                     return None if self._join(ctx) is False else \
-                        self._play_joined_run(ctx)
+                        self._play_run(ctx)
                 if time.time() - wait_start >= START_TIMEOUT:
                     ctx.log.warning("auto-gulu: the host didn't start in %d minutes",
                                     START_TIMEOUT // 60)
                     return None
             elif time.time() - started >= RUN_TIMEOUT:
-                self.flag(ctx, f"a joined run didn't end within {RUN_TIMEOUT // 60} "
+                self.flag(ctx, f"a Gulu run didn't end within {RUN_TIMEOUT // 60} "
                                "minutes. Check the game.")
                 return None
             if wait(ctx, SKILL_POLL):
@@ -644,6 +671,108 @@ class AutoGulu(Task):
                              self.params["friend"], (time.time() - start) / 60)
             if wait(ctx, JOIN_POLL):
                 return False
+
+    # --- step 7: stay - play each run to the end, start again -------------------
+    def _stay_loop(self, ctx: Context) -> None:
+        runs = self.params["runs"]
+        for n in range(1, runs + 1):
+            if ctx.should_stop() or not self._team_ready(ctx):
+                break
+            ctx.log.info("auto-gulu: run %d/%d (stay)", n, runs)
+            result = self._start_when_ready(ctx) and self._play_run(ctx, hosting=True)
+            if not result:
+                shot = None if ctx.should_stop() else save_snapshot(ctx, "gulu-host-failed")
+                ctx.log.warning("auto-gulu: run %d didn't finish cleanly -> stopping%s",
+                                n, f"; screen saved: {shot}" if shot else "")
+                break
+            ctx.log.info("auto-gulu: run %d/%d done (%s)", n, runs, result)
+            # the result's OK leads back to the team screen: let it load, so
+            # _team_ready sees it (else it would enter Gulu from scratch)
+            if n < runs and not ctx.dry_run and not self._until(
+                    ctx, lambda: team_level(ctx.frame()) is not None, TEAM_BACK_TIMEOUT):
+                ctx.log.warning("auto-gulu: not back on the team screen after the "
+                                "result; entering Gulu again")
+        else:
+            ctx.log.info("auto-gulu: all %d run(s) done", runs)
+
+    def _start_when_ready(self, ctx: Context) -> bool:
+        """Tap Start Challenge, again every 5s, until a skill screen shows. Not
+        started within STUCK_AFTER: Remove the teammate and invite them again
+        (once). A teammate who left is invited again. False on a stop, a failed
+        re-invite, or no start even after re-inviting."""
+        if ctx.dry_run:
+            return self._tap(ctx, Rel(*_rel(START_BTN)), "Start Challenge", START_WAIT)
+        since = time.time()
+        tries = 0
+        reinvited = False
+        while not ctx.should_stop():
+            frame = ctx.frame()
+            if "choose skill" in _words(frame, CHOOSE_TITLE):
+                return True
+            if team_level(frame) is not None:
+                if not partner(frame):
+                    ctx.log.info("auto-gulu: the teammate left -> inviting again")
+                    if not (self._invite(ctx) and self._wait_join(ctx)):
+                        return False
+                    since, tries = time.time(), 0
+                    continue
+                if "start" in _words(frame, START_LABEL):  # never Random Match
+                    tries += 1
+                    if tries == 1 or tries % 12 == 0:
+                        ctx.log.info("auto-gulu: tap Start Challenge%s", "" if tries == 1
+                                     else f" (try {tries}; the teammate isn't ready?)")
+                    if not tap(ctx, Rel(*_rel(START_BTN)), 0.5):
+                        return False
+                    end = time.time() + START_RETRY
+                    while time.time() < end:  # a start brings the skill screen in ~3s
+                        if "choose skill" in _words(ctx.frame(), CHOOSE_TITLE):
+                            return True
+                        if wait(ctx, 0.5):
+                            return False
+            if time.time() - since >= STUCK_AFTER:
+                if reinvited:
+                    ctx.log.warning("auto-gulu: still no start %d minutes after "
+                                    "inviting %s again", STUCK_AFTER // 60,
+                                    self.params["friend"])
+                    return False
+                ctx.log.warning("auto-gulu: no start in %d minutes (%d tries) -> remove "
+                                "the teammate and invite them again", STUCK_AFTER // 60,
+                                tries)
+                if not (self._remove_partner(ctx) and self._invite(ctx)
+                        and self._wait_join(ctx)):
+                    return False
+                reinvited = True
+                since, tries = time.time(), 0
+                continue
+            if wait(ctx, 0.5 if tries else START_RETRY):
+                return False
+        return False
+
+    def _remove_partner(self, ctx: Context) -> bool:
+        """Kick the teammate: the red Remove under their name. A confirm dialog,
+        if one comes up (not seen yet), gets its OK. True once the slot is free."""
+        if "remove" not in _words(ctx.frame(), REMOVE_LABEL):
+            ctx.log.warning("auto-gulu: no Remove button under the teammate")
+            return False
+        if not self._tap(ctx, Rel(*_rel(REMOVE_BTN)), "Remove (the teammate)"):
+            return False
+        end = time.time() + REMOVE_TIMEOUT
+        confirmed = False
+        while time.time() < end:
+            frame = ctx.frame()
+            if team_level(frame) is not None and slot_empty(frame):
+                ctx.log.info("auto-gulu: the teammate is removed")
+                return True
+            ok = None if confirmed else _dialog_ok(frame)
+            if ok is not None:
+                if not self._tap(ctx, ok, "OK (confirm Remove)"):
+                    return False
+                confirmed = True
+                continue
+            if wait(ctx, 0.5):
+                return False
+        ctx.log.warning("auto-gulu: the teammate is still in after Remove")
+        return False
 
     # --- helpers ------------------------------------------------------------
     def _close_popup(self, ctx: Context) -> bool:

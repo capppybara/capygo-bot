@@ -229,7 +229,7 @@ friend in it, it carries on from there.
 | Friend | pinkdolly | both | Who to invite (hosting), or whose invite to accept (joining) |
 | Runs | 4 | both | How many runs to play |
 | Difficulty (hosting) | 25 | hosting | The Gulu Mine difficulty to host |
-| Stay (hosting) | off | hosting | Play each run to the end instead of quitting it (not built yet) |
+| Stay (hosting) | off | hosting | Play each run to the end instead of quitting it |
 
 ### Hosting
 
@@ -249,6 +249,19 @@ seconds to slide in, then picks. If the counter still reads short (a tap didn't
 register), it picks the next card down. It taps Select only while the screen is
 still up. The Skills panel does not pause the run, so the quit has to be quick. If a
 run fails, the bot saves a screenshot to `logs/`.
+
+With **Stay** on, the bot plays each run to the end instead of quitting:
+
+1. It picks skills on every skill screen, the same way joining does, and taps OK
+   on the result. That leaves it on the team screen with the friend still in.
+2. It taps Start Challenge every 5 seconds until the next run starts. The start
+   may not take until the friend is ready.
+3. If no run starts within 5 minutes, it taps Remove under the friend's name,
+   invites them again, and keeps trying. A second 5 minutes without a start
+   stops the bot.
+
+If the friend leaves, the bot invites them again. It taps the button only while
+it reads Start Challenge. With nobody in, the same button reads Random Match.
 
 ### Joining
 
