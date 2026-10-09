@@ -275,6 +275,10 @@ For each run, the bot:
    on each later screen.
 3. Taps OK on the Victory or Defeat screen.
 
+While it waits for the host to start, the bot keeps opening the invitation
+banner. Sometimes the host can't start, leaves, and invites you from a new room;
+the bot then accepts that new invite.
+
 Where the result screen leaves you tells the bot whether the host stayed. Back
 on the Gulu team screen means the host stayed, so it waits for the next start.
 Back home means the host left, so it looks for the next invite.

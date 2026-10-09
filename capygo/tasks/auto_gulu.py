@@ -45,6 +45,10 @@ Joining (user, 2026-10-05):
   friend's invite -> tap its ✓. No banner / no invite from the friend: close it,
   wait 10s, look again. Never the ✗, "Reject all", or the "No longer show
   invitation messages" box.
+  While waiting for the host to start, invites can come in on the team screen:
+  the host sometimes can't start (a bug), leaves, and invites from a new room
+  (user, 2026-10-08). So until the start the bot loops through: the banner ->
+  open it -> accept the friend's invite if there is one -> look for the start.
   Then the run, always played to the end: every 2s look for a skill screen or
   the result. Battle 1 has two screens of 2 picks (the hosting positions and
   waits); battles 2-4 have two screens of 1 pick (the top of 3 cards). The
@@ -310,26 +314,49 @@ class AutoGulu(Task):
                 return Rel((cx / kx + x0) / 642, (cy / ky + y0 + BANNER_DY) / 951)
         return None
 
-    def _accept_from_popup(self, ctx: Context, banner: Rel | None) -> bool | None:
+    def _accept_from_popup(self, ctx: Context, banner: Rel | None,
+                           quiet: bool = False) -> bool | None:
         """Open the invitations (banner None = already open), make sure they're
         Gulu Mine's, and accept the friend's. True = joined; False = no invite
-        from them (popup closed); None = a stop or a problem (logged)."""
+        from them (popup closed); None = a stop or a problem (logged). `quiet`:
+        the repeated check while waiting for a start - only an accept is logged,
+        and a popup that won't open or close (the host may have just started)
+        counts as no invite."""
         friend = self.params["friend"]
-        if banner is not None and not self._tap(ctx, banner, "New Invitation"):
-            return None
+        if banner is not None:
+            if quiet:
+                if not tap(ctx, banner):
+                    return None
+            elif not self._tap(ctx, banner, "New Invitation"):
+                return None
         if ctx.dry_run:
             return True
-        if not self._until(ctx, lambda: "invitation" in _words(ctx.frame(), INVITES_TITLE)):
+        if quiet:
+            # the host may start any moment: wait only briefly for the popup, and
+            # not at all once a skill screen shows (its countdown is ~10s)
+            def popup_or_start() -> bool:
+                f = ctx.frame()
+                return "invitation" in _words(f, INVITES_TITLE) or \
+                    "choose skill" in _words(f, CHOOSE_TITLE)
+            if not self._until(ctx, popup_or_start, 3.0) or \
+                    "invitation" not in _words(ctx.frame(), INVITES_TITLE):
+                return False
+        elif not self._until(ctx, lambda: "invitation" in _words(ctx.frame(), INVITES_TITLE)):
             ctx.log.warning("auto-gulu: the Team Invitation popup didn't open")
             return None
         if "gulu" not in _words(ctx.frame(), MODE_LABEL):
-            if not (self._tap(ctx, Rel(*_rel(MODE_SELECTOR)), "mode selector")
-                    and self._tap(ctx, Rel(*_rel(MODE_TOP_OPTION)), "Gulu Mine (top)")):
+            if quiet:
+                if not (tap(ctx, Rel(*_rel(MODE_SELECTOR)))
+                        and tap(ctx, Rel(*_rel(MODE_TOP_OPTION)))):
+                    return None
+            elif not (self._tap(ctx, Rel(*_rel(MODE_SELECTOR)), "mode selector")
+                      and self._tap(ctx, Rel(*_rel(MODE_TOP_OPTION)), "Gulu Mine (top)")):
                 return None
             if "gulu" not in _words(ctx.frame(), MODE_LABEL):
-                ctx.log.warning("auto-gulu: couldn't switch the invitations to Gulu "
-                                "Mine")
-                return None if not self._close_popup(ctx) else False
+                if not quiet:
+                    ctx.log.warning("auto-gulu: couldn't switch the invitations to "
+                                    "Gulu Mine")
+                return False if self._close_popup(ctx, quiet) or quiet else None
         frame = ctx.frame()
         h, w = frame.shape[:2]
         kx, ky = w / 642, h / 951
@@ -338,8 +365,9 @@ class AutoGulu(Task):
         name_y = next((cy / ky + y0 for t, _, cy in ocr_lines(crop)
                        if _same_name(t, friend)), None)
         if name_y is None:
-            ctx.log.info("auto-gulu: no Gulu invite from %s yet", friend)
-            return False if self._close_popup(ctx) else None
+            if not quiet:
+                ctx.log.info("auto-gulu: no Gulu invite from %s yet", friend)
+            return False if self._close_popup(ctx, quiet) or quiet else None
         if not self._tap(ctx, Rel(ACCEPT_X / 642, (name_y + ACCEPT_DY) / 951),
                          f"accept {friend}'s invite (✓)"):
             return None
@@ -423,6 +451,28 @@ class AutoGulu(Task):
                     ctx.log.warning("auto-gulu: the host didn't start in %d minutes",
                                     START_TIMEOUT // 60)
                     return None
+                # User: invites can come in on the team screen. Sometimes the host
+                # can't start (a bug), leaves, and invites from a new room: take
+                # that invite. So until the start, loop through: the banner ->
+                # open it, accept the friend's invite if there is one -> look for
+                # the start again. These checks pace the loop instead of a sleep.
+                banner = self._find_banner(frame) if team_level(frame) is not None \
+                    else None
+                if banner is not None:
+                    got = self._accept_from_popup(ctx, banner, quiet=True)
+                    if got is None:
+                        return None
+                    if got:
+                        ok = _dialog_ok(ctx.frame())  # "leave this team?", if asked
+                        if ok is not None and not self._tap(ctx, ok, "OK (move rooms)"):
+                            return None
+                        ctx.log.info("auto-gulu: moved to %s's new room",
+                                     self.params["friend"])
+                        wait_start = time.time()
+                    continue
+                if wait(ctx, 1.0):  # no banner: nothing to check but the start
+                    return None
+                continue
             elif time.time() - started >= RUN_TIMEOUT:
                 self.flag(ctx, f"a Gulu run didn't end within {RUN_TIMEOUT // 60} "
                                "minutes. Check the game.")
@@ -782,11 +832,14 @@ class AutoGulu(Task):
         return False
 
     # --- helpers ------------------------------------------------------------
-    def _close_popup(self, ctx: Context) -> bool:
+    def _close_popup(self, ctx: Context, quiet: bool = False) -> bool:
         x = find_sprite(ctx, ctx.frame(), "close_x.png")
         if x is None:
-            ctx.log.warning("auto-gulu: no X to close the invitation popup")
+            if not quiet:
+                ctx.log.warning("auto-gulu: no X to close the invitation popup")
             return False
+        if quiet:
+            return tap(ctx, x)
         return self._tap(ctx, x, "close the invitation popup")
 
     def _tap(self, ctx: Context, target, what: str, after: float = 1.0) -> bool:
