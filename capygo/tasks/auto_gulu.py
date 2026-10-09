@@ -133,6 +133,11 @@ SKILL_ONE = (320, 385)                             # 1-pick screens: the top of 
 # the counter reads short before Select: tap the next unpicked card(s) instead.
 SPARE_TWO = [(320, 578), (320, 706)]               # 2-pick screens: cards 3 and 4
 SPARE_ONE = [(320, 513), (320, 642)]               # 1-pick screens: cards 2 and 3
+# User: skill picking never waits for the teammate - each player's screen runs
+# on its own timer. So a screen still up showing picks this long after Select
+# means a tap didn't take: Select again (and pick the missing card first).
+# Left alone, the screen times out and the next one gets only ~3s (2026-10-08).
+RESELECT_AFTER = 2.0
 PICK_COUNT = RelRect(0.31, 0.845, 0.38, 0.060)     # "0/2 Select Skills" / "0/1 ..."
 RESULT_TITLE = RelRect(0.25, 0.385, 0.50, 0.065)   # "Victory" / "Defeat"
 RESULT_OK = (320, 812)                             # Victory screen's OK
@@ -416,6 +421,7 @@ class AutoGulu(Task):
             return "dry run"
         started = time.time() if hosting else None
         wait_start = time.time()
+        stuck_since = None
         while True:
             frame = ctx.frame()
             result = result_title(frame)
@@ -424,10 +430,19 @@ class AutoGulu(Task):
             if "choose skill" in _words(frame, CHOOSE_TITLE):
                 started = started or time.time()
                 picks = _picks(frame)
-                # Only a FRESH screen (0 picked). After Select the screen can stay
-                # up a moment (waiting for the teammate) reading "2/2"/"1/1";
-                # re-picking that un-picked the cards and its Select could land on
-                # the battle's Skills button once the screen closed.
+                # Pick only a FRESH screen (0 picked): re-picking un-picks cards.
+                # A screen that stays up with picks after its Select had a tap
+                # that didn't take (picking never waits for the teammate - user):
+                # finish it once RESELECT_AFTER has passed.
+                if picks is not None and picks[0] > 0:
+                    stuck_since = stuck_since or time.time()
+                    if time.time() - stuck_since >= RESELECT_AFTER:
+                        stuck_since = None
+                        if not self._finish_screen(ctx, picks):
+                            return None
+                        continue
+                else:
+                    stuck_since = None
                 if picks is not None and picks[0] == 0:
                     ctx.log.info("auto-gulu: skill screen (%d pick%s)", picks[1],
                                  "s" if picks[1] > 1 else "")
@@ -439,7 +454,7 @@ class AutoGulu(Task):
                     if not self._pick_skills(ctx, two_picks=picks[1] == 2):
                         return None
                     continue  # check again at once: the next screen may be up
-                if wait(ctx, 1.0):  # picked already, or unreadable: look again soon
+                if wait(ctx, 0.5):  # picked already, or unreadable: look again soon
                     return None
                 continue
             if started is None:
@@ -479,6 +494,30 @@ class AutoGulu(Task):
                 return None
             if wait(ctx, SKILL_POLL):
                 return None
+
+    def _finish_screen(self, ctx: Context, picks: tuple[int, int]) -> bool:
+        """A skill screen still up at "k/N" RESELECT_AFTER after its Select: a tap
+        didn't take. Short of picks -> the next unpicked card(s) first; then
+        Select again, only while the screen is still up (Select sits inside the
+        battle's Skills button). False on a stop."""
+        picked, wanted = picks
+        if picked < wanted:
+            ctx.log.info("auto-gulu: the skill screen is stuck at %d/%d -> the next "
+                         "card, then Select again", picked, wanted)
+            spare = SPARE_TWO if wanted == 2 else SPARE_ONE
+            for i, pos in enumerate(spare[:wanted - picked], 1):
+                if not self._tap(ctx, Rel(*_rel(pos)), f"skill (spare {i})", 1.0):
+                    return False
+        else:
+            ctx.log.info("auto-gulu: the skill screen is still up at %d/%d -> Select "
+                         "didn't take, again", picked, wanted)
+        if "choose skill" not in _words(ctx.frame(), CHOOSE_TITLE):
+            return True
+        if not self._tap(ctx, Rel(*_rel(SELECT_BTN)), "Select Skills (again)",
+                         SELECT_WAIT):
+            return False
+        ctx.hover_rel(Rel(*_rel(SKILL_TOP)))
+        return True
 
     def _pick_skills(self, ctx: Context, two_picks: bool) -> bool:
         """ONE skill screen: the top card(s), Select, then park the cursor on the
@@ -571,16 +610,27 @@ class AutoGulu(Task):
         return go_home(ctx)
 
     def _host_skill_screen(self, ctx: Context, n: int) -> bool:
-        """Wait for skill screen n to come up fresh ("0/2"; after the 1st Select
-        that screen can stay up a moment reading "2/2"), let it settle, and pick.
-        False if it doesn't come up within HOST_SKILL_TIMEOUT, or on a stop."""
+        """Wait for skill screen n to come up fresh ("0/2"), let it settle, and
+        pick. The previous screen still up with its picks RESELECT_AFTER later
+        gets finished (a Select that didn't take). False if screen n doesn't come
+        up within HOST_SKILL_TIMEOUT, or on a stop."""
         if ctx.dry_run:
             return self._pick_skills(ctx, two_picks=True)
         end = time.time() + HOST_SKILL_TIMEOUT
+        stuck_since = None
         while time.time() < end:
             frame = ctx.frame()
             if "choose skill" in _words(frame, CHOOSE_TITLE):
                 picks = _picks(frame)
+                if picks is not None and picks[0] > 0:
+                    stuck_since = stuck_since or time.time()
+                    if time.time() - stuck_since >= RESELECT_AFTER:
+                        stuck_since = None
+                        if not self._finish_screen(ctx, picks):
+                            return False
+                        continue
+                else:
+                    stuck_since = None
                 if picks is not None and picks[0] == 0:
                     ctx.log.info("auto-gulu: skill screen %d", n)
                     if wait(ctx, SKILL_SETTLE):
