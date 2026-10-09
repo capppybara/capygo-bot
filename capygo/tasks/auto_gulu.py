@@ -263,29 +263,36 @@ class AutoGulu(Task):
 
     # --- joining: find and accept the friend's invite ----------------------------
     def _join(self, ctx: Context) -> bool:
-        """Accept the friend's Gulu invite: look every 10s, up to 30 minutes."""
+        """Accept the friend's Gulu invite: look every 10s, up to 30 minutes. Every
+        2s in between, check whether the game is in Gulu after all: after a run's
+        result the team screen can load late (2026-10-08: checked once, too soon,
+        and the bot then waited for an invite while the host had already started
+        the next run)."""
         if ctx.dry_run:
             return self._accept_from_popup(ctx, Rel(0.810, 0.595)) is not False
-        if in_gulu(ctx.frame()):
-            ctx.log.info("auto-gulu: already in Gulu")
-            return True
         start = time.time()
         next_note = start + 300
+        next_banner = start
         while time.time() - start < INVITE_TIMEOUT:
             frame = ctx.frame()
-            already_open = "invitation" in _words(frame, INVITES_TITLE)
-            banner = None if already_open else self._find_banner(frame)
-            if already_open or banner is not None:
-                result = self._accept_from_popup(ctx, banner)
-                if result is None:   # a stop, or it couldn't get back
-                    return False
-                if result:
-                    return True
+            if in_gulu(frame):
+                ctx.log.info("auto-gulu: already in Gulu")
+                return True
+            if time.time() >= next_banner:
+                next_banner = time.time() + INVITE_POLL
+                already_open = "invitation" in _words(frame, INVITES_TITLE)
+                banner = None if already_open else self._find_banner(frame)
+                if already_open or banner is not None:
+                    result = self._accept_from_popup(ctx, banner)
+                    if result is None:   # a stop, or it couldn't get back
+                        return False
+                    if result:
+                        return True
             if time.time() >= next_note:
                 next_note += 300
                 ctx.log.info("auto-gulu: still waiting for %s's invite (%.0f min)",
                              self.params["friend"], (time.time() - start) / 60)
-            if wait(ctx, INVITE_POLL):
+            if wait(ctx, SKILL_POLL):
                 return False
         ctx.log.warning("auto-gulu: no invite from %s in %d minutes -> stopping",
                         self.params["friend"], INVITE_TIMEOUT // 60)
