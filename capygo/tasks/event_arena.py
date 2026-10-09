@@ -43,7 +43,8 @@ from ..perception import ocr_lines
 from ..task import Context, register
 from .daily import _crop, find_sprite, save_snapshot, tap_to_close_up
 from .event import EventTask, go_events
-from .get_guild_member_list import GetGuildMemberList
+from . import pvp
+from .profile import close_profile, is_open as profile_open, to_trillions
 
 ARENA_CARD = Rel(0.35, 0.165)                    # 1st card on the Arena tab
 CARD_NAME = RelRect(0.12, 0.095, 0.50, 0.05)     # "Arena"
@@ -54,7 +55,10 @@ CHALLENGE_BTN = Rel(0.498, 0.932)                # orange Challenge, tickets "0/
 POPUP_TITLE = RelRect(0.30, 0.29, 0.40, 0.05)    # "Challenge"
 FREE_REFRESH = Rel(0.718, 0.379)                 # green Free Refresh (new opponents)
 REFRESH_LABEL = RelRect(0.62, 0.35, 0.20, 0.06)  # "Free Refresh", then "20 Refresh"
-OPPONENT_BTNS = [Rel(0.718, y) for y in (0.457, 0.543, 0.628, 0.714)]  # "x1 Challenge"
+OPPONENT_BTNS = [Rel(0.718, y) for y in (0.457, 0.543, 0.628, 0.714)]
+# Each row's picture, left of its power: opens the opponent's profile for the
+# fight log (pvp.py). NOT checked on a live list yet - a guess from the layout.
+OPPONENT_PICS = [Rel(0.215, y) for y in (0.457, 0.543, 0.628, 0.714)]  # "x1 Challenge"
 ROW_Y = [0.468, 0.554, 0.640, 0.724]             # each row's power/points line
 ROW_H = 0.034
 POWER_X = (0.29, 0.46)                           # power column (left of the points)
@@ -102,7 +106,7 @@ def _power(text: str) -> Decimal | None:
     """'2.81T' / '905.85B' -> trillions. None without a unit: a dropped unit would
     make a strong opponent look weak."""
     m = POWER_TEXT.search(text or "")
-    return GetGuildMemberList._to_trillions_decimal(m.group(0)) if m else None
+    return to_trillions(m.group(0)) if m else None
 
 
 def _points(text: str) -> int | None:
@@ -251,6 +255,10 @@ class AutoArena(EventTask):
             return None
         ctx.log.info("%s: pick row %d (%d points, %sT)", self.name, pick.row + 1,
                      pick.points, pick.power)
+        # The fight log (user, 2026-10-09): look at the opponent's profile first.
+        opponent = pvp.scout(ctx, OPPONENT_PICS[pick.row], "arena")
+        if not ctx.dry_run and not self._back_on_list(ctx):
+            return None
         if not self.tap(ctx, OPPONENT_BTNS[pick.row], f"x1 Challenge (row {pick.row + 1})"):
             return None
         if not self._wait_for(ctx, "the fight screen",
@@ -268,7 +276,23 @@ class AutoArena(EventTask):
             return NO_TICKETS
         if self.wait(ctx, FIGHT_SETTLE):  # user: give the fight a couple of seconds
             return None
-        return self._finish_fight(ctx)
+        result = self._finish_fight(ctx)
+        pvp.record(ctx, "arena", result or "no result", my_power=my_power,
+                   my_points=my_points, row=pick.row + 1, list_power=pick.power,
+                   list_points=pick.points, opponent=opponent)
+        return result
+
+    def _back_on_list(self, ctx: Context) -> bool:
+        """After the profile look: the opponent list must be showing again before a
+        row's Challenge is tapped. A profile still up gets closed once more."""
+        if profile_open(ctx.frame()):
+            close_profile(ctx)
+        if self._wait_for(ctx, None, list_open, LIST_TIMEOUT):
+            return True
+        shot = save_snapshot(ctx, "arena-after-profile")
+        self.flag(ctx, "the opponent list wasn't showing after looking at a profile"
+                       + (f" (screen saved: {shot})" if shot else "") + ". Check the arena.")
+        return False
 
     def _clear_to_board(self, ctx: Context) -> bool:
         """Something took the Challenge tap (2026-10-04: on the first visit of a new

@@ -46,7 +46,9 @@ from .daily import (_crop, find_sprite, go_home, save_snapshot, tap, tap_to_clos
                     wait)
 from .event import TABS, go_events
 from .event_arena import OK_BTN, OK_LABEL, RESULT_TITLE, SKIP_BTN, _power, fight_up
+from . import pvp
 from .event_martial_arts import MartialArts
+from .profile import close_profile, is_open as profile_open
 from .restart import restart_game
 
 HALL_TITLE = RelRect(0.30, 0.070, 0.40, 0.050)     # "Martial Arts Hall"
@@ -64,6 +66,9 @@ CHALLENGE_X = 485                                  # a row's button: points y - 
 TICKETS_DY = -21                                   # "9/1" above "Challenge"
 TAPPABLE = (205, 595)                              # a row's button is fully on screen
 MY_POINTS = RelRect(0.33, 0.680, 0.17, 0.042)      # your points ("1123")
+# A row's picture (left of the name, right of the rank): opens the opponent's
+# profile for the fight log (pvp.py). From a screenshot, not tapped live yet.
+PIC_X, PIC_DY = 180, -10                           # px; y = the row's points y + DY
 SCROLL_DOWN = ((116, 560), (116, 440))             # rank column: no buttons there
 SCROLL_UP = ((116, 300), (116, 560))
 
@@ -210,6 +215,9 @@ class MartialArtsTournament(Task):
               help="wait for 6:50 AM Pacific (13:50 UTC) and use every attack then"),
         Param("max_attacks", "int", 0, "Attacks (0 = until tickets run out)", min=0,
               max=99, help="a number: always do that many, buying tickets if needed"),
+        Param("scout", "bool", True, "Log opponents",
+              help="open each opponent's profile before the fight and log it with the "
+                   "result in ~/Downloads/capy-bot/pvp/ (about 4s a fight)"),
         Param("snipe_utc", "str", SNIPE_UTC, "Snipe time (UTC, HH:MM)", hidden=True,
               help="for tests: -p snipe_utc=HH:MM; the cutoff is 5 minutes later"),
     ]
@@ -297,7 +305,14 @@ class MartialArtsTournament(Task):
             foe = self._choose(ctx, cp, base)
             if foe is None:
                 break
+            points = re.sub(r"\D", "", _words(ctx.frame(), MY_POINTS))
+            self.opponent = None
             result = self._fight(ctx, foe, buy=limit > 0)
+            if result not in (None, NO_TICKETS):  # a fight happened: log it
+                pvp.record(ctx, "martial", result, my_power=cp,
+                           my_points=int(points) if points else None, row=None,
+                           list_power=foe.power, list_points=foe.points,
+                           opponent=self.opponent)
             if result == NO_TICKETS:
                 ctx.log.info("martial: out of tickets (the Purchase popup) -> done")
                 break
@@ -361,6 +376,11 @@ class MartialArtsTournament(Task):
                 self._snapshot(ctx, "martial-lost-pick")
                 return None
             foe = match[0]
+        # The fight log (user, 2026-10-09): look at the opponent's profile first.
+        if self.params.get("scout", True):
+            self.opponent = pvp.scout(ctx, _px((PIC_X, foe.y + PIC_DY)), "martial")
+            if not ctx.dry_run and not self._back_on_qualifiers(ctx):
+                return None
         started = None
         bought = False
         for attempt in (1, 2, 3):
@@ -439,6 +459,16 @@ class MartialArtsTournament(Task):
         if not self._tap(ctx, target, "OK", 2.0):
             return False
         return self._until(ctx, lambda: "qualifier" in _words(ctx.frame(), STAGE_TITLE))
+
+    def _back_on_qualifiers(self, ctx: Context) -> bool:
+        """After the profile look: the Qualifiers list must be showing again before
+        a row's Challenge is tapped. A profile still up gets closed once more."""
+        if profile_open(ctx.frame()):
+            close_profile(ctx)
+        if self._until(ctx, lambda: "qualifier" in _words(ctx.frame(), STAGE_TITLE)):
+            return True
+        self._snapshot(ctx, "martial-after-profile")
+        return False
 
     def _fight_or_purchase(self, ctx: Context) -> str | None:
         """After Challenge: "fight" once the fight screen shows, NO_TICKETS on the

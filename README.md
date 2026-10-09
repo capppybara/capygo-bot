@@ -391,6 +391,7 @@ Schedule (the Qualifiers) itself.
 | Power ratio | 1.1 | Fight only opponents below this x your CP |
 | Sniping mode | off | Wait for 6:50 AM Pacific and use every attack then |
 | Attacks (0 = until tickets run out) | 0 | 0 uses every ticket and stops. A number: always do that many, buying tickets if needed |
+| Log opponents | on | Before each fight, open the opponent's profile and log it with the result in `~/Downloads/capy-bot/pvp/` (about 4 seconds a fight) |
 
 For each attack the bot:
 
@@ -455,6 +456,9 @@ nothing. The bot then closes the popup and goes home. Each synthesis takes about
 | `logs/<task>-<time>.log` | A log of every run |
 | `logs/failed-<chore>-<time>.png` | The screen when an Auto Daily chore failed |
 | `~/Downloads/capy-bot/` | CSV exports and comparison graphs |
+| `~/Downloads/capy-bot/pvp/fights.csv` | Every arena and martial fight: the opponent's UID, name, power, stats and weapon, and the result |
+| `~/Downloads/capy-bot/pvp/profiles/` | Each opponent's profile screen |
+| `~/Downloads/capy-bot/pvp/weapons/unknown-N.png` | Weapon pictures not labeled yet |
 | `data/daily_runs.json` | When each Auto Daily chore last ran |
 | `data/guild_power.json` | The hedgemony collection |
 
@@ -499,6 +503,8 @@ capygo/
     auto_daily.py           Auto Daily: the four groups and their order
     daily.py                shared chore engine: going home, once-a-day, summary
     restart.py              kill the game, open it again, close the start-up notices
+    profile.py              a player's Character Info: open, read (UID, power, weapon), close
+    pvp.py                  the fight log: look at the opponent first, record the result
     daily_*.py              the Dailies
     event.py, event_*.py    the Events screen and each event
     guild.py, guild_*.py    the guild screen and each guild chore

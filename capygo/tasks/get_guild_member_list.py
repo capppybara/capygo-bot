@@ -42,7 +42,7 @@ collected.
 
 Templates in templates/get-guild-member-list/ (captured from the live game):
   guild_title    the "Guild Info" banner (confirms we start on the right screen)
-  char_title     the "Character Info" banner (confirms a member screen opened)
+Opening, reading and closing a member's Character Info is the shared profile.py.
 """
 
 from __future__ import annotations
@@ -59,6 +59,7 @@ from ..geometry import Rel, RelRect
 from ..paths import output_path
 from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
+from .profile import close_profile, fmt_trillions, open_profile, read_power, read_uid
 
 # --- header (fixed while the member list scrolls) -------------------------
 GUILD_NAME_REGION = RelRect(0.52, 0.181, 0.34, 0.035)   # value cell -> guild name
@@ -86,23 +87,6 @@ LIST_REGION = RelRect(0.10, 0.560, 0.80, 0.300)  # for bottom-of-list detection
 SCROLL_FROM = Rel(0.5, 0.70)
 SCROLL_TO = Rel(0.5, 0.60)
 
-# --- character screen ------------------------------------------------------
-UID_COPY_BTN = Rel(0.815, 0.220)          # copy-to-clipboard button next to the UID
-POWER_REGION = RelRect(0.397, 0.576, 0.203, 0.037)  # value below the character
-CLOSE_BTN = Rel(0.5, 0.925)               # floating X: closes the top popup
-
-# Power is stored in trillions with no unit letter: T stays as-is, B/M/K (and a
-# bare number) are scaled down to trillions. So 1.38T -> 1.38, 905.85B -> 0.90585,
-# 162.48M -> 0.00016248.
-POWER_UNIT_TO_TRILLION = {
-    "T": Decimal(1),
-    "B": Decimal("0.001"),
-    "M": Decimal("0.000001"),
-    "K": Decimal("0.000000001"),
-    "": Decimal(10) ** -12,
-}
-
-CLIP_SENTINEL = "capygo-none"  # seeded before a copy so a stale value can't fool us
 MAX_PAGES = 80                 # safety cap (a full guild is ~48 members)
 
 
@@ -144,16 +128,6 @@ class GetGuildMemberList(Task):
             if remaining <= 0:
                 return False
             time.sleep(min(0.3, remaining))
-
-    def _wait_template(self, ctx: Context, name: str, timeout: float) -> bool:
-        t0 = time.time()
-        while time.time() - t0 < timeout:
-            if ctx.should_stop():
-                return False
-            if self._present(ctx, name):
-                return True
-            time.sleep(0.25)
-        return self._present(ctx, name)
 
     # --- header reads -----------------------------------------------------
     @staticmethod
@@ -207,95 +181,17 @@ class GetGuildMemberList(Task):
         return None
 
     # --- one member -------------------------------------------------------
-    @staticmethod
-    def _to_trillions_decimal(raw: str):
-        """Parse a power reading like '905.85B' into a Decimal in trillions
-        (Decimal('0.90585')). None if it can't be parsed. Kept as a Decimal so
-        hedgemony mode can add powers up without float rounding.
-
-        Sanitizes a misread leading digit on a sub-T value: the game rolls K/M/B up
-        to the next unit at 1000, so such a value always has a 1-3 digit integer
-        part. A longer one means OCR fused the sword icon onto the number as a stray
-        leading digit ("9864.97B" for "864.97B" -> 9.86T instead of 0.86T); the
-        extra leading digits are dropped."""
-        m = re.match(r"\s*([\d,]*\.?\d+)\s*([KMBTkmbt]?)", raw or "")
-        if not m:
-            return None
-        numstr = m.group(1).replace(",", "")
-        unit = m.group(2).upper()
-        if unit in ("K", "M", "B"):
-            intpart, _, frac = numstr.partition(".")
-            while len(intpart) > 3:  # >999 is impossible for a sub-T unit
-                intpart = intpart[1:]
-            numstr = f"{intpart}.{frac}" if frac else intpart
-        try:
-            val = Decimal(numstr)
-        except InvalidOperation:
-            return None
-        return val * POWER_UNIT_TO_TRILLION[unit]
-
-    @staticmethod
-    def _fmt_trillions(tri: Decimal) -> str:
-        """A Decimal in trillions as a plain fixed-point string, no trailing
-        zeros, never scientific notation ('0.90585', '1.19', '30.5')."""
-        s = format(tri, "f")
-        return s.rstrip("0").rstrip(".") if "." in s else s
-
-    @classmethod
-    def _to_trillions(cls, raw: str):
-        """Convert a power reading like '905.85B' to a plain number in trillions
-        ('0.90585'), dropping the unit letter. None if it can't be parsed."""
-        tri = cls._to_trillions_decimal(raw)
-        return None if tri is None else cls._fmt_trillions(tri)
-
-    def _read_power(self, ctx: Context):
-        """OCR the power under the character and return it in trillions as a plain
-        number (e.g. '1.38T' -> '1.38', '905.85B' -> '0.90585'); None if unread."""
-        frame = ctx.frame()
-        h, w = frame.shape[:2]
-        x0, y0, x1, y1 = POWER_REGION.to_pixels(w, h)
-        for text, _cx, _cy in ocr_lines(frame[y0:y1, x0:x1]):
-            m = re.search(r"\d[\d.,]*\s*[KMBTkmbt]?", text)
-            if m:
-                return self._to_trillions(m.group(0))
-        return None
-
     def _read_member(self, ctx: Context, y_rel: float):
         """Open the member whose profile picture is at (PROFILE_X, y_rel), read its
-        UID + power, and close back to the list. Returns (uid, power), or None if
-        the Character Info screen never opened (so the list wasn't disturbed and the
-        close button must NOT be pressed)."""
-        opened = False
-        for attempt in range(2):  # the first click can only resurface the window
-            ctx.click_rel(Rel(PROFILE_X, y_rel))
-            if self._wait_template(ctx, "char_title", timeout=2.5):
-                opened = True
-                break
-        if not opened:
+        UID + power (in trillions, as text), and close back to the list. Returns
+        (uid, power), or None if the Character Info screen never opened (so the
+        list wasn't disturbed and the close button must NOT be pressed)."""
+        if not open_profile(ctx, Rel(PROFILE_X, y_rel)):
             return None
-
-        uid = None
-        for _ in range(3):  # copy to clipboard and read it back
-            ctx.set_clipboard(CLIP_SENTINEL)
-            ctx.click_rel(UID_COPY_BTN)
-            time.sleep(0.35)
-            clip = ctx.read_clipboard().strip()
-            if clip.isdigit():
-                uid = clip
-                break
-            time.sleep(0.2)
-
-        power = self._read_power(ctx)
-        self._close_char(ctx)
-        return uid, power
-
-    def _close_char(self, ctx: Context) -> bool:
-        for _ in range(3):
-            ctx.click_rel(CLOSE_BTN)
-            time.sleep(0.7)
-            if not self._present(ctx, "char_title"):
-                return True
-        return not self._present(ctx, "char_title")
+        uid = read_uid(ctx)
+        power = read_power(ctx.frame())
+        close_profile(ctx)
+        return uid, None if power is None else fmt_trillions(power)
 
     # --- list scanning ----------------------------------------------------
     def _visible_cards(self, frame) -> list[tuple[float, str]]:
@@ -385,8 +281,8 @@ class GetGuildMemberList(Task):
             wr = csv.writer(f)
             wr.writerow(["guild_name", "rank", "member_uid", "power_trillions"])
             for i, (uid, p) in enumerate(top, 1):
-                wr.writerow([guild, i, uid, self._fmt_trillions(p)])
-            wr.writerow([guild, f"TOP_{len(top)}_SUM", "", self._fmt_trillions(total)])
+                wr.writerow([guild, i, uid, fmt_trillions(p)])
+            wr.writerow([guild, f"TOP_{len(top)}_SUM", "", fmt_trillions(total)])
         ctx.log.info("wrote top-%d power summary -> %s", len(top), path)
         return path
 
@@ -436,9 +332,9 @@ class GetGuildMemberList(Task):
         top = powers[:n]
         total = sum((d for _, d in top), Decimal(0))
         ctx.log.info("top %d: %s", n,
-                     ", ".join(self._fmt_trillions(d) + "T" for _, d in top))
+                     ", ".join(fmt_trillions(d) + "T" for _, d in top))
         ctx.log.info("=== TOP %d POWER SUM = %sT  (collected %d of %s members) ===",
-                     n, self._fmt_trillions(total), len(powers),
+                     n, fmt_trillions(total), len(powers),
                      target if target else "?")
         # We opened every member, so keep the full roster too (not just the top-N).
         self._write_csv(ctx, guild, members)
@@ -455,8 +351,8 @@ class GetGuildMemberList(Task):
         gid = self._read_guild_id(ctx)
         count = store.add_guild(
             gid, guild,
-            [self._fmt_trillions(d) for _, d in top],
-            self._fmt_trillions(total),
+            [fmt_trillions(d) for _, d in top],
+            fmt_trillions(total),
             member_count=member_count, top_n=n,
         )
         names = ", ".join(g["name"] for g in store.guilds())
