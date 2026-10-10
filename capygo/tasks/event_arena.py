@@ -278,7 +278,7 @@ class AutoArena(EventTask):
             return None
         result = self._finish_fight(ctx)
         pvp.record(ctx, "arena", result, my_power=my_power,
-                   my_points=my_points, row=pick.row + 1, list_power=pick.power,
+                   my_points=my_points, list_power=pick.power,
                    list_points=pick.points, opponent=opponent)
         return result
 

@@ -33,7 +33,7 @@ PROFILES_DIR = os.path.join("pvp", "profiles")
 COLUMNS = [
     "time_utc", "mode", "won",
     "my_power", "my_points",
-    "row", "list_power", "list_points",
+    "list_power", "list_points",
     "opp_uid", "opp_name", "opp_power", "opp_hp", "opp_atk", "opp_def", "opp_weapon",
     "power_ratio", "profile_png", "note",
 ]
@@ -81,7 +81,7 @@ def won(result: str | None) -> str:
 
 
 def record(ctx: Context, mode: str, result: str | None, *, my_power: Decimal | None,
-           my_points: int | None, row: int | None, list_power: Decimal | None,
+           my_points: int | None, list_power: Decimal | None,
            list_points: int | None, opponent: Profile | None) -> None:
     """Add one fight to fights.csv (with a header row the first time). `result` is
     the fight's "victory" / "defeat" / anything else (not known). Never raises: the
@@ -98,7 +98,6 @@ def record(ctx: Context, mode: str, result: str | None, *, my_power: Decimal | N
         "won": won(result),
         "my_power": _t(my_power),
         "my_points": "" if my_points is None else my_points,
-        "row": "" if row is None else row,
         "list_power": _t(list_power),
         "list_points": "" if list_points is None else list_points,
         "opp_uid": p.uid or "",

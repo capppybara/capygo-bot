@@ -310,7 +310,7 @@ class MartialArtsTournament(Task):
             result = self._fight(ctx, foe, buy=limit > 0)
             if result not in (None, NO_TICKETS):  # a fight happened: log it
                 pvp.record(ctx, "martial", result, my_power=cp,
-                           my_points=int(points) if points else None, row=None,
+                           my_points=int(points) if points else None,
                            list_power=foe.power, list_points=foe.points,
                            opponent=self.opponent)
             if result == NO_TICKETS:
