@@ -29,11 +29,12 @@ FIGHTS_CSV = os.path.join("pvp", "fights.csv")
 PROFILES_DIR = os.path.join("pvp", "profiles")
 # won: 1 = victory, 0 = defeat, blank = not known (the result didn't read, no result
 # screen, a stuck fight). User: no point changes - the gain follows the point gap
-# (my_points vs list_points), which every row has.
+# (my_points vs opp_points), which every row has. opp_power: from the profile, or
+# from the opponent list when the profile couldn't be read (user; noted then).
+# opp_points: always from the list (a profile shows no points).
 COLUMNS = [
     "time_utc", "mode", "won",
-    "my_power", "my_points",
-    "list_power", "list_points",
+    "my_power", "my_points", "opp_points",
     "opp_uid", "opp_name", "opp_power", "opp_hp", "opp_atk", "opp_def", "opp_weapon",
     "power_ratio", "profile_png", "note",
 ]
@@ -89,7 +90,11 @@ def record(ctx: Context, mode: str, result: str | None, *, my_power: Decimal | N
     if ctx.dry_run:
         return
     p = opponent or Profile()
-    power = p.power if p.power is not None else list_power
+    notes = list(p.notes) if opponent else ["no profile"]
+    power = p.power
+    if power is None and list_power is not None:
+        power = list_power
+        notes.append("power from the list")
     ratio = (f"{power / my_power:.3f}" if power is not None and my_power
              else "")
     row_data = {
@@ -98,18 +103,17 @@ def record(ctx: Context, mode: str, result: str | None, *, my_power: Decimal | N
         "won": won(result),
         "my_power": _t(my_power),
         "my_points": "" if my_points is None else my_points,
-        "list_power": _t(list_power),
-        "list_points": "" if list_points is None else list_points,
+        "opp_points": "" if list_points is None else list_points,
         "opp_uid": p.uid or "",
         "opp_name": p.name,
-        "opp_power": _t(p.power),
+        "opp_power": _t(power),
         "opp_hp": _t(p.hp),
         "opp_atk": _t(p.atk),
         "opp_def": _t(p.defense),
         "opp_weapon": p.weapon,
         "power_ratio": ratio,
         "profile_png": p.screenshot,
-        "note": "; ".join(p.notes) if opponent else "no profile",
+        "note": "; ".join(notes),
     }
     try:
         path = output_path(FIGHTS_CSV)
