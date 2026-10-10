@@ -209,10 +209,11 @@ class GuildTrade(GuildTask):
             return False
         if not ctx.dry_run and trade_needs_captain(ctx.frame()):
             # 2026-10-09: the label under Guild Trade read "Waiting for Captain's
-            # Appointment" and a tap opened nothing
-            self.flag(ctx, "Guild Trade is waiting for the guild to appoint a captain, "
-                           "so there's nothing to plunder. Once there is one, run Guild "
-                           "trade plunder again (confirm the re-run).")
+            # Appointment" and a tap opened nothing. Nothing for the player to do
+            # (user): a skip, not marked done, so a later run plunders once there's
+            # a captain.
+            self.skip(ctx, "Guild Trade is waiting for the guild to appoint a "
+                           "captain, so there's nothing to plunder yet")
             return True
         if not self.open_place(ctx, "guild trade"):
             return False
