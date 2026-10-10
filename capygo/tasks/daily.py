@@ -421,8 +421,11 @@ class ChoreRunner(Task):
         ctx.templates_dir = os.path.join(os.path.dirname(own_templates), cls.name)
         chore = cls()
         chore.configure({})
+        self.last_skip = ""
         try:
-            return chore.run_daily(ctx)
+            ok = chore.run_daily(ctx)
+            self.last_skip = chore.skip_reason
+            return ok
         except Exception:  # one broken chore shouldn't sink the rest
             ctx.log.exception("%s crashed", cls.name)
             return False
@@ -444,6 +447,7 @@ class ChoreRunner(Task):
 
         finished: list[str] = []
         failed: dict[str, str] = {}  # chore name -> why, for the summary
+        passed: dict[str, str] = {}  # chore name -> why it had nothing to do (the game)
         for group in self.GROUPS:
             chores = [c for c in group.chores if c in todo]
             if not chores or ctx.should_stop():
@@ -464,7 +468,9 @@ class ChoreRunner(Task):
                 ok = self._run_one(ctx, cls)
                 if ctx.should_stop():
                     break
-                if ok:
+                if ok and self.last_skip:  # nothing to do now: not done, so it's tried again
+                    passed[cls.name] = self.last_skip
+                elif ok:
                     finished.append(cls.name)
                     if not ctx.dry_run:  # a dry run did nothing, so it doesn't count
                         mark_done(cls.name)
@@ -489,13 +495,14 @@ class ChoreRunner(Task):
 
         if not ctx.should_stop():
             self.finish(ctx)
-        self._summary(ctx, todo, finished, failed, skipped)
+        self._summary(ctx, todo, finished, failed, skipped, passed)
 
-    def _summary(self, ctx: Context, todo, finished, failed, skipped) -> None:
-        """The end-of-run summary in the log: what ran, what was skipped, and a
-        "Needs your attention" list - every flag a chore raised (things to handle
-        by hand, e.g. the arena running out of beatable opponents) and every chore
-        that failed, with its saved screen."""
+    def _summary(self, ctx: Context, todo, finished, failed, skipped, passed) -> None:
+        """The end-of-run summary in the log: what ran, what was skipped (already
+        ran today, or nothing to do because of the game's state - e.g. Holy Grail
+        War's division-pick phase), and a "Needs your attention" list - every flag
+        a chore raised (things to handle by hand, e.g. the arena running out of
+        beatable opponents) and every chore that failed, with its saved screen."""
         log = ctx.log
         log.info("==================== %s summary ====================", self.title())
         if ctx.kill.stop:
@@ -504,6 +511,10 @@ class ChoreRunner(Task):
                  f": {', '.join(finished)}" if finished else "")
         if skipped:
             log.info("Skipped, already ran today: %s", ", ".join(c.name for c in skipped))
+        if passed:
+            log.info("Skipped, nothing to do right now (%d):", len(passed))
+            for name, why in passed.items():
+                log.info("  • %s: %s", name, why)
         attention = [[who, what] for who, what in ctx.flags]
         for name, why in failed.items():
             flags = [line for line in attention if line[0] == name]
@@ -524,6 +535,7 @@ class ChoreRunner(Task):
 
 class DailyTask(Task):
     HIDDEN = True       # reached through auto-daily, not its own home card
+    skip_reason = ""    # set by skip(): nothing to do this time, for a game reason
     LABEL: str = ""     # the switch label on the auto-daily screen
     # Each daily tracks its own last finish in the run log. Once it has finished this
     # game day it is skipped (the app asks first; -p rerun=true on the CLI).
@@ -561,7 +573,7 @@ class DailyTask(Task):
                 ctx.log.warning("%s: couldn't get to its starting screen", self.name)
             return
         ok = self.run_daily(ctx)
-        if ok and not ctx.dry_run:  # a dry run did nothing, so it doesn't count
+        if ok and not ctx.dry_run and not self.skip_reason:  # a dry run did nothing
             mark_done(self.name)
         if not ok and not ctx.should_stop():
             shot = save_snapshot(ctx, f"failed-{self.name}")
@@ -569,7 +581,8 @@ class DailyTask(Task):
                 ctx.log.warning("%s: screen saved: %s", self.name, shot)
         if not ctx.should_stop():
             self.wrap_up(ctx, ok)
-        ctx.log.info("%s %s", self.name, "done" if ok else "did not finish")
+        ctx.log.info("%s %s", self.name, "did not finish" if not ok
+                     else "skipped" if self.skip_reason else "done")
 
     def prepare(self, ctx: Context) -> bool:
         """Standalone run: get to the screen run_daily starts on. Dailies start on the
@@ -589,6 +602,15 @@ class DailyTask(Task):
     # --- helpers ----------------------------------------------------------
     def wait(self, ctx: Context, seconds: float) -> bool:
         return wait(ctx, seconds)
+
+    def skip(self, ctx: Context, reason: str) -> None:
+        """Nothing to do this time because of the game's state, not a problem (e.g.
+        Holy Grail War's division-pick phase: no likes then). Logged, listed under
+        "Skipped" in the runner's summary, and not marked done, so a later run
+        tries again. run_daily still returns True once it's back on its base
+        screen."""
+        self.skip_reason = reason
+        ctx.log.info("%s: skipped - %s", self.name, reason)
 
     def flag(self, ctx: Context, message: str) -> None:
         """Something the player should handle by hand: logged now, and listed under

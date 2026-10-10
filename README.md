@@ -124,10 +124,16 @@ it**, or **Cancel**. Dry runs do not count as a run.
 
 ### End-of-run summary
 
-The log ends with a summary: what finished, what was skipped, and a **Needs your
-attention** list. That list has everything a chore flagged for you to handle by
-hand, such as the arena running out of beatable opponents. It also lists every
-chore that failed, with the path of its saved screenshot.
+The log ends with a summary:
+
+- what finished;
+- what was skipped because it already ran today;
+- what was skipped because the game had nothing for it, with the reason (for
+  example, Holy Grail War during its division-pick phase has no likes). These
+  aren't marked done, so a later run tries them again;
+- a **Needs your attention** list: everything a chore flagged for you to handle
+  by hand, such as the arena running out of beatable opponents, and every chore
+  that failed, with the path of its saved screenshot.
 
 ### Dailies
 

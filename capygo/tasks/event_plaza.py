@@ -33,7 +33,7 @@ from .event import EventTask, go_events
 TITLE_REGION = RelRect(0.30, 0.070, 0.40, 0.050)  # "Hero Plaza" / "Martial Arts Hall"
 # 2026-10-09: Holy Grail War opened on "Select Division" (Rising Star / Dauntless /
 # Supreme, a new season's pick) instead of its plaza. User: while that phase is on
-# there are no likes to collect, so it's just skipped (no flag).
+# there are no likes to collect: listed as skipped, not as a problem.
 SELECT_TITLE = RelRect(0.25, 0.130, 0.50, 0.035)  # "Select Division"
 DISMISS = Rel(0.5, 0.11)                           # plaza title: closes a reward popup
 THUMB_ROW = RelRect(0.156, 0.47, 0.716, 0.22)      # where the thumbs-ups sit
@@ -92,8 +92,8 @@ class PlazaLikes(EventTask):
             end = time.time() + OPEN_TIMEOUT
             while self.TITLE_WORD not in self.text_in(ctx, TITLE_REGION):
                 if "select division" in self.text_in(ctx, SELECT_TITLE):
-                    ctx.log.info("%s: the division-pick phase (Select Division): no "
-                                 "likes to collect -> skipping", self.name)
+                    self.skip(ctx, "the division-pick phase is on (Select Division), "
+                                   "so there are no likes to collect")
                     return go_events(ctx)
                 if time.time() > end:
                     ctx.log.warning("%s: the plaza did not open", self.name)
