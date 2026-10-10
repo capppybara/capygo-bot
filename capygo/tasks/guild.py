@@ -10,8 +10,10 @@ Planned (user, 2026-10-04): Guild Hall and Guild Trade; maybe Guild Raid later.
 Popups can cover the map right after arriving (2026-10-09: "Current League Rank"
 with its "Tap to close" at y 882, below where other popups put it), and the
 map's labels still read under the dimming, so open_place closes any popup first.
-Guild Trade can also be waiting for the guild to appoint a captain (the label
-under it reads "Waiting for Captain's Appointment"): nothing to plunder then.
+That popup made Guild Hall's tap only close it, and, still up after Guild Hall
+gave up, Guild Trade's too. (Guild Trade's label then read "Waiting for
+Captain's Appointment": that's about the guild's own ship; plundering others
+still works - user.)
 """
 
 from __future__ import annotations
@@ -24,7 +26,6 @@ from .daily import NEUTRAL, ScreenTask, _crop, find_sprite, go_screen
 GUILD_BTN = Rel(0.176, 0.781)                     # "Guild" icon, left of Start on home
 HALL_LABEL = RelRect(0.36, 0.250, 0.30, 0.04)     # "Guild Hall"
 TRADE_LABEL = RelRect(0.48, 0.812, 0.30, 0.04)    # "Guild Trade"
-TRADE_STATUS = RelRect(0.50, 0.843, 0.28, 0.032)  # under it: "Waiting for Captain's..."
 POPUP_TEXT = RelRect(0.20, 0.80, 0.60, 0.17)      # a popup's "Tap to close" (y 882)
 MAX_POPUPS = 3
 
@@ -45,11 +46,6 @@ def on_guild(frame) -> bool:
     """The guild map is up: the Guild Hall and Guild Trade labels both read."""
     return "guild hall" in _words(frame, HALL_LABEL) and \
         "guild trade" in _words(frame, TRADE_LABEL)
-
-
-def trade_needs_captain(frame) -> bool:
-    """Guild Trade is waiting for the guild to appoint a captain (no trading)."""
-    return "captain" in _words(frame, TRADE_STATUS)
 
 
 def go_guild(ctx: Context) -> bool:
