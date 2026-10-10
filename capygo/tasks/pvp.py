@@ -27,8 +27,11 @@ from .profile import Profile, close_profile, fmt_trillions, open_profile, read_p
 
 FIGHTS_CSV = os.path.join("pvp", "fights.csv")
 PROFILES_DIR = os.path.join("pvp", "profiles")
+# won: 1 = victory, 0 = defeat, blank = not known (the result didn't read, no result
+# screen, a stuck fight). User: no point changes - the gain follows the point gap
+# (my_points vs list_points), which every row has.
 COLUMNS = [
-    "time_utc", "mode", "result",
+    "time_utc", "mode", "won",
     "my_power", "my_points",
     "row", "list_power", "list_points",
     "opp_uid", "opp_name", "opp_power", "opp_hp", "opp_atk", "opp_def", "opp_weapon",
@@ -72,11 +75,17 @@ def scout(ctx: Context, at: Rel, mode: str) -> Profile | None:
     return p
 
 
-def record(ctx: Context, mode: str, result: str, *, my_power: Decimal | None,
+def won(result: str | None) -> str:
+    """The won column: "1" for a victory, "0" for a defeat, "" when not known."""
+    return {"victory": "1", "defeat": "0"}.get(result or "", "")
+
+
+def record(ctx: Context, mode: str, result: str | None, *, my_power: Decimal | None,
            my_points: int | None, row: int | None, list_power: Decimal | None,
            list_points: int | None, opponent: Profile | None) -> None:
-    """Add one fight to fights.csv (with a header row the first time). Never
-    raises: the log is a side job."""
+    """Add one fight to fights.csv (with a header row the first time). `result` is
+    the fight's "victory" / "defeat" / anything else (not known). Never raises: the
+    log is a side job."""
     if ctx.dry_run:
         return
     p = opponent or Profile()
@@ -86,7 +95,7 @@ def record(ctx: Context, mode: str, result: str, *, my_power: Decimal | None,
     row_data = {
         "time_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "mode": mode,
-        "result": result,
+        "won": won(result),
         "my_power": _t(my_power),
         "my_points": "" if my_points is None else my_points,
         "row": "" if row is None else row,

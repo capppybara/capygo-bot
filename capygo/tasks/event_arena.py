@@ -277,7 +277,7 @@ class AutoArena(EventTask):
         if self.wait(ctx, FIGHT_SETTLE):  # user: give the fight a couple of seconds
             return None
         result = self._finish_fight(ctx)
-        pvp.record(ctx, "arena", result or "no result", my_power=my_power,
+        pvp.record(ctx, "arena", result, my_power=my_power,
                    my_points=my_points, row=pick.row + 1, list_power=pick.power,
                    list_points=pick.points, opponent=opponent)
         return result

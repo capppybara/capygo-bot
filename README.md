@@ -462,7 +462,7 @@ nothing. The bot then closes the popup and goes home. Each synthesis takes about
 | `logs/<task>-<time>.log` | A log of every run |
 | `logs/failed-<chore>-<time>.png` | The screen when an Auto Daily chore failed |
 | `~/Downloads/capy-bot/` | CSV exports and comparison graphs |
-| `~/Downloads/capy-bot/pvp/fights.csv` | Every arena and martial fight: the opponent's UID, name, power, stats and weapon, and the result |
+| `~/Downloads/capy-bot/pvp/fights.csv` | Every arena and martial fight: the opponent's UID, name, power, stats and weapon, and `won` (1 = won, 0 = lost, blank = not known) |
 | `~/Downloads/capy-bot/pvp/profiles/` | Each opponent's profile screen |
 | `~/Downloads/capy-bot/pvp/weapons/unknown-N.png` | Each weapon not seen before, saved the first time it shows up. Rename the file to the weapon's name to teach it. |
 | `~/Downloads/capy-bot/pvp/weapons/unknown.csv` | When each unknown weapon was first seen, and on whose profile |
