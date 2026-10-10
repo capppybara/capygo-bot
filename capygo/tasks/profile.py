@@ -27,12 +27,15 @@ under the character with HP / ATK / DEF below it, then Pets.
     unknown / unclassified weapons as it runs"). Named in the repo so far (user):
     BBC, op-bow, stick, hammer, nerd-bow, amogus-bow, skibidy-six-seven-sword.
 
-Positions measured on a live profile (2026-10-09, a guild member's): Name "MKM"
-at y 182 (a guild role tag like "Leader" can follow it), UID copy button
-(523, 209), power 33.11T at y 565, HP 86.73B / ATK 32.8B / DEF 450.82M at y 599,
-the weapon slot (sword badge) at x 118-192, y 298-372 (black border to black
-border; its gems start at 373). The banner rests at y 137 (171 while the screen
-still slides in).
+The screen is laid out a little differently depending on where it's opened from:
+an arena opponent's (2026-10-09) is taller than a guild member's, with its info
+box 21px higher, its power 14px and its gear 8px. So the parts are found from
+anchors (layout()): the Name / UID rows from their labels, the weapon slot from
+its black right border (x 191), the power and HP / ATK / DEF from the slot's top.
+Guild member's: Name y 182, UID y 209 (copy button x 523), slot square x 118-192
+y 298-372 (its gems start at 373), power y 565, stats y 599. Arena opponent's:
+160, 190, slot top 289, power 551, stats 585. The screen slides in (its banner
+starts ~34px lower), so reading waits until the banner stops moving.
 """
 
 from __future__ import annotations
@@ -60,20 +63,25 @@ WEAPONS_DIR = os.path.join(TEMPLATES, "weapons")             # <weapon name>.png
 LOCAL_WEAPONS = os.path.join("pvp", "weapons")   # under ~/Downloads/capy-bot
 UNKNOWN_INDEX = os.path.join(LOCAL_WEAPONS, "unknown.csv")
 
-UID_COPY_BTN = Rel(0.815, 0.220)          # copy-to-clipboard button next to the UID
-POWER_REGION = RelRect(0.397, 0.576, 0.203, 0.037)  # value below the character
-CLOSE_BTN = Rel(0.5, 0.925)               # floating X: closes the top popup
-NAME_REGION = RelRect(0.506, 0.177, 0.327, 0.029)   # the Name value cell
-STATS_REGION = RelRect(0.218, 0.615, 0.561, 0.029)  # HP / ATK / DEF, under the power
-WEAPON_SLOT = RelRect(0.1838, 0.3134, 0.1168, 0.0789)  # the top-left slot square
+CLOSE_BTN = Rel(0.5, 0.925)               # the floating X, if its sprite isn't found
+# Layout, px at 642x951 (see layout()):
+LABELS = (215, 300, 120, 300)             # x0, x1, y0, y1: the info box's labels
+VALUE_X = (325, 535)                      # the info box's value cells
+COPY_X = 523                              # the UID's copy button, on the UID row
+ROW_H = 14                                # half a row's height
+SLOT_X, SLOT_SIZE = 118, 75               # the weapon slot: x 118-192, 75px square
+SLOT_EDGE_X = 191                         # its right border: black from slot top + 3
+SLOT_SEARCH = (250, 500)                  # where to look for that border
+POWER_X, POWER_DY = (255, 385), (250, 282)   # the power: y = slot top + 250..282
+STATS_X, STATS_DY = (140, 500), (284, 316)   # HP / ATK / DEF: slot top + 284..316
+DEFAULT_LAYOUT = (182, 209, 298)          # name y, UID y, slot top (a guild member's)
 ROLE_TAGS = ("vice leader", "leader", "elite", "member")  # guild role after a name
 
 TITLE_MATCH = 0.85
-TITLE_REST_Y = 137        # px at 951 high: the banner's y once the screen stops sliding
 WEAPON_MATCH = 0.85       # same weapon >= 0.99, another weapon <= 0.62 (50 profiles)
 CLIP_SENTINEL = "capygo-none"  # seeded before a copy so a stale value can't fool us
 SETTLE_TIMEOUT = 3.0      # the screen slides and fades in
-STILL_DIFF = 2.0          # two frames this alike (and the banner at rest) = settled
+STILL_DIFF = 2.0          # two frames this alike (banner not moving) = settled
 SLOT_FRAMES = 3           # median of this many frames: drops the icon's passing sheen
 SIG = 75                  # the slot is compared at 75x75 px (its size at 642x951)
 DARK = 60                 # grey below this = the art's black outline
@@ -143,17 +151,6 @@ def _crop(frame, region: RelRect):
     return frame[y0:y1, x0:x1]
 
 
-def _values(frame, region: RelRect) -> list[Decimal]:
-    """Every number-with-unit in a region, left to right, in trillions."""
-    found = []
-    for text, cx, _ in sorted(ocr_lines(_crop(frame, region)), key=lambda l: l[1]):
-        for m in re.finditer(r"\d[\d.,]*\s*[KMBTkmbt]?", text):
-            v = to_trillions(m.group(0))
-            if v is not None:
-                found.append(v)
-    return found
-
-
 # --- the screen ---------------------------------------------------------------
 def is_open(frame) -> bool:
     """The Character Info banner is showing."""
@@ -183,20 +180,86 @@ def open_profile(ctx: Context, at: Rel, timeout: float = 2.5) -> bool:
 
 
 def close_profile(ctx: Context) -> bool:
-    """Close Character Info with the floating X. True once it's gone."""
+    """Close Character Info with its floating X (found by its sprite: it sits
+    lower on the taller arena layout). True once it's gone."""
+    from .daily import find_sprite
+
     for _ in range(3):
-        ctx.click_rel(CLOSE_BTN)
+        x = find_sprite(ctx, ctx.frame(), "close_x.png")
+        if x is not None:
+            ctx.click_match(x)
+        else:
+            ctx.click_rel(CLOSE_BTN)
         time.sleep(0.7)
         if not is_open(ctx.frame()):
             return True
     return not is_open(ctx.frame())
 
 
-def read_uid(ctx: Context) -> str | None:
-    """The exact UID: tap the copy button, read the clipboard."""
+@dataclass
+class Layout:
+    """Where this profile's parts are, px at 642x951."""
+    name_y: float
+    uid_y: float
+    slot_top: float
+
+
+def _slot_top(frame) -> float | None:
+    """The weapon slot's top: its right border is a black line from 3px below it."""
+    h, w = frame.shape[:2]
+    kx, ky = w / 642, h / 951
+    y0, y1 = int(SLOT_SEARCH[0] * ky), int(SLOT_SEARCH[1] * ky)
+    col = frame[y0:y1, int(SLOT_EDGE_X * kx)].mean(axis=1) < 50
+    start = None
+    for i, dark in enumerate(list(col) + [False]):
+        if dark and start is None:
+            start = i
+        elif not dark and start is not None:
+            if i - start >= 50 * ky:
+                return (y0 + start) / ky - 3
+            start = None
+    return None
+
+
+def layout(frame) -> Layout:
+    """Find the Name / UID rows (their labels) and the weapon slot (its border).
+    Anything not found falls back to a guild member's layout."""
+    h, w = frame.shape[:2]
+    kx, ky = w / 642, h / 951
+    x0, x1, y0, y1 = LABELS
+    rows = {}
+    for t, _, cy in ocr_lines(frame[int(y0 * ky):int(y1 * ky), int(x0 * kx):int(x1 * kx)]):
+        rows.setdefault(t.strip().lower(), cy / ky + y0)
+    name_y, uid_y, top = DEFAULT_LAYOUT
+    return Layout(rows.get("name", name_y), rows.get("uid", uid_y),
+                  _slot_top(frame) or top)
+
+
+def _px(frame, x0, x1, y0, y1):
+    h, w = frame.shape[:2]
+    kx, ky = w / 642, h / 951
+    return frame[int(y0 * ky):int(y1 * ky), int(x0 * kx):int(x1 * kx)]
+
+
+def _values_px(frame, x0, x1, y0, y1) -> list[Decimal]:
+    """Every number-with-unit in a box (px at 642x951), left to right, in
+    trillions."""
+    found = []
+    for text, _, _ in sorted(ocr_lines(_px(frame, x0, x1, y0, y1)), key=lambda l: l[1]):
+        for m in re.finditer(r"\d[\d.,]*\s*[KMBTkmbt]?", text):
+            v = to_trillions(m.group(0))
+            if v is not None:
+                found.append(v)
+    return found
+
+
+def read_uid(ctx: Context, lay: Layout | None = None) -> str | None:
+    """The exact UID: tap the copy button on the UID row, read the clipboard."""
+    lay = lay or layout(ctx.frame())
+    button = Rel(COPY_X / 642, lay.uid_y / 951)
     for _ in range(3):
         ctx.set_clipboard(CLIP_SENTINEL)
-        ctx.click_rel(UID_COPY_BTN)
+        ctx.click_rel(button)
         time.sleep(0.35)
         clip = ctx.read_clipboard().strip()
         if clip.isdigit():
@@ -205,28 +268,47 @@ def read_uid(ctx: Context) -> str | None:
     return None
 
 
-def read_power(frame) -> Decimal | None:
+def read_uid_text(frame, lay: Layout | None = None) -> str | None:
+    """The UID by OCR of its row (digits only): a fallback for the copy."""
+    lay = lay or layout(frame)
+    text = " ".join(t for t, _, _ in ocr_lines(
+        _px(frame, *VALUE_X, lay.uid_y - ROW_H, lay.uid_y + ROW_H)))
+    digits = re.sub(r"\D", "", text)
+    return digits or None
+
+
+def read_power(frame, lay: Layout | None = None) -> Decimal | None:
     """The power under the character, in trillions."""
-    vals = _values(frame, POWER_REGION)
+    lay = lay or layout(frame)
+    vals = _values_px(frame, *POWER_X, lay.slot_top + POWER_DY[0], lay.slot_top + POWER_DY[1])
     return vals[0] if vals else None
 
 
-def read_name(frame) -> str:
+def read_name(frame, lay: Layout | None = None) -> str:
     """The info box's Name value (OCR; a stylized or non-Latin name may read
     poorly)."""
-    text = " ".join(t for t, _, _ in sorted(ocr_lines(_crop(frame, NAME_REGION)),
-                                             key=lambda l: l[1])).strip()
+    lay = lay or layout(frame)
+    text = " ".join(t for t, _, _ in sorted(ocr_lines(_px(
+        frame, *VALUE_X, lay.name_y - ROW_H, lay.name_y + ROW_H)), key=lambda l: l[1])).strip()
     for tag in ROLE_TAGS:  # a guild-mate's role tag sits right after the name
         if text.lower().endswith(" " + tag):
             return text[:-len(tag) - 1].strip()
     return text
 
 
-def read_stats(frame) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
+def read_stats(frame, lay: Layout | None = None
+               ) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
     """HP, ATK, DEF under the power, in trillions (None where unread)."""
-    vals = _values(frame, STATS_REGION)
+    lay = lay or layout(frame)
+    vals = _values_px(frame, *STATS_X, lay.slot_top + STATS_DY[0], lay.slot_top + STATS_DY[1])
     vals += [None] * (3 - len(vals))
     return vals[0], vals[1], vals[2]
+
+
+def weapon_slot(frame, lay: Layout | None = None):
+    """The weapon slot square (the top-left gear slot, without its gems)."""
+    lay = lay or layout(frame)
+    return _px(frame, SLOT_X, SLOT_X + SLOT_SIZE, lay.slot_top, lay.slot_top + SLOT_SIZE)
 
 
 # --- the weapon ---------------------------------------------------------------
@@ -286,7 +368,7 @@ def _next_unknown(local: str) -> int:
 
 
 def read_weapon(slot) -> tuple[str, bool]:
-    """The weapon's name from a snapshot of its slot (a crop of WEAPON_SLOT), and
+    """The weapon's name from a snapshot of its slot (weapon_slot()), and
     whether it was just saved as a new unknown. Looks at the repo's named
     pictures, then the ones named on this Mac, then the unknowns; a weapon in
     none is saved as the next unknown-N.png."""
@@ -319,36 +401,41 @@ def _index_unknown(p: "Profile") -> None:
 
 
 # --- all of it ----------------------------------------------------------------
-def _at_rest(frame) -> bool:
-    """The banner has stopped sliding (it starts ~34px lower)."""
+def _banner_y(frame) -> int | None:
     m = find_template(frame, load_template(TITLE_TEMPLATE), TITLE_MATCH)
-    return m.found and abs(m.y - TITLE_REST_Y * frame.shape[0] / 951) <= 3
+    return m.y if m.found else None
 
 
 def _settled(ctx: Context):
-    """A frame once the profile has finished sliding and fading in: the banner at
-    rest and two frames in a row alike around the power (a frame grabbed at once
-    had no name or power and a blank weapon; two caught it mid-slide)."""
-    def part(f):
-        return cv2.cvtColor(_crop(f, POWER_REGION), cv2.COLOR_BGR2GRAY).astype(np.float32)
+    """A frame once the profile has finished sliding and fading in: the banner
+    in the same place in two frames in a row and the info box below it still
+    (a frame grabbed at once had no name or power and a blank weapon; two caught
+    it mid-slide)."""
+    def part(f, y):
+        h, w = f.shape[:2]
+        g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        return g[max(0, y + int(40 * h / 951)):y + int(160 * h / 951), int(100 * w / 642):int(540 * w / 642)]
     prev = ctx.frame()
+    prev_y = _banner_y(prev)
     end = time.time() + SETTLE_TIMEOUT
     while time.time() < end:
         time.sleep(0.25)
         cur = ctx.frame()
-        if _at_rest(cur) and float(np.abs(part(cur) - part(prev)).mean()) < STILL_DIFF:
+        y = _banner_y(cur)
+        if y is not None and prev_y is not None and abs(y - prev_y) <= 1 and \
+                float(np.abs(part(cur, y) - part(prev, y)).mean()) < STILL_DIFF:
             return cur
-        prev = cur
+        prev, prev_y = cur, y
     return prev
 
 
-def _weapon_slot(ctx: Context, frame):
+def _weapon_slot(ctx: Context, frame, lay: Layout):
     """The weapon slot as the per-pixel median of SLOT_FRAMES frames ~0.25s apart:
     the icon's sheen passes, so the median drops it."""
-    slots = [_crop(frame, WEAPON_SLOT)]
+    slots = [weapon_slot(frame, lay)]
     for _ in range(SLOT_FRAMES - 1):
         time.sleep(0.25)
-        slots.append(_crop(ctx.frame(), WEAPON_SLOT))
+        slots.append(weapon_slot(ctx.frame(), lay))
     return np.median(np.stack(slots), axis=0).astype(np.uint8)
 
 
@@ -357,13 +444,14 @@ def read_profile(ctx: Context, save_to: str | None = None) -> Profile:
     there (a .png path)."""
     p = Profile()
     frame = _settled(ctx)
-    slot = _weapon_slot(ctx, frame)
+    lay = layout(frame)
+    slot = _weapon_slot(ctx, frame, lay)
     # The UID last: its copy button pops a "copied" notice across the middle of
-    # the screen (a gold band right over the weapon slot).
-    p.uid = read_uid(ctx)
-    p.name = read_name(frame)
-    p.power = read_power(frame)
-    p.hp, p.atk, p.defense = read_stats(frame)
+    # the screen (a gold band right over the weapon slot). OCR if the copy fails.
+    p.uid = read_uid(ctx, lay) or read_uid_text(frame, lay)
+    p.name = read_name(frame, lay)
+    p.power = read_power(frame, lay)
+    p.hp, p.atk, p.defense = read_stats(frame, lay)
     try:
         p.weapon, p.new_weapon = read_weapon(slot)
     except Exception as e:  # a weapon read must never break a fight

@@ -31,6 +31,9 @@ from ..task import Context
 from .event import EventTask, go_events
 
 TITLE_REGION = RelRect(0.30, 0.070, 0.40, 0.050)  # "Hero Plaza" / "Martial Arts Hall"
+# 2026-10-09: Holy Grail War opened on "Select Division" (Rising Star / Dauntless /
+# Supreme, a new season's pick) instead of its plaza. That choice is the player's.
+SELECT_TITLE = RelRect(0.25, 0.130, 0.50, 0.035)  # "Select Division"
 DISMISS = Rel(0.5, 0.11)                           # plaza title: closes a reward popup
 THUMB_ROW = RelRect(0.156, 0.47, 0.716, 0.22)      # where the thumbs-ups sit
 THUMB_SCALES = [round(s, 2) for s in np.arange(0.80, 1.21, 0.05)]
@@ -87,6 +90,12 @@ class PlazaLikes(EventTask):
         if not ctx.dry_run:
             end = time.time() + OPEN_TIMEOUT
             while self.TITLE_WORD not in self.text_in(ctx, TITLE_REGION):
+                if "select division" in self.text_in(ctx, SELECT_TITLE):
+                    self.flag(ctx, "it opened on Select Division (a new season's "
+                                   "division pick: Rising Star / Dauntless / Supreme). "
+                                   "Pick one in the game; the bot won't choose for you. "
+                                   "No likes today.")
+                    return go_events(ctx)
                 if time.time() > end:
                     ctx.log.warning("%s: the plaza did not open", self.name)
                     return False

@@ -48,7 +48,7 @@ from ..perception import load_template, ocr_lines
 from ..task import Context, register
 from .daily import NEUTRAL, _crop, find_sprite, tap_to_close_up
 from .event_arena import SKIP_BTN, _power, fight_up
-from .guild import GuildTask, go_guild
+from .guild import GuildTask, go_guild, trade_needs_captain
 
 TITLE = RelRect(0.10, 0.035, 0.32, 0.045)          # "Guild Trade" / "Plunder"
 OTHERS_TAB = Rel(0.821, 0.952)                     # "Others' Trades", bottom-right
@@ -205,6 +205,15 @@ class GuildTrade(GuildTask):
     START_HINT = "Start on the main Adventure screen."
 
     def run_daily(self, ctx: Context) -> bool:
+        if not self.clear_map(ctx):
+            return False
+        if not ctx.dry_run and trade_needs_captain(ctx.frame()):
+            # 2026-10-09: the label under Guild Trade read "Waiting for Captain's
+            # Appointment" and a tap opened nothing
+            self.flag(ctx, "Guild Trade is waiting for the guild to appoint a captain, "
+                           "so there's nothing to plunder. Once there is one, run Guild "
+                           "trade plunder again (confirm the re-run).")
+            return True
         if not self.open_place(ctx, "guild trade"):
             return False
         if ctx.dry_run:
