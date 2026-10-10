@@ -25,7 +25,7 @@ under the character with HP / ATK / DEF below it, then Pets.
     file (unknown-8.png -> laser-gun.png): pictures named in that folder count
     like the repo's from the next run on (user, 2026-10-09: "capture and store
     unknown / unclassified weapons as it runs"). Named in the repo so far (user):
-    BBC, op-bow, stick, hammer, nerd-bow, amogus-bow, skibidy-six-seven-sword.
+    BBC, op-bow, stick, mailbox, nerd-bow, amogus-bow, skibidy-six-seven-sword.
 
 The screen is laid out a little differently depending on where it's opened from:
 an arena opponent's (2026-10-09) is taller than a guild member's, with its info
