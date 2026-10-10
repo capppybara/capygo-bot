@@ -458,7 +458,8 @@ nothing. The bot then closes the popup and goes home. Each synthesis takes about
 | `~/Downloads/capy-bot/` | CSV exports and comparison graphs |
 | `~/Downloads/capy-bot/pvp/fights.csv` | Every arena and martial fight: the opponent's UID, name, power, stats and weapon, and the result |
 | `~/Downloads/capy-bot/pvp/profiles/` | Each opponent's profile screen |
-| `~/Downloads/capy-bot/pvp/weapons/unknown-N.png` | Weapon pictures not labeled yet |
+| `~/Downloads/capy-bot/pvp/weapons/unknown-N.png` | Each weapon not seen before, saved the first time it shows up. Rename the file to the weapon's name to teach it. |
+| `~/Downloads/capy-bot/pvp/weapons/unknown.csv` | When each unknown weapon was first seen, and on whose profile |
 | `data/daily_runs.json` | When each Auto Daily chore last ran |
 | `data/guild_power.json` | The hedgemony collection |
 

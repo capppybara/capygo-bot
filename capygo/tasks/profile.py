@@ -19,9 +19,13 @@ under the character with HP / ATK / DEF below it, then Pets.
     always scored >= 0.99 against itself and <= 0.62 against the others. The
     slot is the per-pixel median of 3 frames, because the icons are animated: a
     sheen passes through them now and then (user). A slot that matches none is
-    saved once, in color, to ~/Downloads/capy-bot/pvp/weapons/unknown-N.png and
-    reported as "unknown-N": rename it to the weapon's name and move it into
-    templates/profile/weapons/ to teach it.
+    saved once, in color, as ~/Downloads/capy-bot/pvp/weapons/unknown-N.png and
+    reported as "unknown-N", with a line in unknown.csv there (when it was first
+    seen, on whose profile, that profile's screenshot). To name it, rename the
+    file (unknown-8.png -> laser-gun.png): pictures named in that folder count
+    like the repo's from the next run on (user, 2026-10-09: "capture and store
+    unknown / unclassified weapons as it runs"). Named in the repo so far (user):
+    BBC, op-bow, stick, hammer, nerd-bow, amogus-bow, skibidy-six-seven-sword.
 
 Positions measured on a live profile (2026-10-09, a guild member's): Name "MKM"
 at y 182 (a guild role tag like "Leader" can follow it), UID copy button
@@ -33,10 +37,12 @@ still slides in).
 
 from __future__ import annotations
 
+import csv
 import os
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 import cv2
@@ -51,6 +57,8 @@ TEMPLATES = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "templates", "profile")
 TITLE_TEMPLATE = os.path.join(TEMPLATES, "char_title.png")   # "Character Info"
 WEAPONS_DIR = os.path.join(TEMPLATES, "weapons")             # <weapon name>.png
+LOCAL_WEAPONS = os.path.join("pvp", "weapons")   # under ~/Downloads/capy-bot
+UNKNOWN_INDEX = os.path.join(LOCAL_WEAPONS, "unknown.csv")
 
 UID_COPY_BTN = Rel(0.815, 0.220)          # copy-to-clipboard button next to the UID
 POWER_REGION = RelRect(0.397, 0.576, 0.203, 0.037)  # value below the character
@@ -90,6 +98,7 @@ class Profile:
     atk: Decimal | None = None
     defense: Decimal | None = None
     weapon: str = ""                  # a weapon name, "unknown-N", or "" if unread
+    new_weapon: bool = False          # its picture was just saved as a new unknown
     screenshot: str = ""              # where the profile screen was saved, if it was
     notes: list[str] = field(default_factory=list)
 
@@ -244,13 +253,14 @@ def _signature(slot):
     return cv2.GaussianBlur((g < DARK).astype(np.float32) * _MASK, (7, 7), 0)
 
 
-def _best_match(sig, folder: str, prefix: str = "") -> tuple[str, float]:
-    """The slot picture in `folder` most like `sig`: (file stem, score)."""
+def _best_match(sig, folder: str, unknown: bool) -> tuple[str, float]:
+    """The slot picture in `folder` most like `sig`, among the unknown-N ones or
+    the named ones: (file stem, score)."""
     best, score = "", 0.0
     if not os.path.isdir(folder):
         return best, score
     for f in sorted(os.listdir(folder)):
-        if not f.endswith(".png") or not f.startswith(prefix):
+        if not f.endswith(".png") or f.startswith("unknown-") != unknown:
             continue
         slot = cv2.imread(os.path.join(folder, f))
         if slot is None:
@@ -261,21 +271,51 @@ def _best_match(sig, folder: str, prefix: str = "") -> tuple[str, float]:
     return best, score
 
 
-def read_weapon(slot) -> str:
-    """The weapon's name from a snapshot of its slot (a crop of WEAPON_SLOT), or
-    "unknown-N" for one not labeled yet (saved for labeling, once per kind)."""
+def _next_unknown(local: str) -> int:
+    """The next unknown number: past every one ever used, in the folder or in
+    unknown.csv, so a renamed (named) picture's number is never reused."""
+    used = [int(m.group(1)) for f in os.listdir(local)
+            if (m := re.fullmatch(r"unknown-(\d+)\.png", f))]
+    try:
+        with open(output_path(UNKNOWN_INDEX), encoding="utf-8") as f:
+            used += [int(m.group(1)) for line in f
+                     if (m := re.match(r"unknown-(\d+),", line))]
+    except OSError:
+        pass
+    return 1 + max(used, default=0)
+
+
+def read_weapon(slot) -> tuple[str, bool]:
+    """The weapon's name from a snapshot of its slot (a crop of WEAPON_SLOT), and
+    whether it was just saved as a new unknown. Looks at the repo's named
+    pictures, then the ones named on this Mac, then the unknowns; a weapon in
+    none is saved as the next unknown-N.png."""
     sig = _signature(slot)
-    name, score = _best_match(sig, WEAPONS_DIR)
+    local = output_path(LOCAL_WEAPONS)
+    os.makedirs(local, exist_ok=True)
+    name, score = max(_best_match(sig, WEAPONS_DIR, unknown=False),
+                      _best_match(sig, local, unknown=False), key=lambda m: m[1])
     if name and score >= WEAPON_MATCH:
-        return re.sub(r"[-_]\d+$", "", name)  # bow_2 -> bow
-    unknown = output_path(os.path.join("pvp", "weapons"))
-    os.makedirs(unknown, exist_ok=True)
-    seen, score = _best_match(sig, unknown, "unknown-")
+        return re.sub(r"[-_]\d+$", "", name), False  # bow_2 -> bow
+    seen, score = _best_match(sig, local, unknown=True)
     if seen and score >= WEAPON_MATCH:
-        return seen
-    n = 1 + sum(f.startswith("unknown-") for f in os.listdir(unknown))
-    cv2.imwrite(os.path.join(unknown, f"unknown-{n}.png"), slot)
-    return f"unknown-{n}"
+        return seen, False
+    label = f"unknown-{_next_unknown(local)}"
+    cv2.imwrite(os.path.join(local, f"{label}.png"), slot)
+    return label, True
+
+
+def _index_unknown(p: "Profile") -> None:
+    """A line in unknown.csv for a weapon just saved as unknown: when, whose
+    profile, and that profile's screenshot."""
+    path = output_path(UNKNOWN_INDEX)
+    new = not os.path.exists(path)
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(["weapon", "first_seen_utc", "uid", "name", "profile_png"])
+        w.writerow([p.weapon, datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    p.uid or "", p.name, p.screenshot])
 
 
 # --- all of it ----------------------------------------------------------------
@@ -325,9 +365,14 @@ def read_profile(ctx: Context, save_to: str | None = None) -> Profile:
     p.power = read_power(frame)
     p.hp, p.atk, p.defense = read_stats(frame)
     try:
-        p.weapon = read_weapon(slot)
+        p.weapon, p.new_weapon = read_weapon(slot)
     except Exception as e:  # a weapon read must never break a fight
         p.notes.append(f"weapon: {e}")
     if save_to and cv2.imwrite(save_to, frame):
         p.screenshot = save_to
+    if p.new_weapon:
+        try:
+            _index_unknown(p)
+        except OSError as e:
+            p.notes.append(f"unknown.csv: {e}")
     return p

@@ -63,6 +63,12 @@ def scout(ctx: Context, at: Rel, mode: str) -> Profile | None:
         p.notes.append("profile didn't close")
     ctx.log.info("pvp: opponent uid=%s name=%r power=%sT weapon=%s", p.uid or "?",
                  p.name, _t(p.power) or "?", p.weapon or "?")
+    if p.new_weapon:  # listed under "Needs your attention" at the end of the run
+        msg = (f"a weapon not seen before, saved as ~/Downloads/capy-bot/pvp/weapons/"
+               f"{p.weapon}.png (on {p.name or p.uid or 'an opponent'}'s profile). Rename "
+               f"the file to the weapon's name to teach it.")
+        ctx.log.warning("pvp: %s", msg)
+        ctx.flags.append(("pvp", msg))
     return p
 
 
