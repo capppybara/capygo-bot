@@ -578,23 +578,26 @@ class HardModeAutorun(Task):
         return "timeout"
 
     def _pick_after_open(self, ctx: Context) -> bool:
-        """After the treasure's Open: wait for its skill screen and pick one. A
-        screen that doesn't show in OPEN_PICK_WAIT is left to the run loop. False
-        only on a stop."""
+        """After the treasure's Open: wait for its skill screen and tap the top card
+        once - tapping a skill there picks it and moves on, no Select (user). That
+        screen hasn't been seen yet: the 1-pick layout's top card is assumed, and
+        if no skill screen shows in OPEN_PICK_WAIT its screen is saved (the run
+        loop / the countdown take it from there). False only on a stop."""
         end = time.time() + OPEN_PICK_WAIT
         while time.time() < end:
             if ctx.should_stop():
                 return False
-            frame = ctx.frame()
-            if skills.on_skill_screen(frame):
-                got = skills.picks(frame)
-                ctx.log.info("hard-mode join: the treasure's skill screen")
+            if skills.on_skill_screen(ctx.frame()):
                 if self._sleep(ctx, skills.SKILL_SETTLE):
                     return False
-                return skills.pick_screen(ctx, bool(got and got[1] == 2), "hard-mode join")
+                self._click_pos(ctx, Rel(skills.SKILL_ONE[0] / 642, skills.SKILL_ONE[1] / 951),
+                                "skill (top)", "the treasure's skill", wait=1.0)
+                ctx.hover_rel(Rel(skills.SKILL_TOP[0] / 642, skills.SKILL_TOP[1] / 951))
+                return True
             if self._sleep(ctx, 0.5):
                 return False
-        ctx.log.info("hard-mode join: no skill screen after Open (yet)")
+        self._snap(ctx, "hard-treasure-pick")
+        ctx.log.info("hard-mode join: no skill screen after Open")
         return True
 
     @staticmethod
