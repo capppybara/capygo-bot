@@ -40,7 +40,10 @@ before host starts where you change the multiplier"): accept the friend's Hard
 Chapters invite (invites.py), set the energy multiple on the team screen (the
 same + / - and cost check as solo), wait for the host's start (meanwhile taking
 a new invite from them, should they restart in a new room), wait for the run to
-finish, and go again. The joiner's screens hadn't been seen when this was
+finish, and go again. The multiple belongs to the host's chapter (user): set it
+once they've picked, and again whenever they change chapter. A later run on the
+same chapter keeps it. So the bot remembers the energy cost it set and, while
+waiting for the start, sets the multiple again (from 1x) if the cost changes. The joiner's screens hadn't been seen when this was
 written: it logs every step and stops (with a screenshot) on anything unexpected.
 
 Templates in templates/hard-mode-autorun/ (captured from the live game):
@@ -120,6 +123,8 @@ class HardModeAutorun(Task):
     ]
 
     JOIN_POLL = 2.0          # look for the start / the team screen this often
+    COST_CHANGED_READS = 2   # the cost read differently this many times in a row:
+                             # the host changed chapter -> set the multiple again
     INVITE_POLL = 10.0       # and for the friend's invite this often
     INVITE_TIMEOUT = 30 * 60
     START_TIMEOUT = 30 * 60  # waiting for the host to start
@@ -247,7 +252,8 @@ class HardModeAutorun(Task):
             time.sleep(0.3)
         return None
 
-    def _select_multiple(self, ctx: Context, target: int, run_no: int, total: int) -> bool:
+    def _select_multiple(self, ctx: Context, target: int, run_no: int, total: int,
+                         reset: bool = False) -> bool:
         if target not in VALID_MULTIPLES:
             target = min(VALID_MULTIPLES, key=lambda v: abs(v - target))
         target_i = VALID_MULTIPLES.index(target)
@@ -256,8 +262,9 @@ class HardModeAutorun(Task):
         for attempt in range(1, 3):
             # The multiple defaults to 1x on entry, so attempt 1 reads the base
             # there directly (no reset, per the game's behavior). A second attempt
-            # resets with '-' (it floors at 1x) in case entry wasn't at 1x.
-            if attempt > 1:
+            # resets with '-' (it floors at 1x) in case entry wasn't at 1x; so does
+            # every attempt with `reset` (a joiner's screen may hold any multiple).
+            if attempt > 1 or reset:
                 for _ in range(len(VALID_MULTIPLES)):
                     self._click_pos(ctx, MINUS_BTN, "-", "reset to 1x", wait=0.3)
             base = self._read_cost(ctx)  # 1x cost, varies by chapter
@@ -355,6 +362,20 @@ class HardModeAutorun(Task):
         if shot:
             ctx.log.warning("hard-mode join: screen saved: %s", shot)
 
+    def _ensure_multiple(self, ctx: Context, run_no: int, total: int) -> bool:
+        """Set the multiple, unless the screen still shows the cost it was set to
+        (a later run on the same chapter keeps it - user). Always from 1x: the
+        screen may hold any multiple. Remembers the cost it set."""
+        cost = self._read_cost(ctx)
+        if self.set_cost is not None and cost == self.set_cost:
+            ctx.log.info("hard-mode join: the multiple is still set (cost x%d)", cost)
+            return True
+        if not self._select_multiple(ctx, self.params["energy_multiple"], run_no, total,
+                                     reset=True):
+            return False
+        self.set_cost = self._read_cost(ctx)
+        return True
+
     def _join(self, ctx: Context) -> bool:
         """Accept the friend's Hard Chapters invite: look for the banner every 10s
         (and for the team screen every 2s, in case we're already in), up to 30
@@ -394,13 +415,26 @@ class HardModeAutorun(Task):
         take it. True once the run has started."""
         friend = self.params["friend"]
         start = time.time()
-        gone = 0
+        gone = changed = 0
         while time.time() - start < self.START_TIMEOUT:
             if ctx.should_stop():
                 return False
             frame = ctx.frame()
             if self._team_screen(ctx, frame):
                 gone = 0
+                # The host changed chapter: the cost isn't what was set any more.
+                cost = ctx.read_number(ENERGY_COST_REGION, frame=frame)
+                changed = changed + 1 if cost is not None and self.set_cost is not None \
+                    and cost != self.set_cost else 0
+                if changed >= self.COST_CHANGED_READS:
+                    ctx.log.info("hard-mode join: the energy cost changed (x%s -> x%s): "
+                                 "a new chapter? setting the multiple again",
+                                 self.set_cost, cost)
+                    self.set_cost = None
+                    if not self._ensure_multiple(ctx, 0, 0):
+                        return False
+                    changed = 0
+                    continue
                 banner = invites.find_banner(frame)
                 if banner is not None:
                     got = invites.accept(
@@ -411,8 +445,8 @@ class HardModeAutorun(Task):
                         return False
                     if got:
                         ctx.log.info("hard-mode join: moved to %s's new room", friend)
-                        return self._select_multiple(ctx, self.params["energy_multiple"], 0, 0) \
-                            and self._wait_host_start(ctx)
+                        self.set_cost = None
+                        return self._ensure_multiple(ctx, 0, 0) and self._wait_host_start(ctx)
                     continue
             elif not invites.popup_open(frame):
                 gone += 1
@@ -431,10 +465,11 @@ class HardModeAutorun(Task):
         ctx.log.info("hard-mode join: %s's runs at %dx, %d run(s)",
                      self.params["friend"], multiple, total)
         done = 0
+        self.set_cost = None   # the energy cost the multiple was set to
         while done < total and not ctx.should_stop():
             if not self._join(ctx):
                 break
-            if not self._select_multiple(ctx, multiple, done + 1, total):
+            if not self._ensure_multiple(ctx, done + 1, total):
                 self._snap(ctx, "hard-join-multiple")
                 break
             if not self._wait_host_start(ctx):
