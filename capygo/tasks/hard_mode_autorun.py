@@ -79,11 +79,16 @@ ENERGY_COST_REGION = RelRect(0.412, 0.755, 0.198, 0.040)
 # Joining: the team screen's chapter title ("180.<name>"). A guess (where the home
 # screen shows its chapter title) until checked live.
 CHAPTER_TITLE = RelRect(0.15, 0.11, 0.70, 0.07)
-# An event in a joined run ("You run into a demon!", a chest to tap, ...) shows a
-# countdown line along the bottom like the skill screens' ("Skill selection
-# countdown (15 seconds)"); on all 440 frames of a 2026-10-10 run, a countdown
-# without the "Choose skill" title was exactly the demon event's 15 frames.
-EVENT_COUNTDOWN = RelRect(0.10, 0.86, 0.80, 0.11)
+# An event in a joined run ("You run into a demon!", "You find treasure", ...)
+# shows a countdown line along the bottom like the skill screens' ("Skill
+# selection countdown (15 seconds)": y ~840 on the demon, y 790 on the treasure);
+# on all 440 frames of a 2026-10-10 run, a countdown without the "Choose skill"
+# title was exactly the demon event's 15 frames.
+EVENT_COUNTDOWN = RelRect(0.10, 0.80, 0.80, 0.17)
+# "You find treasure": a chest (animated, shaking - so not matched by picture,
+# user) over an "Open" button (321, 727); Open spawns a skill pick.
+OPEN_BUTTON = RelRect(0.25, 0.73, 0.50, 0.07)
+OPEN_TAPS = 3             # taps per treasure before leaving it to its countdown
 
 # Main-screen buttons sit at fixed positions (642x951) and never move; their
 # templates would pick up each chapter's background tint, so we click the
@@ -503,11 +508,19 @@ class HardModeAutorun(Task):
         start = time.time()
         stuck_since = None
         in_event = False
+        open_taps = 0
         while time.time() - start < self.RUN_TIMEOUT:
             if ctx.should_stop():
                 return "stopped"
             frame = ctx.frame()
             if self._event_up(frame):
+                button = self._open_button(frame)
+                if button is not None and open_taps < OPEN_TAPS:
+                    # "You find treasure": Open -> a skill pick (handled next round)
+                    open_taps += 1
+                    self._click_pos(ctx, button, "Open", "the treasure chest", wait=1.0)
+                    in_event = True
+                    continue
                 if not in_event:  # once per event: its screen, for building handlers
                     shot = save_snapshot(ctx, "hard-event")
                     ctx.log.info("hard-mode join: an event (left to its countdown)%s",
@@ -517,6 +530,7 @@ class HardModeAutorun(Task):
                     return "stopped"
                 continue
             in_event = False
+            open_taps = 0
             if self._present(ctx, "finish_failure", frame):
                 return "failure"
             if self._present(ctx, "finish_success", frame):
@@ -548,6 +562,18 @@ class HardModeAutorun(Task):
             if self._sleep(ctx, self.SKILL_POLL):
                 return "stopped"
         return "timeout"
+
+    @staticmethod
+    def _open_button(frame) -> Rel | None:
+        """The treasure event's "Open" button (an exact label), or None."""
+        from ..perception import ocr_lines
+
+        h, w = frame.shape[:2]
+        x0, y0, _, _ = OPEN_BUTTON.to_pixels(w, h)
+        for text, cx, cy in ocr_lines(_crop(frame, OPEN_BUTTON)):
+            if text.strip().lower() == "open":
+                return Rel((x0 + cx) / w, (y0 + cy) / h)
+        return None
 
     @staticmethod
     def _event_up(frame) -> bool:
