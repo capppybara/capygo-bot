@@ -89,9 +89,9 @@ EVENT_COUNTDOWN = RelRect(0.10, 0.80, 0.80, 0.17)
 # user) over an "Open" button (321, 727); Open spawns a skill pick.
 OPEN_BUTTON = RelRect(0.25, 0.73, 0.50, 0.07)
 # "You run into a demon! Make a demonic pact and gain a skill?" (lose max HP):
-# Refuse (209,768) / Sign (431,771). User: just Refuse.
-REFUSE_BUTTON = RelRect(0.15, 0.78, 0.35, 0.05)
-OPEN_TAPS = 3             # taps per event (Open / Refuse) before leaving it to its
+# Refuse (209,768) / Sign (431,771). User: agree - Sign (was Refuse).
+SIGN_BUTTON = RelRect(0.50, 0.78, 0.30, 0.05)
+OPEN_TAPS = 3             # taps per event (Open / Sign) before leaving it to its
                           # countdown
 OPEN_PICK_WAIT = 6.0      # Open -> its skill screen shows by then
 
@@ -519,10 +519,10 @@ class HardModeAutorun(Task):
                 return "stopped"
             frame = ctx.frame()
             if self._event_up(frame):
-                refuse = self._label_at(frame, REFUSE_BUTTON, "refuse")
-                if refuse is not None and open_taps < OPEN_TAPS:
-                    open_taps += 1  # the demon's pact (user: just refuse)
-                    self._click_pos(ctx, refuse, "Refuse", "the demon's pact", wait=1.0)
+                sign = self._label_at(frame, SIGN_BUTTON, "sign")
+                if sign is not None and open_taps < OPEN_TAPS:
+                    open_taps += 1  # the demon's pact (user: agree)
+                    self._click_pos(ctx, sign, "Sign", "the demon's pact", wait=1.0)
                     in_event = True
                     continue
                 button = self._label_at(frame, OPEN_BUTTON, "open")
@@ -602,7 +602,7 @@ class HardModeAutorun(Task):
 
     @staticmethod
     def _label_at(frame, region: RelRect, label: str) -> Rel | None:
-        """An event button reading exactly `label` ("open", "refuse") in `region`,
+        """An event button reading exactly `label` ("open", "sign") in `region`,
         or None."""
         from ..perception import ocr_lines
 
