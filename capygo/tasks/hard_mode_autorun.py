@@ -86,6 +86,10 @@ CHAPTER_TITLE = RelRect(0.15, 0.11, 0.70, 0.07)
 # on all 440 frames of a 2026-10-10 run, a countdown without the "Choose skill"
 # title was exactly the demon event's 15 frames.
 EVENT_COUNTDOWN = RelRect(0.10, 0.80, 0.80, 0.17)
+# In a run: the top shows "Round: N/15" during battles (also under the event
+# screens) and "Choose skill" on skill screens - so started mid-run, the bot
+# picks up from there (user, 2026-10-10).
+RUN_TOP = RelRect(0.25, 0.135, 0.50, 0.045)
 # "You find treasure": a chest (animated, shaking - so not matched by picture,
 # user) over an "Open" button (321, 727); Open spawns a skill pick.
 OPEN_BUTTON = RelRect(0.25, 0.73, 0.50, 0.07)
@@ -414,38 +418,53 @@ class HardModeAutorun(Task):
         return self._select_multiple(ctx, self.params["energy_multiple"], run_no, total,
                                      reset=True)
 
-    def _join(self, ctx: Context) -> bool:
-        """Accept the friend's Hard Chapters invite: look for the banner every 10s
-        (and for the team screen every 2s, in case we're already in), up to 30
-        minutes."""
+    def _in_run(self, ctx: Context, frame) -> bool:
+        """In a run already: a battle ("Round: N/15"), a skill screen, an event or
+        the result."""
+        from ..perception import ocr_lines
+
+        top = " ".join(t for t, _, _ in ocr_lines(_crop(frame, RUN_TOP))).lower()
+        return "round" in top or "choose skill" in top or self._event_up(frame) or \
+            self._present(ctx, "finish_success", frame) or \
+            self._present(ctx, "finish_failure", frame)
+
+    def _join(self, ctx: Context) -> str | None:
+        """Get into the friend's team: "team" once on the team screen, "run" if
+        already in a run (started mid-run: play it from here). Otherwise accept
+        their Hard Chapters invite: look for the banner every 10s (and for the
+        team screen every 2s), up to 30 minutes. None on a stop or a timeout."""
         friend = self.params["friend"]
         start = time.time()
         next_banner = start
         while time.time() - start < self.INVITE_TIMEOUT:
             if ctx.should_stop():
-                return False
+                return None
             frame = ctx.frame()
             if self._team_screen(ctx, frame):
                 ctx.log.info("hard-mode join: on the team screen")
-                return True
+                return "team"
+            if self._in_run(ctx, frame):
+                ctx.log.info("hard-mode join: already in a run -> playing it from here")
+                return "run"
             if time.time() >= next_banner:
                 next_banner = time.time() + self.INVITE_POLL
                 opened = invites.popup_open(frame)
                 banner = None if opened else invites.find_banner(frame)
                 if opened or banner is not None:
                     got = invites.accept(ctx, friend, "hard", banner,
-                                         joined=lambda f: self._team_screen(ctx, f),
+                                         joined=lambda f: self._team_screen(ctx, f)
+                                         or self._in_run(ctx, f),
                                          prefix="hard-mode join")
                     if got is None:
                         self._snap(ctx, "hard-join-accept")
-                        return False
+                        return None
                     if got:
-                        return True
+                        return "team"
             if self._sleep(ctx, self.JOIN_POLL):
-                return False
+                return None
         ctx.log.warning("hard-mode join: no invite from %s in %d minutes -> stopping",
                         friend, self.INVITE_TIMEOUT // 60)
-        return False
+        return None
 
     def _wait_host_start(self, ctx: Context, run_no: int, total: int) -> bool:
         """Until the team screen goes away (the host started). Each round: once the
@@ -682,9 +701,10 @@ class HardModeAutorun(Task):
                      self.params["friend"], self.params["chapter"], multiple, total)
         done = 0
         while done < total and not ctx.should_stop():
-            if not self._join(ctx):
+            where = self._join(ctx)
+            if where is None:
                 break
-            if not self._wait_host_start(ctx, done + 1, total):
+            if where == "team" and not self._wait_host_start(ctx, done + 1, total):
                 self._snap(ctx, "hard-join-start")
                 break
             result = self._play_joined(ctx)
