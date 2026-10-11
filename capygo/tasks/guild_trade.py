@@ -53,7 +53,7 @@ from .guild import GuildTask, go_guild
 TITLE = RelRect(0.10, 0.035, 0.32, 0.045)          # "Guild Trade" / "Plunder"
 OTHERS_TAB = Rel(0.821, 0.952)                     # "Others' Trades", bottom-right
 LOOTED = RelRect(0.62, 0.035, 0.34, 0.045)         # "Looted today: N/4"
-SEA = RelRect(0.097, 0.089, 0.612, 0.484)          # the boats (left of the big ship)
+SEA = RelRect(0.097, 0.089, 0.806, 0.484)          # the whole sea (x 62-580, y 84-544)
 REFRESH_BTN = Rel(0.413, 0.589)                    # green Refresh above the panel
 BANNER = RelRect(0.514, 0.627, 0.171, 0.019)       # panel banner: UR = orange-red
 PLUNDERED = RelRect(0.28, 0.650, 0.30, 0.030)      # "Times plundered: x/y"
@@ -86,6 +86,8 @@ GONE = "gone"
 SKIP_RETRY = 6.0
 RESULT_TIMEOUT = 30.0
 MAX_POPUPS = 6             # popups closed in a row before giving up (a loop)
+MAX_BOAT_H = 150           # px: a gold piece taller than this is no boat (the big ship)
+MAX_BOAT_AREA = 2500       # px: nor one bigger (a gilded hull ~800, a sail ~770)
 
 
 @dataclass
@@ -122,24 +124,44 @@ def looted(frame) -> int | None:
 def find_boats(frame) -> list[Boat]:
     """Gilded and golden boats on the sea, by their gold: a tall gold blob is a
     gilded boat's hull (tap ~10px below its middle, clear of the owner's avatar
-    above it); a wide one is a golden boat's orange sail."""
+    above it); a wide one is a golden boat's orange sail.
+
+    2026-10-10 (user: a once-plundered golden boat wasn't taken again): such a
+    boat has a flame drawn on its sail, which split the gold into small pieces
+    (185 + 192 + 399 + ...), none a wide 400. So for sails the flame's red-orange
+    counts as sail (-> one 774px piece). Not for hulls: red near a gilded hull
+    (its owner's avatar) mustn't pull the tap point up onto the avatar. The sea
+    used to stop at x 455, left of a big ship that filled the right side; boats
+    now sit out to x ~545 and were cut in half, so the whole width is searched
+    and anything far bigger than a boat (that big ship) is ignored."""
     h, w = frame.shape[:2]
     x0, y0, x1, y1 = SEA.to_pixels(w, h)
     hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
     hh, s, v = (hsv[..., i].astype(int) for i in range(3))
     gold = ((hh >= 12) & (hh <= 26) & (s >= 120) & (v >= 200)).astype(np.uint8)
-    n, _, stats, centers = cv2.connectedComponentsWithStats(gold, 8)
+    flame = ((hh <= 11) & (s >= 120) & (v >= 180)).astype(np.uint8)
     k = w / 642                                  # sizes were measured at 642px wide
+
+    def blobs(mask):
+        n, _, stats, centers = cv2.connectedComponentsWithStats(mask, 8)
+        for i in range(1, n):
+            bw, bh, area = stats[i][2], stats[i][3], stats[i][4]
+            if bh > MAX_BOAT_H * k or area > MAX_BOAT_AREA * k * k:
+                continue  # not a boat (the big ship)
+            yield bw, bh, area, centers[i][0] + x0, centers[i][1] + y0
+
     boats = []
-    for i in range(1, n):
-        bw, bh, area = stats[i][2], stats[i][3], stats[i][4]
-        cx, cy = centers[i][0] + x0, centers[i][1] + y0
-        # The gilded hull shimmers: its gold read 810px in one frame, 226px in
-        # another, so a tall blob counts from 150px. Sails are steadier (~730px);
-        # their small top halves (~190px) must not count, so wide ones need 400.
+    # The gilded hull shimmers: its gold read 810px in one frame, 226px in
+    # another, so a tall blob counts from 150px.
+    for bw, bh, area, cx, cy in blobs(gold):
         if bh > 1.5 * bw and area >= 150 * k * k:
             boats.append(Boat("gilded", Rel(cx / w, (cy + 10 * k) / h)))
-        elif bw > bh and area >= 400 * k * k:
+    # Sails are steadier (~730px); their small top halves (~190px) must not
+    # count, so wide ones need 400.
+    for bw, bh, area, cx, cy in blobs(gold | flame):
+        if bw > bh and area >= 400 * k * k and not any(
+                abs(b.at.x * w - cx) < 40 * k and abs(b.at.y * h - cy) < 60 * k
+                for b in boats):
             boats.append(Boat("golden", Rel(cx / w, cy / h)))
     return boats
 
