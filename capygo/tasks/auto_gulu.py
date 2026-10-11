@@ -71,8 +71,9 @@ from ..task import Context, Param, Task, register
 from .daily import (HOME, _crop, find_sprite, go_home, home_state, save_snapshot, tap,
                     wait)
 from .event import TABS, go_events
-from . import invites
+from . import invites, skills
 from .invites import same_name
+from .skills import CHOOSE_TITLE, RESELECT_AFTER, SKILL_SETTLE
 
 CARD_NAME = RelRect(0.12, 0.595, 0.50, 0.05)       # Challenge tab, 4th: "Gulu Mine"
 GULU_CARD = Rel(0.35, 0.64)
@@ -93,13 +94,10 @@ ROW_STATUS = (400, 530, -12, 48)                   # x0, x1, dy0, dy1: "Invited"
 
 # The run (px at 642x951) and the user's waits after each tap, in seconds.
 START_BTN = (217, 718)                             # "Start Challenge"
-SKILL_TOP, SKILL_SECOND = (320, 320), (320, 450)   # the top two skill cards
-SELECT_BTN = (321, 833)                            # "2/2 Select Skills"
 SKILLS_BTN = (358, 818)                            # in battle, bottom bar
 HOME_BTN = (105, 852)                              # Skills panel, bottom-left
 QUIT_OK = (210, 601)                               # "Tips: Exiting..." OK
 RESULT_DISMISS = (321, 104)                        # "Defeat" screen, above it all
-CHOOSE_TITLE = RelRect(0.25, 0.140, 0.50, 0.070)   # "Choose skill"
 TIPS_TEXT = RelRect(0.10, 0.480, 0.80, 0.075)      # "Exiting will immediately..."
 DIALOG_BUTTONS = RelRect(0.15, 0.610, 0.70, 0.045)  # a confirmation's "OK  Cancel"
 QUIT_TAPS = [  # (what, position, wait after) - user's timings
@@ -127,24 +125,10 @@ REMOVE_TIMEOUT = 6.0
 
 # Joining: the invitation banner and popup
 # Joining: the run
-SKILL_ONE = (320, 385)                             # 1-pick screens: the top of 3 cards
-# If a pick didn't register (2026-10-06: a connection overlay swallowed a tap),
-# the counter reads short before Select: tap the next unpicked card(s) instead.
-SPARE_TWO = [(320, 578), (320, 706)]               # 2-pick screens: cards 3 and 4
-SPARE_ONE = [(320, 513), (320, 642)]               # 1-pick screens: cards 2 and 3
-# User: skill picking never waits for the teammate - each player's screen runs
-# on its own timer. So a screen still up showing picks this long after Select
-# means a tap didn't take: Select again (and pick the missing card first).
-# Left alone, the screen times out and the next one gets only ~3s (2026-10-08).
-RESELECT_AFTER = 2.0
-PICK_COUNT = RelRect(0.31, 0.845, 0.38, 0.060)     # "0/2 Select Skills" / "0/1 ..."
 RESULT_TITLE = RelRect(0.25, 0.385, 0.50, 0.065)   # "Victory" / "Defeat"
 RESULT_OK = (320, 812)                             # Victory screen's OK
 RESULT_OK_LABEL = RelRect(0.35, 0.830, 0.30, 0.050)
 SKILL_POLL = 2.0          # user: look for the skill screen every 2 seconds (was 5)
-SELECT_WAIT = 2.0         # user: look again 2s after Select (was 3; the next
-                          # screen shows ~1s after Select)
-SKILL_SETTLE = 2.0        # user: wait 2s after spotting a skill screen, then pick
 START_TIMEOUT = 30 * 60   # waiting for the host to start
 RUN_TIMEOUT = 15 * 60     # a run that has started should end well before this
 INVITE_POLL = 10.0        # user: look again every 10 seconds
@@ -207,11 +191,7 @@ def _dialog_ok(frame) -> Rel | None:
     return None
 
 
-def _picks(frame) -> tuple[int, int] | None:
-    """The Select button's "picked/wanted" ("0/2 Select Skills" -> (0, 2)); None
-    if unreadable. Wanted is 2 on battle 1's screens, else 1."""
-    m = re.search(r"(\d)\s*/\s*(\d)", _words(frame, PICK_COUNT))
-    return (int(m.group(1)), int(m.group(2))) if m else None
+_picks = skills.picks
 
 
 def _rel(pos: tuple[int, int]) -> tuple[float, float]:
@@ -426,64 +406,10 @@ class AutoGulu(Task):
                 return None
 
     def _finish_screen(self, ctx: Context, picks: tuple[int, int]) -> bool:
-        """A skill screen still up at "k/N" RESELECT_AFTER after its Select: a tap
-        didn't take. Short of picks -> the next unpicked card(s) first; then
-        Select again, only while the screen is still up (Select sits inside the
-        battle's Skills button). False on a stop."""
-        picked, wanted = picks
-        if picked < wanted:
-            ctx.log.info("auto-gulu: the skill screen is stuck at %d/%d -> the next "
-                         "card, then Select again", picked, wanted)
-            spare = SPARE_TWO if wanted == 2 else SPARE_ONE
-            for i, pos in enumerate(spare[:wanted - picked], 1):
-                if not self._tap(ctx, Rel(*_rel(pos)), f"skill (spare {i})", 1.0):
-                    return False
-        else:
-            ctx.log.info("auto-gulu: the skill screen is still up at %d/%d -> Select "
-                         "didn't take, again", picked, wanted)
-        if "choose skill" not in _words(ctx.frame(), CHOOSE_TITLE):
-            return True
-        if not self._tap(ctx, Rel(*_rel(SELECT_BTN)), "Select Skills (again)",
-                         SELECT_WAIT):
-            return False
-        ctx.hover_rel(Rel(*_rel(SKILL_TOP)))
-        return True
+        return skills.finish_screen(ctx, picks, "auto-gulu")
 
     def _pick_skills(self, ctx: Context, two_picks: bool) -> bool:
-        """ONE skill screen: the top card(s), Select, then park the cursor on the
-        top card. One screen at a time (the caller checks again before the next):
-        a run-4 batch of both screens kept tapping after the 2nd screen had
-        closed, and its last "Select" (321,833) lands inside the battle's Skills
-        button (358,818), opening the Skills panel. The parked cursor keeps a
-        stray click off that button too (user)."""
-        if two_picks:
-            taps = [("skill (top)", SKILL_TOP, 1.0), ("skill (second)", SKILL_SECOND, 1.0)]
-        else:
-            taps = [("skill (top)", SKILL_ONE, 1.0)]
-        for what, pos, after in taps:
-            if not self._tap(ctx, Rel(*_rel(pos)), what, after):
-                return False
-        if not ctx.dry_run:
-            picks = _picks(ctx.frame())
-            if picks is not None and picks[0] < picks[1]:
-                missing = picks[1] - picks[0]
-                ctx.log.info("auto-gulu: only %d/%d picked (a tap didn't register) "
-                             "-> the next card%s", picks[0], picks[1],
-                             "s" if missing > 1 else "")
-                spare = SPARE_TWO if two_picks else SPARE_ONE
-                for i, pos in enumerate(spare[:missing], 1):
-                    if not self._tap(ctx, Rel(*_rel(pos)), f"skill (spare {i})", 1.0):
-                        return False
-        # Never tap Select unless the skill screen is still up: Select sits inside
-        # the battle's Skills button.
-        if not ctx.dry_run and "choose skill" not in _words(ctx.frame(), CHOOSE_TITLE):
-            ctx.log.info("auto-gulu: the skill screen closed before Select")
-            ctx.hover_rel(Rel(*_rel(SKILL_TOP)))
-            return True
-        if not self._tap(ctx, Rel(*_rel(SELECT_BTN)), "Select Skills", SELECT_WAIT):
-            return False
-        ctx.hover_rel(Rel(*_rel(SKILL_TOP)))
-        return True
+        return skills.pick_screen(ctx, two_picks, "auto-gulu")
 
     def _dismiss_result(self, ctx: Context, frame, result: str) -> str | None:
         """Close the result screen: its OK button (Victory or Defeat, always at

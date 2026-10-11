@@ -48,6 +48,11 @@ screen, and once it's the agreed one it sets the multiple (from 1x) - "if the
 chapter matches then you adjust multiple and that should be fine" (user). Another
 chapter: it waits; back to the agreed one: it sets the multiple again. The joiner's screens hadn't been seen when this was
 written: it logs every step and stops (with a screenshot) on anything unexpected.
+Seen live 2026-10-10: the team screen is solo's layout ("180.Land of Dragon Sleep
+XIII" title at y 149, Start "x15", the +/- multiple, plus a Leave button); the
+host can start ~2s after the join, too soon to set the multiple (then it's
+skipped for that run - user); the result is solo's Victory screen (its template
+matches), closed by a tap, then back on the team screen.
 
 Templates in templates/hard-mode-autorun/ (captured from the live game):
   start_button (also used to detect that a run launched), jump_field,
@@ -63,7 +68,7 @@ import cv2
 
 from ..geometry import Rel, RelRect
 from ..task import Context, Param, Task, register
-from . import invites
+from . import invites, skills
 from .daily import _crop, save_snapshot
 
 VALID_MULTIPLES = [1, 2, 3, 5, 10, 20]
@@ -130,6 +135,9 @@ class HardModeAutorun(Task):
     ]
 
     JOIN_POLL = 2.0          # look for the start / the team screen this often
+    SKILL_POLL = 2.0         # in the run: look for a skill screen this often
+    RUN_TIMEOUT = 15 * 60    # a joined run ends well before this
+    RESULT_TAPS = 6          # taps to close the result screen before giving up
     INVITE_POLL = 10.0       # and for the friend's invite this often
     INVITE_TIMEOUT = 30 * 60
     START_TIMEOUT = 30 * 60  # waiting for the host to start
@@ -468,15 +476,76 @@ class HardModeAutorun(Task):
             elif not invites.popup_open(frame):
                 gone += 1
                 if gone >= 2:  # two looks in a row off the team screen: started
-                    if not is_set:
-                        ctx.log.warning("hard-mode join: the run started before the "
-                                        "multiple was set (not on chapter %d?)", agreed)
+                    if not is_set:  # user: the host can start fast; skip it this time
+                        ctx.log.info("hard-mode join: the run started before the "
+                                     "multiple could be set -> skipped this run")
                     ctx.log.info("hard-mode join: the host started the run")
                     return True
             if self._sleep(ctx, self.JOIN_POLL):
                 return False
         ctx.log.warning("hard-mode join: the host didn't start in %d minutes",
                         self.START_TIMEOUT // 60)
+        return False
+
+    def _play_joined(self, ctx: Context) -> str:
+        """The run, from the start to its result. Skill screens are picked as they
+        come, one at a time, with the shared skills.py (user, 2026-10-10: 2 picks x
+        5 screens, then 1 pick x 1, then 1 pick x 2 - same layouts as Gulu's).
+        Other events ("You run into a demon!": Refuse / Sign, ...) are left to
+        their countdown for now. "success" / "failure" (the result screen is up),
+        "restart" (already back on the team screen), "timeout" or "stopped"."""
+        start = time.time()
+        stuck_since = None
+        while time.time() - start < self.RUN_TIMEOUT:
+            if ctx.should_stop():
+                return "stopped"
+            frame = ctx.frame()
+            if self._present(ctx, "finish_failure", frame):
+                return "failure"
+            if self._present(ctx, "finish_success", frame):
+                return "success"
+            if self._present(ctx, "start_button", frame):
+                return "restart"
+            if skills.on_skill_screen(frame):
+                got = skills.picks(frame)
+                if got is not None and got[0] > 0:  # picked, still up: a tap didn't take?
+                    stuck_since = stuck_since or time.time()
+                    if time.time() - stuck_since >= skills.RESELECT_AFTER:
+                        stuck_since = None
+                        if not skills.finish_screen(ctx, got, "hard-mode join"):
+                            return "stopped"
+                        continue
+                else:
+                    stuck_since = None
+                if got is not None and got[0] == 0:
+                    ctx.log.info("hard-mode join: skill screen (%d pick%s)", got[1],
+                                 "s" if got[1] > 1 else "")
+                    if self._sleep(ctx, skills.SKILL_SETTLE):
+                        return "stopped"
+                    if not skills.pick_screen(ctx, got[1] == 2, "hard-mode join"):
+                        return "stopped"
+                    continue  # look again at once: the next screen may be up
+                if self._sleep(ctx, 0.5):
+                    return "stopped"
+                continue
+            if self._sleep(ctx, self.SKILL_POLL):
+                return "stopped"
+        return "timeout"
+
+    def _dismiss_result(self, ctx: Context) -> bool:
+        """Close the Victory / Defeat screen with taps, only while it shows (the
+        host may have left: a tap at that spot on the home screen would hit
+        Start). True once it's gone."""
+        for _ in range(self.RESULT_TAPS):
+            frame = ctx.frame()
+            if not (self._present(ctx, "finish_success", frame)
+                    or self._present(ctx, "finish_failure", frame)):
+                return True
+            self._click_pos(ctx, FINISH_CONTINUE, "continue", "dismiss the result",
+                            wait=2.0)
+            if ctx.should_stop():
+                return False
+        ctx.log.warning("hard-mode join: the result screen won't close")
         return False
 
     def _join_loop(self, ctx: Context) -> None:
@@ -491,12 +560,12 @@ class HardModeAutorun(Task):
             if not self._wait_host_start(ctx, done + 1, total):
                 self._snap(ctx, "hard-join-start")
                 break
-            result = self._wait_for_finish(ctx)
+            result = self._play_joined(ctx)
             ctx.log.info("hard-mode join: run %d/%d result: %s", done + 1, total, result)
             if result in ("success", "failure"):
-                if not self._tap_until_main(ctx) and not self._team_screen(ctx):
-                    ctx.log.info("hard-mode join: not back on a team screen after the "
-                                 "result (the host may have left)")
+                if not self._dismiss_result(ctx):
+                    self._snap(ctx, "hard-join-result")
+                    break
             elif result != "restart":
                 self._snap(ctx, "hard-join-finish")
                 break
