@@ -42,9 +42,11 @@ same + / - and cost check as solo), wait for the host's start (meanwhile taking
 a new invite from them, should they restart in a new room), wait for the run to
 finish, and go again. The multiple belongs to the host's chapter (user): set it
 once they've picked, and again whenever they change chapter; it also drops back
-to 1x after every run. So the bot remembers the energy cost it set, sets the
-multiple again (from 1x) before each run when the cost isn't that, and, while
-waiting for the start, does the same if the cost changes (a new chapter). The joiner's screens hadn't been seen when this was
+to 1x after every run. So in join mode the Chapter setting is the chapter agreed
+with the host: while waiting for the start, the bot reads the chapter on the team
+screen, and once it's the agreed one it sets the multiple (from 1x) - "if the
+chapter matches then you adjust multiple and that should be fine" (user). Another
+chapter: it waits; back to the agreed one: it sets the multiple again. The joiner's screens hadn't been seen when this was
 written: it logs every step and stops (with a screenshot) on anything unexpected.
 
 Templates in templates/hard-mode-autorun/ (captured from the live game):
@@ -62,13 +64,16 @@ import cv2
 from ..geometry import Rel, RelRect
 from ..task import Context, Param, Task, register
 from . import invites
-from .daily import save_snapshot
+from .daily import _crop, save_snapshot
 
 VALID_MULTIPLES = [1, 2, 3, 5, 10, 20]
 
 # Energy cost shown inside the Start button ("x15" .. "x300"), read by OCR to
 # verify the multiple (the cost scales linearly with the multiple).
 ENERGY_COST_REGION = RelRect(0.412, 0.755, 0.198, 0.040)
+# Joining: the team screen's chapter title ("180.<name>"). A guess (where the home
+# screen shows its chapter title) until checked live.
+CHAPTER_TITLE = RelRect(0.15, 0.11, 0.70, 0.07)
 
 # Main-screen buttons sit at fixed positions (642x951) and never move; their
 # templates would pick up each chapter's background tint, so we click the
@@ -110,7 +115,8 @@ class HardModeAutorun(Task):
 
     PARAMS = [
         Param("chapter", "int", 180, "Chapter", min=1, max=9999,
-              help="hard mode chapter number to run"),
+              help="hard mode chapter number to run; joining: the chapter agreed "
+                   "with the host (the multiple is set once it shows)"),
         Param("energy_multiple", "int", 20, "Energy multiple", min=1, max=20,
               choices=VALID_MULTIPLES, suffix="x",
               help="energy multiple to run at (1, 2, 3, 5, 10, or 20)"),
@@ -124,8 +130,6 @@ class HardModeAutorun(Task):
     ]
 
     JOIN_POLL = 2.0          # look for the start / the team screen this often
-    COST_CHANGED_READS = 2   # the cost read differently this many times in a row:
-                             # the host changed chapter -> set the multiple again
     INVITE_POLL = 10.0       # and for the friend's invite this often
     INVITE_TIMEOUT = 30 * 60
     START_TIMEOUT = 30 * 60  # waiting for the host to start
@@ -363,19 +367,24 @@ class HardModeAutorun(Task):
         if shot:
             ctx.log.warning("hard-mode join: screen saved: %s", shot)
 
-    def _ensure_multiple(self, ctx: Context, run_no: int, total: int) -> bool:
-        """Set the multiple, unless the screen already shows the cost it was set to
-        (only at 1x: the multiple drops back to 1x after every run - user). Always
-        from 1x: the screen may hold any multiple. Remembers the cost it set."""
-        cost = self._read_cost(ctx)
-        if self.set_cost is not None and cost == self.set_cost:
-            ctx.log.info("hard-mode join: the multiple is still set (cost x%d)", cost)
-            return True
-        if not self._select_multiple(ctx, self.params["energy_multiple"], run_no, total,
-                                     reset=True):
-            return False
-        self.set_cost = self._read_cost(ctx)
-        return True
+    def _read_chapter(self, frame) -> int | None:
+        """The chapter on the team screen, from its "<number>.<name>" title (a guess
+        at its place: where the home screen shows "266.Ancient Frogdom XIX" - to be
+        checked live)."""
+        import re
+
+        from ..perception import ocr_lines
+
+        for text, _, _ in ocr_lines(_crop(frame, CHAPTER_TITLE)):
+            m = re.match(r"^\s*(\d+)\s*\.", text)
+            if m:
+                return int(m.group(1))
+        return None
+
+    def _set_multiple(self, ctx: Context, run_no: int, total: int) -> bool:
+        """Set the multiple, always from 1x (the screen may hold any multiple)."""
+        return self._select_multiple(ctx, self.params["energy_multiple"], run_no, total,
+                                     reset=True)
 
     def _join(self, ctx: Context) -> bool:
         """Accept the friend's Hard Chapters invite: look for the banner every 10s
@@ -410,32 +419,40 @@ class HardModeAutorun(Task):
                         friend, self.INVITE_TIMEOUT // 60)
         return False
 
-    def _wait_host_start(self, ctx: Context) -> bool:
-        """Until the team screen goes away (the host started): every round, look
-        for a new invite from the friend (a new room, if their start failed) and
-        take it. True once the run has started."""
-        friend = self.params["friend"]
+    def _wait_host_start(self, ctx: Context, run_no: int, total: int) -> bool:
+        """Until the team screen goes away (the host started). Each round: once the
+        agreed chapter shows, set the multiple (once; again if the host goes to
+        another chapter and back); take a new invite from the friend (a new room,
+        if their start failed). True once the run has started."""
+        friend, agreed = self.params["friend"], self.params["chapter"]
         start = time.time()
-        gone = changed = 0
+        gone = 0
+        is_set = False          # the multiple is set for the agreed chapter
+        other = unread = None   # what was last logged, so it's logged once
         while time.time() - start < self.START_TIMEOUT:
             if ctx.should_stop():
                 return False
             frame = ctx.frame()
             if self._team_screen(ctx, frame):
                 gone = 0
-                # The host changed chapter: the cost isn't what was set any more.
-                cost = ctx.read_number(ENERGY_COST_REGION, frame=frame)
-                changed = changed + 1 if cost is not None and self.set_cost is not None \
-                    and cost != self.set_cost else 0
-                if changed >= self.COST_CHANGED_READS:
-                    ctx.log.info("hard-mode join: the energy cost changed (x%s -> x%s): "
-                                 "a new chapter? setting the multiple again",
-                                 self.set_cost, cost)
-                    self.set_cost = None
-                    if not self._ensure_multiple(ctx, 0, 0):
+                chapter = self._read_chapter(frame)
+                if chapter == agreed and not is_set:
+                    ctx.log.info("hard-mode join: chapter %d (agreed) -> set the multiple",
+                                 chapter)
+                    if not self._set_multiple(ctx, run_no, total):
                         return False
-                    changed = 0
+                    is_set, other = True, None
                     continue
+                if chapter is not None and chapter != agreed:
+                    is_set = False
+                    if chapter != other:
+                        ctx.log.info("hard-mode join: the host is on chapter %d, not %d "
+                                     "-> waiting", chapter, agreed)
+                        other = chapter
+                elif chapter is None and not unread:
+                    ctx.log.info("hard-mode join: can't read the chapter on the team "
+                                 "screen")
+                    unread = True
                 banner = invites.find_banner(frame)
                 if banner is not None:
                     got = invites.accept(
@@ -446,12 +463,14 @@ class HardModeAutorun(Task):
                         return False
                     if got:
                         ctx.log.info("hard-mode join: moved to %s's new room", friend)
-                        self.set_cost = None
-                        return self._ensure_multiple(ctx, 0, 0) and self._wait_host_start(ctx)
+                        is_set = False
                     continue
             elif not invites.popup_open(frame):
                 gone += 1
                 if gone >= 2:  # two looks in a row off the team screen: started
+                    if not is_set:
+                        ctx.log.warning("hard-mode join: the run started before the "
+                                        "multiple was set (not on chapter %d?)", agreed)
                     ctx.log.info("hard-mode join: the host started the run")
                     return True
             if self._sleep(ctx, self.JOIN_POLL):
@@ -463,17 +482,13 @@ class HardModeAutorun(Task):
     def _join_loop(self, ctx: Context) -> None:
         multiple = self.params["energy_multiple"]
         total = self.params["runs"]
-        ctx.log.info("hard-mode join: %s's runs at %dx, %d run(s)",
-                     self.params["friend"], multiple, total)
+        ctx.log.info("hard-mode join: %s's chapter %d at %dx, %d run(s)",
+                     self.params["friend"], self.params["chapter"], multiple, total)
         done = 0
-        self.set_cost = None   # the energy cost the multiple was set to
         while done < total and not ctx.should_stop():
             if not self._join(ctx):
                 break
-            if not self._ensure_multiple(ctx, done + 1, total):
-                self._snap(ctx, "hard-join-multiple")
-                break
-            if not self._wait_host_start(ctx):
+            if not self._wait_host_start(ctx, done + 1, total):
                 self._snap(ctx, "hard-join-start")
                 break
             result = self._wait_for_finish(ctx)
