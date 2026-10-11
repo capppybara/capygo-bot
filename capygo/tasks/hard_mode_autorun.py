@@ -508,17 +508,21 @@ class HardModeAutorun(Task):
         5 screens, then 1 pick x 1, then 1 pick x 2 - same layouts as Gulu's; after
         the 3rd battle a skill pick, then a random event). The events ("You run
         into a demon!": Refuse / Sign, ...) are left to their countdown for now.
-        Any order works: each screen is handled as it shows. "success" / "failure" (the result screen is up),
+        Any order works: each screen is handled as it shows. Back on a team screen
+        with none of that seen is "no run": not a run at all (e.g. the host kicked
+        us - we land in our own room - and will re-invite: user), not counted. "success" / "failure" (the result screen is up),
         "restart" (already back on the team screen), "timeout" or "stopped"."""
         start = time.time()
         stuck_since = None
         in_event = False
         open_taps = 0
+        played = False   # a skill screen, an event or a result was seen
         while time.time() - start < self.RUN_TIMEOUT:
             if ctx.should_stop():
                 return "stopped"
             frame = ctx.frame()
             if self._event_up(frame):
+                played = True
                 sign = self._label_at(frame, SIGN_BUTTON, "sign")
                 if sign is not None and open_taps < OPEN_TAPS:
                     open_taps += 1  # the demon's pact (user: agree)
@@ -550,8 +554,9 @@ class HardModeAutorun(Task):
             if self._present(ctx, "finish_success", frame):
                 return "success"
             if self._present(ctx, "start_button", frame):
-                return "restart"
+                return "restart" if played else "no run"
             if skills.on_skill_screen(frame):
+                played = True
                 got = skills.picks(frame)
                 if got is not None and got[0] > 0:  # picked, still up: a tap didn't take?
                     stuck_since = stuck_since or time.time()
@@ -650,6 +655,10 @@ class HardModeAutorun(Task):
                 self._snap(ctx, "hard-join-start")
                 break
             result = self._play_joined(ctx)
+            if result == "no run":
+                ctx.log.info("hard-mode join: back on a team screen with no run played "
+                             "(kicked? the host can re-invite) -> waiting again")
+                continue
             ctx.log.info("hard-mode join: run %d/%d result: %s", done + 1, total, result)
             if result in ("success", "failure"):
                 if not self._dismiss_result(ctx):
