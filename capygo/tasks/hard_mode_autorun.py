@@ -490,9 +490,10 @@ class HardModeAutorun(Task):
     def _play_joined(self, ctx: Context) -> str:
         """The run, from the start to its result. Skill screens are picked as they
         come, one at a time, with the shared skills.py (user, 2026-10-10: 2 picks x
-        5 screens, then 1 pick x 1, then 1 pick x 2 - same layouts as Gulu's).
-        Other events ("You run into a demon!": Refuse / Sign, ...) are left to
-        their countdown for now. "success" / "failure" (the result screen is up),
+        5 screens, then 1 pick x 1, then 1 pick x 2 - same layouts as Gulu's; after
+        the 3rd battle a skill pick, then a random event). The events ("You run
+        into a demon!": Refuse / Sign, ...) are left to their countdown for now.
+        Any order works: each screen is handled as it shows. "success" / "failure" (the result screen is up),
         "restart" (already back on the team screen), "timeout" or "stopped"."""
         start = time.time()
         stuck_since = None
