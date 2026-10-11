@@ -35,6 +35,14 @@ templates.
 
 The run-finished (Victory/Defeat) screen is dismissed by a tap, not a button.
 
+Joining (user, 2026-10-10: "pretty much same as gulu, but there is an extra step
+before host starts where you change the multiplier"): accept the friend's Hard
+Chapters invite (invites.py), set the energy multiple on the team screen (the
+same + / - and cost check as solo), wait for the host's start (meanwhile taking
+a new invite from them, should they restart in a new room), wait for the run to
+finish, and go again. The joiner's screens hadn't been seen when this was
+written: it logs every step and stops (with a screenshot) on anything unexpected.
+
 Templates in templates/hard-mode-autorun/ (captured from the live game):
   start_button (also used to detect that a run launched), jump_field,
   jump_button, select_button, confirm_ok (solo "start without a team" prompt),
@@ -49,6 +57,8 @@ import cv2
 
 from ..geometry import Rel, RelRect
 from ..task import Context, Param, Task, register
+from . import invites
+from .daily import save_snapshot
 
 VALID_MULTIPLES = [1, 2, 3, 5, 10, 20]
 
@@ -90,8 +100,9 @@ class HardModeAutorun(Task):
     ICON = "⚔️"
     DESCRIPTION = ("Auto-run a Hard Mode chapter at a chosen energy multiple, "
                    "repeating until the run count, a failure, or low energy.")
-    START_HINT = ("Start on the Hard Mode screen (chapter + Start visible) with Hard Mode "
-                  "ON — the switch next to Start must be red, not blue.")
+    START_HINT = ("Solo: start on the Hard Mode screen (chapter + Start visible) with Hard "
+                  "Mode ON - the switch next to Start must be red, not blue. Joining: start "
+                  "anywhere; it waits for the friend's invite.")
 
     PARAMS = [
         Param("chapter", "int", 180, "Chapter", min=1, max=9999,
@@ -101,7 +112,17 @@ class HardModeAutorun(Task):
               help="energy multiple to run at (1, 2, 3, 5, 10, or 20)"),
         Param("runs", "int", 10, "Number of runs", min=1, max=9999,
               help="how many runs before stopping"),
+        Param("join", "bool", False, "Join a friend's run",
+              help="accept the friend's Hard Chapters invite instead of running solo "
+                   "(the host picks the chapter; your energy multiple still applies)"),
+        Param("friend", "str", "pinkdolly", "Friend (joining)",
+              help="whose invite to accept"),
     ]
+
+    JOIN_POLL = 2.0          # look for the start / the team screen this often
+    INVITE_POLL = 10.0       # and for the friend's invite this often
+    INVITE_TIMEOUT = 30 * 60
+    START_TIMEOUT = 30 * 60  # waiting for the host to start
 
     STEP_WAIT = 0.8       # settle after a menu click
     FINISH_POLL = 30.0    # seconds between finish-screen checks
@@ -319,8 +340,123 @@ class HardModeAutorun(Task):
             self._click_pos(ctx, FINISH_CONTINUE, "continue", "dismiss results", wait=2.0)
         return self._present(ctx, "start_button")
 
+    # --- joining a friend's run ---------------------------------------------------
+    def _team_screen(self, ctx: Context, frame=None) -> bool:
+        """On a Hard Mode screen where the multiple can be set: its energy cost
+        ("x15") reads under Start. (Guess for the joiner's team screen: the same
+        controls as solo - to be checked live.)"""
+        if frame is None:
+            frame = ctx.frame()
+        return not invites.popup_open(frame) and \
+            ctx.read_number(ENERGY_COST_REGION, frame=frame) is not None
+
+    def _snap(self, ctx: Context, label: str) -> None:
+        shot = save_snapshot(ctx, label)
+        if shot:
+            ctx.log.warning("hard-mode join: screen saved: %s", shot)
+
+    def _join(self, ctx: Context) -> bool:
+        """Accept the friend's Hard Chapters invite: look for the banner every 10s
+        (and for the team screen every 2s, in case we're already in), up to 30
+        minutes."""
+        friend = self.params["friend"]
+        start = time.time()
+        next_banner = start
+        while time.time() - start < self.INVITE_TIMEOUT:
+            if ctx.should_stop():
+                return False
+            frame = ctx.frame()
+            if self._team_screen(ctx, frame):
+                ctx.log.info("hard-mode join: on the team screen")
+                return True
+            if time.time() >= next_banner:
+                next_banner = time.time() + self.INVITE_POLL
+                opened = invites.popup_open(frame)
+                banner = None if opened else invites.find_banner(frame)
+                if opened or banner is not None:
+                    got = invites.accept(ctx, friend, "hard", banner,
+                                         joined=lambda f: self._team_screen(ctx, f),
+                                         prefix="hard-mode join")
+                    if got is None:
+                        self._snap(ctx, "hard-join-accept")
+                        return False
+                    if got:
+                        return True
+            if self._sleep(ctx, self.JOIN_POLL):
+                return False
+        ctx.log.warning("hard-mode join: no invite from %s in %d minutes -> stopping",
+                        friend, self.INVITE_TIMEOUT // 60)
+        return False
+
+    def _wait_host_start(self, ctx: Context) -> bool:
+        """Until the team screen goes away (the host started): every round, look
+        for a new invite from the friend (a new room, if their start failed) and
+        take it. True once the run has started."""
+        friend = self.params["friend"]
+        start = time.time()
+        gone = 0
+        while time.time() - start < self.START_TIMEOUT:
+            if ctx.should_stop():
+                return False
+            frame = ctx.frame()
+            if self._team_screen(ctx, frame):
+                gone = 0
+                banner = invites.find_banner(frame)
+                if banner is not None:
+                    got = invites.accept(
+                        ctx, friend, "hard", banner, joined=lambda f: self._team_screen(ctx, f),
+                        started=lambda f: not self._team_screen(ctx, f) and not invites.popup_open(f),
+                        prefix="hard-mode join", quiet=True)
+                    if got is None:
+                        return False
+                    if got:
+                        ctx.log.info("hard-mode join: moved to %s's new room", friend)
+                        return self._select_multiple(ctx, self.params["energy_multiple"], 0, 0) \
+                            and self._wait_host_start(ctx)
+                    continue
+            elif not invites.popup_open(frame):
+                gone += 1
+                if gone >= 2:  # two looks in a row off the team screen: started
+                    ctx.log.info("hard-mode join: the host started the run")
+                    return True
+            if self._sleep(ctx, self.JOIN_POLL):
+                return False
+        ctx.log.warning("hard-mode join: the host didn't start in %d minutes",
+                        self.START_TIMEOUT // 60)
+        return False
+
+    def _join_loop(self, ctx: Context) -> None:
+        multiple = self.params["energy_multiple"]
+        total = self.params["runs"]
+        ctx.log.info("hard-mode join: %s's runs at %dx, %d run(s)",
+                     self.params["friend"], multiple, total)
+        done = 0
+        while done < total and not ctx.should_stop():
+            if not self._join(ctx):
+                break
+            if not self._select_multiple(ctx, multiple, done + 1, total):
+                self._snap(ctx, "hard-join-multiple")
+                break
+            if not self._wait_host_start(ctx):
+                self._snap(ctx, "hard-join-start")
+                break
+            result = self._wait_for_finish(ctx)
+            ctx.log.info("hard-mode join: run %d/%d result: %s", done + 1, total, result)
+            if result in ("success", "failure"):
+                if not self._tap_until_main(ctx) and not self._team_screen(ctx):
+                    ctx.log.info("hard-mode join: not back on a team screen after the "
+                                 "result (the host may have left)")
+            elif result != "restart":
+                self._snap(ctx, "hard-join-finish")
+                break
+            done += 1
+        ctx.log.info("hard-mode join done: %d/%d runs", done, total)
+
     # --- main loop --------------------------------------------------------
     def run(self, ctx: Context) -> None:
+        if self.params.get("join"):
+            self._join_loop(ctx)
+            return
         chapter = self.params["chapter"]
         multiple = self.params["energy_multiple"]
         total = self.params["runs"]

@@ -62,7 +62,6 @@ from __future__ import annotations
 
 import re
 import time
-from difflib import SequenceMatcher
 
 import cv2
 
@@ -72,6 +71,8 @@ from ..task import Context, Param, Task, register
 from .daily import (HOME, _crop, find_sprite, go_home, home_state, save_snapshot, tap,
                     wait)
 from .event import TABS, go_events
+from . import invites
+from .invites import same_name
 
 CARD_NAME = RelRect(0.12, 0.595, 0.50, 0.05)       # Challenge tab, 4th: "Gulu Mine"
 GULU_CARD = Rel(0.35, 0.64)
@@ -119,14 +120,6 @@ TEAM_BACK_TIMEOUT = 15.0  # after a result: the team screen is back by then
 REMOVE_TIMEOUT = 6.0
 
 # Joining: the invitation banner and popup
-BANNER_BAND = (420, 642, 450, 700)                 # px x0, x1, y0, y1: "New Invitation"
-BANNER_DY = 13                                     # tap a bit below its label
-INVITES_TITLE = RelRect(0.28, 0.179, 0.42, 0.042)  # "Team Invitation"
-MODE_LABEL = RelRect(0.218, 0.240, 0.25, 0.032)    # the selector: "Gulu Mine"
-MODE_SELECTOR = (220, 240)
-MODE_TOP_OPTION = (220, 277)                       # drop-down: Gulu Mine is always first
-INVITE_NAMES = (180, 380, 260, 640)                # px x0, x1, y0, y1: host names
-ACCEPT_X, ACCEPT_DY = 476, 21                      # a card's ✓: host name y + 21
 # Joining: the run
 SKILL_ONE = (320, 385)                             # 1-pick screens: the top of 3 cards
 # If a pick didn't register (2026-10-06: a connection overlay swallowed a tap),
@@ -153,7 +146,6 @@ INVITE_TIMEOUT = 30 * 60  # user: give up after 30 minutes
 
 JOIN_POLL = 10.0          # user: check every 10 seconds (was 30)
 JOIN_TIMEOUT = 30 * 60    # user: give up after 30 minutes and stop
-NAME_MATCH = 0.8
 SETTLE = 1.0
 OPEN_TIMEOUT = 8.0
 
@@ -220,11 +212,6 @@ def _rel(pos: tuple[int, int]) -> tuple[float, float]:
     return pos[0] / 642, pos[1] / 951
 
 
-def _same_name(a: str, b: str) -> bool:
-    a, b = re.sub(r"\s", "", a.lower()), re.sub(r"\s", "", b.lower())
-    return a == b or SequenceMatcher(None, a, b).ratio() >= NAME_MATCH
-
-
 @register("auto-gulu")
 class AutoGulu(Task):
     TITLE = "Auto Gulu"
@@ -289,7 +276,7 @@ class AutoGulu(Task):
                 return True
             if time.time() >= next_banner:
                 next_banner = time.time() + INVITE_POLL
-                already_open = "invitation" in _words(frame, INVITES_TITLE)
+                already_open = invites.popup_open(frame)
                 banner = None if already_open else self._find_banner(frame)
                 if already_open or banner is not None:
                     result = self._accept_from_popup(ctx, banner)
@@ -309,79 +296,16 @@ class AutoGulu(Task):
 
     @staticmethod
     def _find_banner(frame) -> Rel | None:
-        """Where to tap the "New Invitation" banner, if it's showing."""
-        h, w = frame.shape[:2]
-        kx, ky = w / 642, h / 951
-        x0, x1, y0, y1 = BANNER_BAND
-        crop = frame[int(y0 * ky):int(y1 * ky), int(x0 * kx):int(x1 * kx)]
-        for t, cx, cy in ocr_lines(crop):
-            if "invitation" in t.lower():
-                return Rel((cx / kx + x0) / 642, (cy / ky + y0 + BANNER_DY) / 951)
-        return None
+        return invites.find_banner(frame)
 
     def _accept_from_popup(self, ctx: Context, banner: Rel | None,
                            quiet: bool = False) -> bool | None:
-        """Open the invitations (banner None = already open), make sure they're
-        Gulu Mine's, and accept the friend's. True = joined; False = no invite
-        from them (popup closed); None = a stop or a problem (logged). `quiet`:
-        the repeated check while waiting for a start - only an accept is logged,
-        and a popup that won't open or close (the host may have just started)
-        counts as no invite."""
-        friend = self.params["friend"]
-        if banner is not None:
-            if quiet:
-                if not tap(ctx, banner):
-                    return None
-            elif not self._tap(ctx, banner, "New Invitation"):
-                return None
-        if ctx.dry_run:
-            return True
-        if quiet:
-            # the host may start any moment: wait only briefly for the popup, and
-            # not at all once a skill screen shows (its countdown is ~10s)
-            def popup_or_start() -> bool:
-                f = ctx.frame()
-                return "invitation" in _words(f, INVITES_TITLE) or \
-                    "choose skill" in _words(f, CHOOSE_TITLE)
-            if not self._until(ctx, popup_or_start, 3.0) or \
-                    "invitation" not in _words(ctx.frame(), INVITES_TITLE):
-                return False
-        elif not self._until(ctx, lambda: "invitation" in _words(ctx.frame(), INVITES_TITLE)):
-            ctx.log.warning("auto-gulu: the Team Invitation popup didn't open")
-            return None
-        if "gulu" not in _words(ctx.frame(), MODE_LABEL):
-            if quiet:
-                if not (tap(ctx, Rel(*_rel(MODE_SELECTOR)))
-                        and tap(ctx, Rel(*_rel(MODE_TOP_OPTION)))):
-                    return None
-            elif not (self._tap(ctx, Rel(*_rel(MODE_SELECTOR)), "mode selector")
-                      and self._tap(ctx, Rel(*_rel(MODE_TOP_OPTION)), "Gulu Mine (top)")):
-                return None
-            if "gulu" not in _words(ctx.frame(), MODE_LABEL):
-                if not quiet:
-                    ctx.log.warning("auto-gulu: couldn't switch the invitations to "
-                                    "Gulu Mine")
-                return False if self._close_popup(ctx, quiet) or quiet else None
-        frame = ctx.frame()
-        h, w = frame.shape[:2]
-        kx, ky = w / 642, h / 951
-        x0, x1, y0, y1 = INVITE_NAMES
-        crop = frame[int(y0 * ky):int(y1 * ky), int(x0 * kx):int(x1 * kx)]
-        name_y = next((cy / ky + y0 for t, _, cy in ocr_lines(crop)
-                       if _same_name(t, friend)), None)
-        if name_y is None:
-            if not quiet:
-                ctx.log.info("auto-gulu: no Gulu invite from %s yet", friend)
-            return False if self._close_popup(ctx, quiet) or quiet else None
-        if not self._tap(ctx, Rel(ACCEPT_X / 642, (name_y + ACCEPT_DY) / 951),
-                         f"accept {friend}'s invite (✓)"):
-            return None
-        # the host may start at once, so the skill screen counts as joined too
-        if not self._until(ctx, lambda: in_gulu(ctx.frame())):
-            ctx.log.warning("auto-gulu: accepted, but no Gulu team screen")
-            return None
-        ctx.log.info("auto-gulu: joined %s's team", friend)
-        return True
+        """Accept the friend's Gulu Mine invite (invites.accept). A started run
+        (a skill screen) counts as joined: the host may start at once."""
+        return invites.accept(
+            ctx, self.params["friend"], "gulu", banner, joined=in_gulu,
+            started=lambda f: "choose skill" in _words(f, CHOOSE_TITLE),
+            prefix="auto-gulu", quiet=quiet)
 
     # --- joining: play each run to the end ---------------------------------------
     def _join_loop(self, ctx: Context) -> None:
@@ -737,7 +661,7 @@ class AutoGulu(Task):
         x0, x1, y0, y1 = FRIEND_NAMES
         crop = frame[int(y0 * ky):int(y1 * ky), int(x0 * kx):int(x1 * kx)]
         name_y = next((cy / ky + y0 for t, _, cy in ocr_lines(crop)
-                       if _same_name(t, friend)), None)
+                       if same_name(t, friend)), None)
         if name_y is None:
             ctx.log.warning("auto-gulu: %s isn't on the first page of your friends "
                             "(offline, or further down) -> stopping", friend)
