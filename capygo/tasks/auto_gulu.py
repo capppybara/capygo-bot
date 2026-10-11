@@ -108,6 +108,10 @@ QUIT_TAPS = [  # (what, position, wait after) - user's timings
 START_WAIT = 2.0          # user: 2s after Start, then look for the skill screen
 HOST_SKILL_TIMEOUT = 30.0  # each skill screen must come up by then
 BATTLE_TIMEOUT = 30.0     # after the 2nd Select: the skill screen closes by then
+BATTLE_SETTLE = 1.0       # then the battle fades in: a Skills tap 0.3s after the
+                          # screen closed didn't register (2026-10-10 run 2)
+QUIT_TRIES = 3            # Skills -> home again while no exit confirmation shows
+SKILLS_LABEL = RelRect(0.52, 0.84, 0.16, 0.04)     # the battle's "Skills" button text
 HOME_TIMEOUT = 15.0
 # Stay mode (hosting)
 START_LABEL = RelRect(0.20, 0.735, 0.28, 0.040)    # "Start Challenge" / "Random Match"
@@ -505,15 +509,22 @@ class AutoGulu(Task):
         for n in (1, 2):
             if not self._host_skill_screen(ctx, n):
                 return False
-        if not ctx.dry_run and not self._battle_on(ctx):
+        if not ctx.dry_run and not (self._battle_on(ctx) and not wait(ctx, BATTLE_SETTLE)):
             ctx.log.warning("auto-gulu: the skill screen didn't close")
             return False
-        for what, pos, after in QUIT_TAPS:
-            if not self._tap(ctx, Rel(*_rel(pos)), what, after):
-                return False
-        if not ctx.dry_run and "exiting" not in _words(ctx.frame(), TIPS_TEXT):
-            ctx.log.warning("auto-gulu: no exit confirmation after home")
+        quit_asked = self._ask_quit(ctx)
+        if quit_asked is None:
             return False
+        if not quit_asked:
+            # 2026-10-10: the bot stopped here and left the game mid-battle; play
+            # the run out instead (like Stay) and carry on
+            ctx.log.warning("auto-gulu: couldn't leave the run -> playing it to the end "
+                            "instead")
+            result = self._play_run(ctx, hosting=True)
+            if result is None:
+                return False
+            ctx.log.info("auto-gulu: played the run to the end (%s)", result)
+            return True
         if not self._tap(ctx, Rel(*_rel(QUIT_OK)), "OK (leave the run)", 2.0):
             return False
         if not self._second_confirmation(ctx):
@@ -532,6 +543,28 @@ class AutoGulu(Task):
                 return False
         ctx.log.warning("auto-gulu: not home after leaving the run; backing out")
         return go_home(ctx)
+
+    def _ask_quit(self, ctx: Context) -> bool | None:
+        """Skills (in battle) -> home, until the "Exiting will immediately settle
+        rewards" confirmation shows: True. If it doesn't and the battle's Skills
+        button still shows (the panel never opened), again, up to QUIT_TRIES.
+        False if it never came; None on a stop."""
+        for attempt in range(1, QUIT_TRIES + 1):
+            for what, pos, after in QUIT_TAPS:
+                if not self._tap(ctx, Rel(*_rel(pos)), what, after):
+                    return None
+            if ctx.dry_run:
+                return True
+            frame = ctx.frame()
+            if "exiting" in _words(frame, TIPS_TEXT):
+                return True
+            if "skills" not in _words(frame, SKILLS_LABEL):
+                ctx.log.warning("auto-gulu: no exit confirmation, and not the battle "
+                                "either")
+                return False
+            ctx.log.info("auto-gulu: no exit confirmation - the Skills panel didn't "
+                         "open (try %d/%d)", attempt, QUIT_TRIES)
+        return False
 
     def _host_skill_screen(self, ctx: Context, n: int) -> bool:
         """Wait for skill screen n to come up fresh ("0/2"), let it settle, and
@@ -567,8 +600,8 @@ class AutoGulu(Task):
         return False
 
     def _battle_on(self, ctx: Context) -> bool:
-        """The last skill screen has closed (the battle is on). No settle after it:
-        the Skills panel must go in quickly."""
+        """The last skill screen has closed (the battle is on). The caller waits
+        just BATTLE_SETTLE after it: the Skills panel must go in quickly."""
         end = time.time() + BATTLE_TIMEOUT
         while "choose skill" in _words(ctx.frame(), CHOOSE_TITLE):
             if time.time() >= end or wait(ctx, 0.5):
