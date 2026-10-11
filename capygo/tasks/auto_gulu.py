@@ -409,7 +409,7 @@ class AutoGulu(Task):
         return skills.finish_screen(ctx, picks, "auto-gulu")
 
     def _pick_skills(self, ctx: Context, two_picks: bool) -> bool:
-        return skills.pick_screen(ctx, two_picks, "auto-gulu")
+        return skills.pick_screen(ctx, two_picks, "auto-gulu", mode="gulu")
 
     def _dismiss_result(self, ctx: Context, frame, result: str) -> str | None:
         """Close the result screen: its OK button (Victory or Defeat, always at

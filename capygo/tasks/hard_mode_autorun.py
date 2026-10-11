@@ -582,7 +582,7 @@ class HardModeAutorun(Task):
                                  "s" if got[1] > 1 else "")
                     if self._sleep(ctx, skills.SKILL_SETTLE):
                         return "stopped"
-                    if not skills.pick_screen(ctx, got[1] == 2, "hard-mode join"):
+                    if not skills.pick_screen(ctx, got[1] == 2, "hard-mode join", mode="hard"):
                         return "stopped"
                     continue  # look again at once: the next screen may be up
                 if self._sleep(ctx, 0.5):
@@ -605,6 +605,7 @@ class HardModeAutorun(Task):
             if skills.on_skill_screen(ctx.frame()):
                 if self._sleep(ctx, skills.SKILL_SETTLE):
                     return False
+                skills.save_screen(ctx, ctx.frame(), "hard-treasure")
                 self._click_pos(ctx, Rel(skills.SKILL_ONE[0] / 642, skills.SKILL_ONE[1] / 951),
                                 "skill (top)", "the treasure's skill", wait=1.0)
                 ctx.hover_rel(Rel(skills.SKILL_TOP[0] / 642, skills.SKILL_TOP[1] / 951))

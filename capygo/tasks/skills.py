@@ -17,13 +17,22 @@ auto-picks when it runs out (so a miss is low stakes).
   - A screen still up with its picks RESELECT_AFTER after Select had a tap that
     didn't take: finish_screen() picks the missing card / Selects again. Left
     alone it times out, and then the next screen gets only ~3s.
+
+Every screen pick_screen() picks on is saved first (user, 2026-10-10: "take
+screen shot of all skill selects - we will process them posthoc", for a smarter
+pick later): ~/Downloads/capy-bot/skill-screens/<mode>-<time>.png.
 """
 
 from __future__ import annotations
 
+import os
 import re
+import time
+
+import cv2
 
 from ..geometry import Rel, RelRect
+from ..paths import output_path
 from ..perception import ocr_lines
 from ..task import Context
 from .daily import _crop, tap
@@ -39,6 +48,7 @@ SELECT_WAIT = 2.0         # user: look again 2s after Select (the next screen sh
                           # ~1s after it)
 SKILL_SETTLE = 2.0        # user: wait 2s after spotting a skill screen, then pick
 RESELECT_AFTER = 2.0      # a screen still up with picks this long after Select
+SCREENS_DIR = "skill-screens"                      # under ~/Downloads/capy-bot
 
 
 def _rel(pos: tuple[int, int]) -> Rel:
@@ -68,12 +78,27 @@ def _tap(ctx: Context, pos: tuple[int, int], what: str, prefix: str,
     return tap(ctx, _rel(pos), after)
 
 
-def pick_screen(ctx: Context, two_picks: bool, prefix: str) -> bool:
+def save_screen(ctx: Context, frame, mode: str) -> None:
+    """Keep a skill screen for reading later. Never raises: a side job."""
+    if ctx.dry_run:
+        return
+    try:
+        folder = output_path(SCREENS_DIR)
+        os.makedirs(folder, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        cv2.imwrite(os.path.join(folder, f"{mode or 'skills'}-{stamp}.png"), frame)
+    except Exception as e:  # noqa: BLE001 - must never stop a run
+        ctx.log.warning("skills: couldn't save the skill screen: %s", e)
+
+
+def pick_screen(ctx: Context, two_picks: bool, prefix: str, mode: str = "") -> bool:
     """ONE skill screen: the top card(s), Select, then park the cursor on the top
     card. One screen at a time (the caller checks again before the next): a batch
     of two screens kept tapping after the 2nd had closed, and its last Select
     landed on the battle's Skills button. The parked cursor keeps a stray click
     off that button too (user). False on a stop."""
+    if not ctx.dry_run:
+        save_screen(ctx, ctx.frame(), mode)
     if two_picks:
         taps = [("skill (top)", SKILL_TOP), ("skill (second)", SKILL_SECOND)]
     else:
