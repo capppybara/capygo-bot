@@ -89,6 +89,7 @@ EVENT_COUNTDOWN = RelRect(0.10, 0.80, 0.80, 0.17)
 # user) over an "Open" button (321, 727); Open spawns a skill pick.
 OPEN_BUTTON = RelRect(0.25, 0.73, 0.50, 0.07)
 OPEN_TAPS = 3             # taps per treasure before leaving it to its countdown
+OPEN_PICK_WAIT = 6.0      # Open -> its skill screen shows by then
 
 # Main-screen buttons sit at fixed positions (642x951) and never move; their
 # templates would pick up each chapter's background tint, so we click the
@@ -516,10 +517,13 @@ class HardModeAutorun(Task):
             if self._event_up(frame):
                 button = self._open_button(frame)
                 if button is not None and open_taps < OPEN_TAPS:
-                    # "You find treasure": Open -> a skill pick (handled next round)
+                    # "You find treasure": Open spawns a skill pick -> run the
+                    # single-pick steps on it right away (user)
                     open_taps += 1
-                    self._click_pos(ctx, button, "Open", "the treasure chest", wait=1.0)
+                    self._click_pos(ctx, button, "Open", "the treasure chest", wait=0.5)
                     in_event = True
+                    if not self._pick_after_open(ctx):
+                        return "stopped"
                     continue
                 if not in_event:  # once per event: its screen, for building handlers
                     shot = save_snapshot(ctx, "hard-event")
@@ -562,6 +566,26 @@ class HardModeAutorun(Task):
             if self._sleep(ctx, self.SKILL_POLL):
                 return "stopped"
         return "timeout"
+
+    def _pick_after_open(self, ctx: Context) -> bool:
+        """After the treasure's Open: wait for its skill screen and pick one. A
+        screen that doesn't show in OPEN_PICK_WAIT is left to the run loop. False
+        only on a stop."""
+        end = time.time() + OPEN_PICK_WAIT
+        while time.time() < end:
+            if ctx.should_stop():
+                return False
+            frame = ctx.frame()
+            if skills.on_skill_screen(frame):
+                got = skills.picks(frame)
+                ctx.log.info("hard-mode join: the treasure's skill screen")
+                if self._sleep(ctx, skills.SKILL_SETTLE):
+                    return False
+                return skills.pick_screen(ctx, bool(got and got[1] == 2), "hard-mode join")
+            if self._sleep(ctx, 0.5):
+                return False
+        ctx.log.info("hard-mode join: no skill screen after Open (yet)")
+        return True
 
     @staticmethod
     def _open_button(frame) -> Rel | None:
