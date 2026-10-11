@@ -1,0 +1,6 @@
+# Personal settings for this Mac, kept out of git. Copy this file to
+# config.local.yaml (git-ignored) and fill it in.
+defaults:
+  # Your friend's in-game name: the default Friend for Auto Gulu (who to invite,
+  # or whose invite to accept) and hard mode joining (whose invite to accept).
+  friend: ""

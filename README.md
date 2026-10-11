@@ -44,6 +44,11 @@ Open Capybara Go! in its Mac window, then run:
 The first launch creates a virtual environment and installs dependencies, so it
 takes a minute. You can also double-click `launch.command` in Finder.
 
+Personal settings live in `config.local.yaml`, which git ignores. Copy
+`config.local.example.yaml` to it and fill in your friend's in-game name: it's
+the default Friend for Auto Gulu and hard mode joining. Without it, enter the
+name in the app each time.
+
 ### 3. Run an automation
 
 1. Pick an automation on the home screen.
@@ -232,7 +237,7 @@ friend in it, it carries on from there.
 | Setting | Default | Mode | Meaning |
 |---|---|---|---|
 | Join instead of host | off | both | Off: host. On: join the friend's run. |
-| Friend | pinkdolly | both | Who to invite (hosting), or whose invite to accept (joining) |
+| Friend | from `config.local.yaml` | both | Who to invite (hosting), or whose invite to accept (joining) |
 | Runs | 4 | both | How many runs to play |
 | Difficulty (hosting) | 25 | hosting | The Gulu Mine difficulty to host |
 | Stay (hosting) | off | hosting | Play each run to the end instead of quitting it |
@@ -366,21 +371,35 @@ the refills are used up.
 ## Hard Mode Autorun
 
 Hard Mode Autorun runs one Hard Mode chapter over and over at a set energy
-multiple.
+multiple, on your own or by joining a friend's run.
 
-**Start on:** the Hard Mode screen with Hard Mode on (the switch next to Start is
-red, not blue).
+**Start on:** solo, the Hard Mode screen with Hard Mode on (the switch next to
+Start is red, not blue). Joining, anywhere: it waits for the friend's invite.
 
 | Setting | Default | Meaning |
 |---|---|---|
 | Chapter | 180 | The Hard Mode chapter to run |
 | Energy multiple | 20x | Energy (and reward) per run: 1x, 2x, 3x, 5x, 10x or 20x |
 | Number of runs | 10 | How many runs before it stops |
+| Join a friend's run | off | On: join the friend's Hard Chapters runs instead of running solo |
+| Friend (joining) | from `config.local.yaml` | Whose invite to accept |
 
-Each run it selects the chapter, sets the multiple, presses Start, and waits for
+Each solo run it selects the chapter, sets the multiple, presses Start, and waits for
 the result. It checks the energy cost on the Start button to confirm the
 multiple. It stops early when a run is lost, when energy runs short, or when
 Hard Mode is off.
+
+Joining, Chapter is the chapter you agreed with the host. The bot:
+
+1. Accepts the friend's Hard Chapters invite.
+2. Sets your multiple once the agreed chapter shows on the team screen, and
+   again whenever the host switches back to it. If the host starts too fast, it
+   skips the multiple for that run.
+3. Plays the run: picks the top skill(s) on each skill screen, opens the
+   treasure chest and takes its top skill, signs the demon's pact, and takes the
+   angel's first gift. Other events run out their countdown.
+4. Closes the result and waits for the next start. A kick and re-invite is fine:
+   it accepts the new invite and doesn't count a run.
 
 ## Martial Arts Tournament
 
@@ -498,6 +517,8 @@ needs no UI changes.
 run.py                      command-line entry point (runs one task)
 run.sh                      launcher: the app with no arguments, a task with arguments
 config.yaml                 window owner name, app path, match threshold, stop key
+config.local.yaml           personal defaults (your friend's name); git-ignored,
+                            see config.local.example.yaml
 capygo/
   window.py                 find the game window and its position
   capture.py                capture the window as an image
@@ -542,7 +563,7 @@ setting, `-n` is a dry run, and `--list` shows every task and its settings.
 ./run.sh auto-daily -p rerun=true          # also re-run chores that ran today
 ./run.sh energy-claim                      # one chore on its own
 ./run.sh auto-events                       # only the Events group (also auto-guild, auto-menu)
-./run.sh auto-gulu -p difficulty=25 -p friend=pinkdolly -p runs=4
+./run.sh auto-gulu -p difficulty=25 -p friend=<their name> -p runs=4
 ./run.sh auto-gulu -p join=true -p runs=4
 ./run.sh get-guild-member-list -p hedgemony=true -p top_n=25
 ./run.sh compare-guild-power               # graph the hedgemony collection

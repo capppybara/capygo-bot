@@ -66,6 +66,7 @@ import time
 import cv2
 
 from ..geometry import Rel, RelRect
+from ..local import local_default
 from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
 from .daily import (HOME, _crop, find_sprite, go_home, home_state, save_snapshot, tap,
@@ -209,7 +210,7 @@ class AutoGulu(Task):
     PARAMS = [
         Param("join", "bool", False, "Join instead of host",
               help="on: wait for the friend's invite and join it; off: host"),
-        Param("friend", "str", "pinkdolly", "Friend",
+        Param("friend", "str", local_default("friend"), "Friend",
               help="hosting: who to invite; joining: whose invite to accept"),
         Param("runs", "int", 4, "Runs", min=1, max=100),
         Param("difficulty", "int", 25, "Difficulty (hosting)", min=1, max=999,
@@ -220,6 +221,10 @@ class AutoGulu(Task):
 
     def run(self, ctx: Context) -> None:
         p = self.params
+        if not p["friend"].strip():
+            ctx.log.warning("auto-gulu: no Friend set -> enter their in-game name, or set "
+                            "defaults: friend: in config.local.yaml")
+            return
         if p["join"]:
             ctx.log.info("auto-gulu: joining %s's Gulu, %d run(s)", p["friend"],
                          p["runs"])

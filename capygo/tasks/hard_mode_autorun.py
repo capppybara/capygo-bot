@@ -67,6 +67,7 @@ import time
 import cv2
 
 from ..geometry import Rel, RelRect
+from ..local import local_default
 from ..task import Context, Param, Task, register
 from . import invites, skills
 from .daily import _crop, save_snapshot
@@ -149,7 +150,7 @@ class HardModeAutorun(Task):
         Param("join", "bool", False, "Join a friend's run",
               help="accept the friend's Hard Chapters invite instead of running solo "
                    "(the host picks the chapter; your energy multiple still applies)"),
-        Param("friend", "str", "pinkdolly", "Friend (joining)",
+        Param("friend", "str", local_default("friend"), "Friend (joining)",
               help="whose invite to accept"),
     ]
 
@@ -671,6 +672,10 @@ class HardModeAutorun(Task):
         return False
 
     def _join_loop(self, ctx: Context) -> None:
+        if not self.params["friend"].strip():
+            ctx.log.warning("hard-mode join: no Friend set -> enter their in-game name, "
+                            "or set defaults: friend: in config.local.yaml")
+            return
         multiple = self.params["energy_multiple"]
         total = self.params["runs"]
         ctx.log.info("hard-mode join: %s's chapter %d at %dx, %d run(s)",
