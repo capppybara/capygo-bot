@@ -79,6 +79,11 @@ ENERGY_COST_REGION = RelRect(0.412, 0.755, 0.198, 0.040)
 # Joining: the team screen's chapter title ("180.<name>"). A guess (where the home
 # screen shows its chapter title) until checked live.
 CHAPTER_TITLE = RelRect(0.15, 0.11, 0.70, 0.07)
+# An event in a joined run ("You run into a demon!", a chest to tap, ...) shows a
+# countdown line along the bottom like the skill screens' ("Skill selection
+# countdown (15 seconds)"); on all 440 frames of a 2026-10-10 run, a countdown
+# without the "Choose skill" title was exactly the demon event's 15 frames.
+EVENT_COUNTDOWN = RelRect(0.10, 0.86, 0.80, 0.11)
 
 # Main-screen buttons sit at fixed positions (642x951) and never move; their
 # templates would pick up each chapter's background tint, so we click the
@@ -497,10 +502,21 @@ class HardModeAutorun(Task):
         "restart" (already back on the team screen), "timeout" or "stopped"."""
         start = time.time()
         stuck_since = None
+        in_event = False
         while time.time() - start < self.RUN_TIMEOUT:
             if ctx.should_stop():
                 return "stopped"
             frame = ctx.frame()
+            if self._event_up(frame):
+                if not in_event:  # once per event: its screen, for building handlers
+                    shot = save_snapshot(ctx, "hard-event")
+                    ctx.log.info("hard-mode join: an event (left to its countdown)%s",
+                                 f"; screen saved: {shot}" if shot else "")
+                in_event = True
+                if self._sleep(ctx, self.SKILL_POLL):
+                    return "stopped"
+                continue
+            in_event = False
             if self._present(ctx, "finish_failure", frame):
                 return "failure"
             if self._present(ctx, "finish_success", frame):
@@ -532,6 +548,14 @@ class HardModeAutorun(Task):
             if self._sleep(ctx, self.SKILL_POLL):
                 return "stopped"
         return "timeout"
+
+    @staticmethod
+    def _event_up(frame) -> bool:
+        """A run event is up: a countdown along the bottom, but not a skill screen."""
+        from ..perception import ocr_lines
+
+        text = " ".join(t for t, _, _ in ocr_lines(_crop(frame, EVENT_COUNTDOWN))).lower()
+        return "countdown" in text and not skills.on_skill_screen(frame)
 
     def _dismiss_result(self, ctx: Context) -> bool:
         """Close the Victory / Defeat screen with taps, only while it shows (the
