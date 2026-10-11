@@ -466,7 +466,7 @@ nothing. The bot then closes the popup and goes home. Each synthesis takes about
 | `~/Downloads/capy-bot/pvp/profiles/` | Each opponent's profile screen |
 | `~/Downloads/capy-bot/pvp/weapons/unknown-N.png` | Each weapon not seen before, saved the first time it shows up. Rename the file to the weapon's name to teach it. |
 | `~/Downloads/capy-bot/pvp/weapons/unknown.csv` | When each unknown weapon was first seen, and on whose profile |
-| `~/Downloads/capy-bot/skill-screens/` | Every skill-select screen in Gulu and hard mode runs (gulu-, hard-, hard-treasure-*.png), for working out a smarter pick later |
+| `~/Downloads/capy-bot/skill-screens/` | Every skill choice in Gulu and hard mode runs (gulu-*.png, hard-*.png; hard mode includes the treasure, demon and angel offerings), for working out a smarter pick later |
 | `data/daily_runs.json` | When each Auto Daily chore last ran |
 | `data/guild_power.json` | The hedgemony collection |
 

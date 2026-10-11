@@ -529,12 +529,16 @@ class HardModeAutorun(Task):
                 played = True
                 sign = self._label_at(frame, SIGN_BUTTON, "sign")
                 if sign is not None and open_taps < OPEN_TAPS:
+                    if open_taps == 0:  # its skill is an offering too (user)
+                        skills.save_screen(ctx, frame, "hard")
                     open_taps += 1  # the demon's pact (user: agree)
                     self._click_pos(ctx, sign, "Sign", "the demon's pact", wait=1.0)
                     in_event = True
                     continue
                 gift = self._angel_gift(frame)
                 if gift is not None and open_taps < OPEN_TAPS:
+                    if open_taps == 0:  # its gifts are skills too (user)
+                        skills.save_screen(ctx, frame, "hard")
                     open_taps += 1  # the angel (user: always the first gift)
                     self._click_pos(ctx, gift, "the first gift", "the angel", wait=1.0)
                     in_event = True
@@ -605,7 +609,7 @@ class HardModeAutorun(Task):
             if skills.on_skill_screen(ctx.frame()):
                 if self._sleep(ctx, skills.SKILL_SETTLE):
                     return False
-                skills.save_screen(ctx, ctx.frame(), "hard-treasure")
+                skills.save_screen(ctx, ctx.frame(), "hard")
                 self._click_pos(ctx, Rel(skills.SKILL_ONE[0] / 642, skills.SKILL_ONE[1] / 951),
                                 "skill (top)", "the treasure's skill", wait=1.0)
                 ctx.hover_rel(Rel(skills.SKILL_TOP[0] / 642, skills.SKILL_TOP[1] / 951))

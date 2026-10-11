@@ -20,7 +20,9 @@ auto-picks when it runs out (so a miss is low stakes).
 
 Every screen pick_screen() picks on is saved first (user, 2026-10-10: "take
 screen shot of all skill selects - we will process them posthoc", for a smarter
-pick later): ~/Downloads/capy-bot/skill-screens/<mode>-<time>.png.
+pick later): ~/Downloads/capy-bot/skill-screens/<mode>-<time>.png. Hard mode also
+saves its events' offerings there (the treasure's pick, the demon's pact, the
+angel's gifts - they're skills too, user).
 """
 
 from __future__ import annotations
