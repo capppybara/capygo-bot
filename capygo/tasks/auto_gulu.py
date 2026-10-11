@@ -108,9 +108,10 @@ QUIT_TAPS = [  # (what, position, wait after) - user's timings
 START_WAIT = 2.0          # user: 2s after Start, then look for the skill screen
 HOST_SKILL_TIMEOUT = 30.0  # each skill screen must come up by then
 BATTLE_TIMEOUT = 30.0     # after the 2nd Select: the skill screen closes by then
-BATTLE_SETTLE = 1.0       # then the battle fades in: a Skills tap 0.3s after the
-                          # screen closed didn't register (2026-10-10 run 2)
-QUIT_TRIES = 3            # Skills -> home again while no exit confirmation shows
+QUIT_TRIES = 3            # Skills -> home again while no exit confirmation shows:
+                          # a Skills tap 0.3s after the last skill screen closed
+                          # didn't register (2026-10-10 run 2). No settle before it
+                          # (user): the retry covers it
 SKILLS_LABEL = RelRect(0.52, 0.84, 0.16, 0.04)     # the battle's "Skills" button text
 HOME_TIMEOUT = 15.0
 # Stay mode (hosting)
@@ -509,7 +510,7 @@ class AutoGulu(Task):
         for n in (1, 2):
             if not self._host_skill_screen(ctx, n):
                 return False
-        if not ctx.dry_run and not (self._battle_on(ctx) and not wait(ctx, BATTLE_SETTLE)):
+        if not ctx.dry_run and not self._battle_on(ctx):
             ctx.log.warning("auto-gulu: the skill screen didn't close")
             return False
         quit_asked = self._ask_quit(ctx)
@@ -600,8 +601,8 @@ class AutoGulu(Task):
         return False
 
     def _battle_on(self, ctx: Context) -> bool:
-        """The last skill screen has closed (the battle is on). The caller waits
-        just BATTLE_SETTLE after it: the Skills panel must go in quickly."""
+        """The last skill screen has closed (the battle is on). No settle after it:
+        the Skills panel must go in quickly (a missed Skills tap is retried)."""
         end = time.time() + BATTLE_TIMEOUT
         while "choose skill" in _words(ctx.frame(), CHOOSE_TITLE):
             if time.time() >= end or wait(ctx, 0.5):
