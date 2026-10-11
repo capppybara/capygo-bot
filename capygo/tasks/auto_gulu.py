@@ -514,19 +514,13 @@ class AutoGulu(Task):
         if not ctx.dry_run and not self._battle_on(ctx):
             ctx.log.warning("auto-gulu: the skill screen didn't close")
             return False
-        quit_asked = self._ask_quit(ctx)
-        if quit_asked is None:
+        if not self._ask_quit(ctx):
+            # user: then leave the game as it is and stop the task (the caller
+            # saves a screenshot)
+            if not ctx.should_stop():
+                ctx.log.warning("auto-gulu: couldn't leave the run after %d tries",
+                                QUIT_TRIES)
             return False
-        if not quit_asked:
-            # 2026-10-10: the bot stopped here and left the game mid-battle; play
-            # the run out instead (like Stay) and carry on
-            ctx.log.warning("auto-gulu: couldn't leave the run -> playing it to the end "
-                            "instead")
-            result = self._play_run(ctx, hosting=True)
-            if result is None:
-                return False
-            ctx.log.info("auto-gulu: played the run to the end (%s)", result)
-            return True
         if not self._tap(ctx, Rel(*_rel(QUIT_OK)), "OK (leave the run)", 2.0):
             return False
         if not self._second_confirmation(ctx):
@@ -546,17 +540,17 @@ class AutoGulu(Task):
         ctx.log.warning("auto-gulu: not home after leaving the run; backing out")
         return go_home(ctx)
 
-    def _ask_quit(self, ctx: Context) -> bool | None:
+    def _ask_quit(self, ctx: Context) -> bool:
         """Skills (in battle) -> home, until the "Exiting will immediately settle
         rewards" confirmation shows: True. If it doesn't and the battle's Skills
         button still shows (the panel never opened), again, up to QUIT_TRIES.
-        False if it never came; None on a stop."""
+        False if it never came, or on a stop."""
         for attempt in range(1, QUIT_TRIES + 1):
             if attempt > 1 and wait(ctx, RETRY_WAIT):
-                return None
+                return False
             for what, pos, after in QUIT_TAPS:
                 if not self._tap(ctx, Rel(*_rel(pos)), what, after):
-                    return None
+                    return False
             if ctx.dry_run:
                 return True
             frame = ctx.frame()
