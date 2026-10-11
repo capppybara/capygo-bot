@@ -41,9 +41,10 @@ Chapters invite (invites.py), set the energy multiple on the team screen (the
 same + / - and cost check as solo), wait for the host's start (meanwhile taking
 a new invite from them, should they restart in a new room), wait for the run to
 finish, and go again. The multiple belongs to the host's chapter (user): set it
-once they've picked, and again whenever they change chapter. A later run on the
-same chapter keeps it. So the bot remembers the energy cost it set and, while
-waiting for the start, sets the multiple again (from 1x) if the cost changes. The joiner's screens hadn't been seen when this was
+once they've picked, and again whenever they change chapter; it also drops back
+to 1x after every run. So the bot remembers the energy cost it set, sets the
+multiple again (from 1x) before each run when the cost isn't that, and, while
+waiting for the start, does the same if the cost changes (a new chapter). The joiner's screens hadn't been seen when this was
 written: it logs every step and stops (with a screenshot) on anything unexpected.
 
 Templates in templates/hard-mode-autorun/ (captured from the live game):
@@ -363,9 +364,9 @@ class HardModeAutorun(Task):
             ctx.log.warning("hard-mode join: screen saved: %s", shot)
 
     def _ensure_multiple(self, ctx: Context, run_no: int, total: int) -> bool:
-        """Set the multiple, unless the screen still shows the cost it was set to
-        (a later run on the same chapter keeps it - user). Always from 1x: the
-        screen may hold any multiple. Remembers the cost it set."""
+        """Set the multiple, unless the screen already shows the cost it was set to
+        (only at 1x: the multiple drops back to 1x after every run - user). Always
+        from 1x: the screen may hold any multiple. Remembers the cost it set."""
         cost = self._read_cost(ctx)
         if self.set_cost is not None and cost == self.set_cost:
             ctx.log.info("hard-mode join: the multiple is still set (cost x%d)", cost)
