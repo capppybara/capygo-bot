@@ -88,7 +88,11 @@ EVENT_COUNTDOWN = RelRect(0.10, 0.80, 0.80, 0.17)
 # "You find treasure": a chest (animated, shaking - so not matched by picture,
 # user) over an "Open" button (321, 727); Open spawns a skill pick.
 OPEN_BUTTON = RelRect(0.25, 0.73, 0.50, 0.07)
-OPEN_TAPS = 3             # taps per treasure before leaving it to its countdown
+# "You run into a demon! Make a demonic pact and gain a skill?" (lose max HP):
+# Refuse (209,768) / Sign (431,771). User: just Refuse.
+REFUSE_BUTTON = RelRect(0.15, 0.78, 0.35, 0.05)
+OPEN_TAPS = 3             # taps per event (Open / Refuse) before leaving it to its
+                          # countdown
 OPEN_PICK_WAIT = 6.0      # Open -> its skill screen shows by then
 
 # Main-screen buttons sit at fixed positions (642x951) and never move; their
@@ -515,7 +519,13 @@ class HardModeAutorun(Task):
                 return "stopped"
             frame = ctx.frame()
             if self._event_up(frame):
-                button = self._open_button(frame)
+                refuse = self._label_at(frame, REFUSE_BUTTON, "refuse")
+                if refuse is not None and open_taps < OPEN_TAPS:
+                    open_taps += 1  # the demon's pact (user: just refuse)
+                    self._click_pos(ctx, refuse, "Refuse", "the demon's pact", wait=1.0)
+                    in_event = True
+                    continue
+                button = self._label_at(frame, OPEN_BUTTON, "open")
                 if button is not None and open_taps < OPEN_TAPS:
                     # "You find treasure": Open spawns a skill pick -> run the
                     # single-pick steps on it right away (user)
@@ -588,14 +598,15 @@ class HardModeAutorun(Task):
         return True
 
     @staticmethod
-    def _open_button(frame) -> Rel | None:
-        """The treasure event's "Open" button (an exact label), or None."""
+    def _label_at(frame, region: RelRect, label: str) -> Rel | None:
+        """An event button reading exactly `label` ("open", "refuse") in `region`,
+        or None."""
         from ..perception import ocr_lines
 
         h, w = frame.shape[:2]
-        x0, y0, _, _ = OPEN_BUTTON.to_pixels(w, h)
-        for text, cx, cy in ocr_lines(_crop(frame, OPEN_BUTTON)):
-            if text.strip().lower() == "open":
+        x0, y0, _, _ = region.to_pixels(w, h)
+        for text, cx, cy in ocr_lines(_crop(frame, region)):
+            if text.strip().lower() == label:
                 return Rel((x0 + cx) / w, (y0 + cy) / h)
         return None
 
