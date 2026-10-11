@@ -91,7 +91,11 @@ OPEN_BUTTON = RelRect(0.25, 0.73, 0.50, 0.07)
 # "You run into a demon! Make a demonic pact and gain a skill?" (lose max HP):
 # Refuse (209,768) / Sign (431,771). User: agree - Sign (was Refuse).
 SIGN_BUTTON = RelRect(0.50, 0.78, 0.30, 0.05)
-OPEN_TAPS = 3             # taps per event (Open / Sign) before leaving it to its
+# "You run into an angel! Choose a gift from the angel!": gift cards below that
+# line (Super HP, Restore HP, ...). User: always the first one; a tap picks it.
+ANGEL_TEXT = RelRect(0.10, 0.33, 0.80, 0.12)      # the title and "Choose a gift" lines
+ANGEL_FIRST_DY = 110      # px: the first gift's middle, below the "Choose a gift" line
+OPEN_TAPS = 3             # taps per event (Open / Sign / gift) before leaving it to its
                           # countdown
 OPEN_PICK_WAIT = 6.0      # Open -> its skill screen shows by then
 
@@ -529,6 +533,12 @@ class HardModeAutorun(Task):
                     self._click_pos(ctx, sign, "Sign", "the demon's pact", wait=1.0)
                     in_event = True
                     continue
+                gift = self._angel_gift(frame)
+                if gift is not None and open_taps < OPEN_TAPS:
+                    open_taps += 1  # the angel (user: always the first gift)
+                    self._click_pos(ctx, gift, "the first gift", "the angel", wait=1.0)
+                    in_event = True
+                    continue
                 button = self._label_at(frame, OPEN_BUTTON, "open")
                 if button is not None and open_taps < OPEN_TAPS:
                     # "You find treasure": Open spawns a skill pick -> run the
@@ -604,6 +614,19 @@ class HardModeAutorun(Task):
         self._snap(ctx, "hard-treasure-pick")
         ctx.log.info("hard-mode join: no skill screen after Open")
         return True
+
+    @staticmethod
+    def _angel_gift(frame) -> Rel | None:
+        """The angel event's first gift card (below its "Choose a gift" line), or
+        None if this isn't the angel."""
+        from ..perception import ocr_lines
+
+        h, w = frame.shape[:2]
+        _, y0, _, _ = ANGEL_TEXT.to_pixels(w, h)
+        for text, _, cy in ocr_lines(_crop(frame, ANGEL_TEXT)):
+            if "gift" in text.lower():
+                return Rel(0.5, (y0 + cy + ANGEL_FIRST_DY * h / 951) / h)
+        return None
 
     @staticmethod
     def _label_at(frame, region: RelRect, label: str) -> Rel | None:
