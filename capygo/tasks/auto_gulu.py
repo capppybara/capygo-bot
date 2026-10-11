@@ -110,8 +110,9 @@ HOST_SKILL_TIMEOUT = 30.0  # each skill screen must come up by then
 BATTLE_TIMEOUT = 30.0     # after the 2nd Select: the skill screen closes by then
 QUIT_TRIES = 3            # Skills -> home again while no exit confirmation shows:
                           # a Skills tap 0.3s after the last skill screen closed
-                          # didn't register (2026-10-10 run 2). No settle before it
-                          # (user): the retry covers it
+                          # didn't register (2026-10-10 run 2). No settle before the
+                          # first try; 1s before each retry (user)
+RETRY_WAIT = 1.0
 SKILLS_LABEL = RelRect(0.52, 0.84, 0.16, 0.04)     # the battle's "Skills" button text
 HOME_TIMEOUT = 15.0
 # Stay mode (hosting)
@@ -551,6 +552,8 @@ class AutoGulu(Task):
         button still shows (the panel never opened), again, up to QUIT_TRIES.
         False if it never came; None on a stop."""
         for attempt in range(1, QUIT_TRIES + 1):
+            if attempt > 1 and wait(ctx, RETRY_WAIT):
+                return None
             for what, pos, after in QUIT_TAPS:
                 if not self._tap(ctx, Rel(*_rel(pos)), what, after):
                     return None
