@@ -290,7 +290,7 @@ For each run, the bot:
 3. Taps OK on the Victory or Defeat screen.
 
 While it waits for the host to start, the bot opens the invitation banner
-whenever it shows. Sometimes the host can't start, leaves, and invites you from
+when it shows, at most every 10 seconds. Sometimes the host can't start, leaves, and invites you from
 a new room; the bot then accepts that new invite. If the banner holds only other
 players' invites, the bot taps Reject all, so the banner comes back only for a
 new invite. If the popup can't be switched to Gulu Mine, it closes the popup
@@ -406,7 +406,9 @@ Joining, the bot:
    invitations popup closes. If the host starts too fast, it skips the multiple
    for that run. If the host doesn't start within 30 minutes, it stops. The
    multiple never holds up the other checks: each pass looks for the start and
-   the invitation banner first, then makes one + or - tap.
+   the invitation banner first, then makes one + or - tap. It opens the
+   invitations at most every 10 seconds: another mode's invites keep the banner
+   up, and Reject all only clears the mode on screen.
    If the host makes a new room and invites you again, the bot accepts and
    starts that run over. The run you left isn't counted.
 3. Plays the run: picks the top skill(s) on each skill screen, opens the

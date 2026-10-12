@@ -498,6 +498,7 @@ class HardModeAutorun(Task):
         same_since = start   # ... reading `last` since
         taps = 0             # taps at `last` that didn't move it
         watching = True      # still checking the multiple
+        next_banner = 0.0    # open the invitations no more often than INVITE_POLL
         while time.time() - start < self.START_TIMEOUT:
             if ctx.should_stop():
                 return None
@@ -512,8 +513,11 @@ class HardModeAutorun(Task):
                 if self._sleep(ctx, self.JOIN_POLL):
                     return None
                 continue
-            banner = invites.find_banner(frame)
+            # at most every INVITE_POLL (user, 2026-10-12: it ran non-stop - another
+            # mode's invites keep the banner up; Reject all only clears the mode shown)
+            banner = invites.find_banner(frame) if time.time() >= next_banner else None
             if banner is not None:
+                next_banner = time.time() + self.INVITE_POLL
                 got = invites.accept(
                     ctx, friend, "hard", banner, joined=lambda f: self._team_screen(ctx, f),
                     started=lambda f: self._in_run(ctx, f),

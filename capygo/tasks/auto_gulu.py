@@ -336,6 +336,7 @@ class AutoGulu(Task):
             return "dry run"
         started = time.time() if hosting else None
         wait_start = time.time()
+        next_banner = 0.0  # open the invitations no more often than INVITE_POLL
         stuck_since = None
         while True:
             frame = ctx.frame()
@@ -385,10 +386,13 @@ class AutoGulu(Task):
                 # can't start (a bug), leaves, and invites from a new room: take
                 # that invite. So until the start, loop through: the banner ->
                 # open it, accept the friend's invite if there is one -> look for
-                # the start again. These checks pace the loop instead of a sleep.
+                # the start again. The popup is opened at most every INVITE_POLL
+                # (user, 2026-10-12: it ran non-stop - another mode's invites keep
+                # the banner up, and Reject all only clears the mode shown).
                 banner = self._find_banner(frame) if team_level(frame) is not None \
-                    else None
+                    and time.time() >= next_banner else None
                 if banner is not None:
+                    next_banner = time.time() + INVITE_POLL
                     got = self._accept_from_popup(ctx, banner, quiet=True)
                     if got is None:
                         return None
