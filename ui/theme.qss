@@ -71,8 +71,8 @@ QGroupBox::title {
 QGroupBox#SettingsBox { padding: 2px 6px; }
 #BoxTitle { font-size: 15px; font-weight: bold; color: #33261B; }
 
-/* the Settings form scrolls inside its box when it's long (Auto Daily) */
-#SettingsScroll, #SettingsScroll > QWidget, #SettingsForm { background: transparent; }
+/* a task screen scrolls as a whole when it doesn't fit */
+#TaskScroll, #TaskScroll > QWidget, #TaskPage, #SettingsForm { background: transparent; }
 /* the home screen's task cards scroll under its header */
 #HomeScroll, #HomeScroll > QWidget, #HomeList { background: transparent; }
 QScrollBar:vertical {

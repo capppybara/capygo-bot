@@ -99,7 +99,13 @@ class TaskScreen(QWidget):
         self._pending_on_finish = None  # callback(exit_code) after a launched run
         self.collection_box: QGroupBox | None = None
 
-        root = QVBoxLayout(self)
+        # The whole screen scrolls when it doesn't fit, like the home screen, so
+        # nothing gets cut off or squeezed (user, 2026-10-11).
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        page = QWidget()
+        page.setObjectName("TaskPage")
+        root = QVBoxLayout(page)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(12)
 
@@ -138,11 +144,9 @@ class TaskScreen(QWidget):
         desc.setWordWrap(True)
         root.addWidget(desc)
 
-        # --- settings: a title row, then the form ---
-        # The form scrolls inside the box, so a long list of switches (Auto Daily)
-        # never gets cut off or squeezes the log: it shows in full while it fits and
-        # scrolls once it doesn't. Chore switches (params with a section) sit two
-        # per row under their section heading; other params keep label | field rows.
+        # --- settings: a title row, then the form, always in full (the screen
+        # scrolls). Chore switches (params with a section) sit two per row under
+        # their section heading; other params keep label | field rows.
         box = QGroupBox()
         box.setObjectName("SettingsBox")
         box_layout = QVBoxLayout(box)
@@ -187,8 +191,8 @@ class TaskScreen(QWidget):
             self._param_rows.append(row_widget)
             form.addRow(p.label, row_widget)
 
-        # Title row; chore switches get Select all / Select none right beside it,
-        # outside the scrolling list so they stay in reach. Every chore starts on.
+        # Title row; chore switches get Select all / Select none right beside it.
+        # Every chore starts on.
         head = QHBoxLayout()
         head.setSpacing(8)
         title = QLabel("Settings")
@@ -208,20 +212,8 @@ class TaskScreen(QWidget):
                 head.addWidget(b)
         head.addStretch(1)
         box_layout.addLayout(head)
-        scroll = QScrollArea()
-        scroll.setObjectName("SettingsScroll")
-        scroll.setWidget(form_widget)
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        full = form_widget.sizeHint().height()
-        scroll.setMaximumHeight(full)            # never taller than the form itself
-        # but always shows a few rows; a short form with no chore switches shows in
-        # full (Hard Mode's Host field sat below the fold)
-        short = not self._switch_keys and full <= 260
-        scroll.setMinimumHeight(full if short else min(full, 150))
-        box_layout.addWidget(scroll)
-        root.addWidget(box, 1)
+        box_layout.addWidget(form_widget)
+        root.addWidget(box)
 
         hint = QLabel("⚠  Make sure the buttons that will be clicked are fully visible "
                       "and not behind another window. The mouse needs to be able to "
@@ -281,6 +273,14 @@ class TaskScreen(QWidget):
         self.log.setReadOnly(True)
         log_layout.addWidget(self.log)
         root.addWidget(self.log_box, 1)
+
+        self.page_scroll = QScrollArea()
+        self.page_scroll.setObjectName("TaskScroll")
+        self.page_scroll.setWidget(page)
+        self.page_scroll.setWidgetResizable(True)
+        self.page_scroll.setFrameShape(QFrame.NoFrame)
+        self.page_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        outer.addWidget(self.page_scroll)
 
     # --- form controls ----------------------------------------------------
     def _make_control(self, p):
@@ -507,6 +507,7 @@ class TaskScreen(QWidget):
         self.proc.finished.connect(self._on_finished)
         self.proc.errorOccurred.connect(self._on_error)
 
+        self.page_scroll.ensureWidgetVisible(self.log_box, 0, 0)  # show the run's log
         self.log.clear()
         self._append_text(f"$ {os.path.basename(sys.executable)} {' '.join(args)}\n")
         self.proc.start()
