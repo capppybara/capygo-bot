@@ -80,6 +80,11 @@ ENERGY_COST_REGION = RelRect(0.412, 0.755, 0.198, 0.040)
 # Joining: the team screen's chapter title ("180.<name>"). A guess (where the home
 # screen shows its chapter title) until checked live.
 CHAPTER_TITLE = RelRect(0.15, 0.11, 0.70, 0.07)
+# Joining: the "3x Reward" label under Start shows the multiple itself. Setting
+# it by the energy cost failed (2026-10-11): after the 6 resetting "-" taps the
+# cost wouldn't read, twice, long before the host started. So joining steps + / -
+# one tap at a time, reading this label each time; no label = not the team screen.
+REWARD_LABEL = RelRect(0.30, 0.810, 0.40, 0.045)
 # An event in a joined run ("You run into a demon!", "You find treasure", ...)
 # shows a countdown line along the bottom like the skill screens' ("Skill
 # selection countdown (15 seconds)": y ~840 on the demon, y 790 on the treasure);
@@ -289,11 +294,7 @@ class HardModeAutorun(Task):
             time.sleep(0.3)
         return None
 
-    def _select_multiple(self, ctx: Context, target: int, run_no: int, total: int,
-                         reset: bool = False, guard=None) -> bool:
-        """Set the energy multiple with - / +, checking the cost. `guard` (joining):
-        checked before every tap - once it's false (the host started: the team
-        screen is gone) nothing more is tapped, and it returns False."""
+    def _select_multiple(self, ctx: Context, target: int, run_no: int, total: int) -> bool:
         if target not in VALID_MULTIPLES:
             target = min(VALID_MULTIPLES, key=lambda v: abs(v - target))
         target_i = VALID_MULTIPLES.index(target)
@@ -302,14 +303,9 @@ class HardModeAutorun(Task):
         for attempt in range(1, 3):
             # The multiple defaults to 1x on entry, so attempt 1 reads the base
             # there directly (no reset, per the game's behavior). A second attempt
-            # resets with '-' (it floors at 1x) in case entry wasn't at 1x; so does
-            # every attempt with `reset` (a joiner's screen may hold any multiple).
-            if guard is not None and not guard():
-                return False
-            if attempt > 1 or reset:
+            # resets with '-' (it floors at 1x) in case entry wasn't at 1x.
+            if attempt > 1:
                 for _ in range(len(VALID_MULTIPLES)):
-                    if guard is not None and not guard():
-                        return False
                     self._click_pos(ctx, MINUS_BTN, "-", "reset to 1x", wait=0.3)
             base = self._read_cost(ctx)  # 1x cost, varies by chapter
             if base is None:
@@ -322,13 +318,9 @@ class HardModeAutorun(Task):
             # matches. Self-heals a missed click without a full reset.
             cur_i = 0  # entry / post-reset state is 1x
             for _ in range(2 + len(VALID_MULTIPLES)):
-                if guard is not None and not guard():
-                    return False
                 delta = target_i - cur_i
                 btn, lbl = (PLUS_BTN, "+") if delta > 0 else (MINUS_BTN, "-")
                 for _ in range(abs(delta)):
-                    if guard is not None and not guard():
-                        return False
                     self._click_pos(ctx, btn, lbl, f"toward {target}x", wait=0.3)
                 cost = self._read_cost(ctx)
                 if cost is None:
@@ -341,8 +333,7 @@ class HardModeAutorun(Task):
                 cur_i = VALID_MULTIPLES.index(cur)
                 ctx.log.info("cost x%s reads as %dx (want x%d for %dx); adjusting",
                              cost, cur, want, target)
-        ctx.log.warning("could not set the %dx multiple reliably%s", target,
-                        "" if guard is not None else " -> stopping")
+        ctx.log.warning("could not set the %dx multiple reliably -> stopping", target)
         return False
 
     # --- phase 3/4: run + wait --------------------------------------------
@@ -427,23 +418,46 @@ class HardModeAutorun(Task):
                 return int(m.group(1))
         return None
 
-    def _set_multiple(self, ctx: Context, run_no: int, total: int) -> bool:
-        """Set the multiple, always from 1x (the screen may hold any multiple), and
-        only while the team screen is up: the host can start in the middle of it
-        (2026-10-11: the bot kept tapping - on the first skill screen - and then
-        stopped the task)."""
-        return self._select_multiple(ctx, self.params["energy_multiple"], run_no, total,
-                                     reset=True, guard=lambda: self._team_screen(ctx))
+    def _read_multiple(self, frame) -> int | None:
+        """The multiple from the "3x Reward" label under Start, or None (not on the
+        team screen)."""
+        import re
 
-    def _in_run(self, ctx: Context, frame) -> bool:
-        """In a run already: a battle ("Round: N/15"), a skill screen, an event or
-        the result."""
         from ..perception import ocr_lines
 
-        top = " ".join(t for t, _, _ in ocr_lines(_crop(frame, RUN_TOP))).lower()
-        return "round" in top or "choose skill" in top or self._event_up(frame) or \
-            self._present(ctx, "finish_success", frame) or \
-            self._present(ctx, "finish_failure", frame)
+        text = " ".join(t for t, _, _ in ocr_lines(_crop(frame, REWARD_LABEL)))
+        m = re.search(r"(\d+)\s*[xX×]\s*reward", text, flags=re.I)
+        return int(m.group(1)) if m else None
+
+    def _set_multiple(self, ctx: Context, run_no: int, total: int) -> bool:
+        """Joining: step the multiple to the target one + / - tap at a time,
+        reading the "Nx Reward" label after each. False if the label won't read
+        (the host started: the team screen is gone) or it never gets there."""
+        target = self.params["energy_multiple"]
+        if target not in VALID_MULTIPLES:
+            target = min(VALID_MULTIPLES, key=lambda v: abs(v - target))
+        for _ in range(2 * len(VALID_MULTIPLES) + 2):
+            if ctx.should_stop():
+                return False
+            cur = None
+            for _ in range(3):  # OCR is occasionally flaky
+                cur = self._read_multiple(ctx.frame())
+                if cur is not None:
+                    break
+                time.sleep(0.3)
+            if cur is None:
+                ctx.log.info("hard-mode join: can't read the multiple (the team screen "
+                             "is gone?)")
+                return False
+            if cur == target:
+                ctx.log.info("hard-mode join: multiple = %dx", target)
+                return True
+            cur = min(VALID_MULTIPLES, key=lambda v: abs(v - cur))
+            up = VALID_MULTIPLES.index(cur) < VALID_MULTIPLES.index(target)
+            self._click_pos(ctx, PLUS_BTN if up else MINUS_BTN, "+" if up else "-",
+                            f"{cur}x -> {target}x", wait=0.4)
+        ctx.log.info("hard-mode join: the multiple didn't reach %dx", target)
+        return False
 
     def _join(self, ctx: Context) -> str | None:
         """Get into the friend's team: "team" once on the team screen, "run" if
