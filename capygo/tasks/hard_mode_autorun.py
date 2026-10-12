@@ -45,8 +45,9 @@ host changes chapter, and when the invitations popup is closed (user). So while
 waiting for the start, the bot reads the multiple every 2s and sets it whenever
 it isn't the target (user, 2026-10-11). It used to read the chapter and set the
 multiple once the agreed one showed, but that OCR missed now and then; the
-Chapter setting is solo-only now. The host not starting within 10 minutes ends
-the task.
+Chapter setting is solo-only now. The check stops once the multiple has read
+the same for 10 minutes, and starts again after the invitations popup closes
+(user: it's there to catch a reset).
 Seen live 2026-10-10: the team screen is solo's layout ("180.Land of Dragon Sleep
 XIII" title at y 149, Start "x15", the +/- multiple, plus a Leave button); the
 host can start ~2s after the join, too soon to set the multiple (then it's
@@ -168,7 +169,9 @@ class HardModeAutorun(Task):
     MAX_RECOVERIES = 10      # problems in a row (no run in between) before stopping (user)
     INVITE_POLL = 10.0       # and for the friend's invite this often
     INVITE_TIMEOUT = 30 * 60
-    START_TIMEOUT = 10 * 60  # waiting for the host to start (user, 2026-10-11)
+    START_TIMEOUT = 30 * 60  # waiting for the host to start
+    MULTIPLE_WATCH = 10 * 60  # stop checking the multiple once it's read the same
+                              # this long (user, 2026-10-11)
 
     STEP_WAIT = 0.8       # settle after a menu click
     FINISH_POLL = 30.0    # seconds between finish-screen checks
@@ -499,7 +502,9 @@ class HardModeAutorun(Task):
         target (e.g. too little energy) isn't retried until the multiple changes;
         an unreadable label (the host started) isn't acted on. Also takes a new
         invite from the friend (a new room, if their start failed). Other screens
-        (loading, transitions): wait. Gives up after START_TIMEOUT."""
+        (loading, transitions): wait. The multiple check stops once it has read
+        the same value for MULTIPLE_WATCH, and starts again after the invitations
+        popup closes. Gives up after START_TIMEOUT."""
         friend = self.params["friend"]
         target = self.params["energy_multiple"]
         if target not in VALID_MULTIPLES:
@@ -508,6 +513,7 @@ class HardModeAutorun(Task):
         self.start_problem = None  # set when it returns False for a problem
         last = None    # the multiple last read on the team screen
         stuck = None   # the multiple a set couldn't move from (not retried there)
+        watching, same_since = True, start  # checking the multiple; `last` read since
         while time.time() - start < self.START_TIMEOUT:
             if ctx.should_stop():
                 return False
@@ -519,14 +525,21 @@ class HardModeAutorun(Task):
                 ctx.log.info("hard-mode join: the host started the run")
                 return True
             if self._team_screen(ctx, frame):
-                cur = self._read_multiple(frame)
+                cur = self._read_multiple(frame) if watching else None
                 if cur is not None:
-                    last = cur
+                    if cur != last:
+                        same_since = time.time()
+                    elif time.time() - same_since >= self.MULTIPLE_WATCH:
+                        ctx.log.info("hard-mode join: the multiple has read %dx for %d "
+                                     "minutes -> no longer checking it", cur,
+                                     self.MULTIPLE_WATCH // 60)
+                        watching, cur = False, None
+                    last = cur if cur is not None else last
                 if cur is not None and cur != target and cur != stuck:
                     ctx.log.info("hard-mode join: the multiple is %dx -> set %dx",
                                  cur, target)
                     if self._set_multiple(ctx, run_no, total):
-                        last, stuck = target, None
+                        last, stuck, same_since = target, None, time.time()
                     elif ctx.should_stop():
                         return False
                     else:
@@ -544,7 +557,8 @@ class HardModeAutorun(Task):
                         return False
                     if got:
                         ctx.log.info("hard-mode join: moved to %s's new room", friend)
-                    stuck = None  # closing the invitations resets the multiple (user)
+                    # closing the invitations resets the multiple (user): check again
+                    stuck, watching, same_since = None, True, time.time()
                     continue
             if self._sleep(ctx, self.JOIN_POLL):
                 return False

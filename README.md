@@ -396,9 +396,10 @@ Joining, the bot:
    all.
 2. Reads your multiple every 2 seconds on the team screen and sets it whenever it
    isn't your setting. It resets to 1x after each run, when the host changes
-   chapter, and when the invitations popup closes. If the host starts too fast,
-   it skips the multiple for that run. If the host doesn't start within 10
-   minutes, it stops.
+   chapter, and when the invitations popup closes. It stops checking once the
+   multiple has read the same for 10 minutes, and checks again after the
+   invitations popup closes. If the host starts too fast, it skips the multiple
+   for that run. If the host doesn't start within 30 minutes, it stops.
 3. Plays the run: picks the top skill(s) on each skill screen, opens the
    treasure chest and takes its top skill, signs the demon's pact, and takes the
    angel's first gift. Other events run out their countdown.
