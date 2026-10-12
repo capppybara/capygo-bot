@@ -96,6 +96,13 @@ RUN_TOP = RelRect(0.25, 0.135, 0.50, 0.045)
 # "You find treasure": a chest (animated, shaking - so not matched by picture,
 # user) over an "Open" button (321, 727); Open spawns a skill pick.
 OPEN_BUTTON = RelRect(0.25, 0.73, 0.50, 0.07)
+# The treasure's skill pick isn't a "Choose skill" screen: "Congrats on gaining"
+# (y 183) over "Choose a skill from below" (y 243), then 3 cards; the top card's
+# name at y ~283, its description from y ~313 (same on all 7 seen, 2026-10-11/12).
+# A tap on a card picks it (user). The 1-pick screen's top card (y 385) is the gap
+# between cards 1 and 2 here.
+TREASURE_TITLE = RelRect(0.15, 0.170, 0.70, 0.100)
+TREASURE_TOP = Rel(330 / 642, 300 / 951)           # inside card 1, however long
 # "You run into a demon! Make a demonic pact and gain a skill?" (lose max HP):
 # Refuse (209,768) / Sign (431,771). User: agree - Sign (was Refuse).
 SIGN_BUTTON = RelRect(0.50, 0.78, 0.30, 0.05)
@@ -640,21 +647,23 @@ class HardModeAutorun(Task):
         return "timeout"
 
     def _pick_after_open(self, ctx: Context) -> bool:
-        """After the treasure's Open: wait for its skill screen and tap the top card
-        once - tapping a skill there picks it and moves on, no Select (user). That
-        screen hasn't been seen yet: the 1-pick layout's top card is assumed, and
-        if no skill screen shows in OPEN_PICK_WAIT its screen is saved (the run
-        loop / the countdown take it from there). False only on a stop."""
+        """After the treasure's Open: wait for its skill screen ("Congrats on
+        gaining" / "Choose a skill from below", TREASURE_TITLE) and tap the top card
+        once - tapping a skill there picks it and moves on, no Select (user). It
+        used to wait for a "Choose skill" title, which this screen doesn't have, so
+        it never picked (2026-10-12). If no skill screen shows in OPEN_PICK_WAIT
+        its screen is saved (the run loop / the countdown take it from there).
+        False only on a stop."""
         end = time.time() + OPEN_PICK_WAIT
         while time.time() < end:
             if ctx.should_stop():
                 return False
-            if skills.on_skill_screen(ctx.frame()):
+            if self._treasure_pick_up(ctx.frame()):
                 if self._sleep(ctx, skills.SKILL_SETTLE):
                     return False
                 skills.save_screen(ctx, ctx.frame(), "hard")
-                self._click_pos(ctx, Rel(skills.SKILL_ONE[0] / 642, skills.SKILL_ONE[1] / 951),
-                                "skill (top)", "the treasure's skill", wait=1.0)
+                self._click_pos(ctx, TREASURE_TOP, "skill (top)", "the treasure's skill",
+                                wait=1.0)
                 ctx.hover_rel(Rel(skills.SKILL_TOP[0] / 642, skills.SKILL_TOP[1] / 951))
                 return True
             if self._sleep(ctx, 0.5):
@@ -662,6 +671,14 @@ class HardModeAutorun(Task):
         self._snap(ctx, "hard-treasure-pick")
         ctx.log.info("hard-mode join: no skill screen after Open")
         return True
+
+    @staticmethod
+    def _treasure_pick_up(frame) -> bool:
+        """The treasure's skill pick is showing."""
+        from ..perception import ocr_lines
+
+        text = " ".join(t for t, _, _ in ocr_lines(_crop(frame, TREASURE_TITLE))).lower()
+        return "congrats" in text or "choose a skill" in text
 
     @staticmethod
     def _angel_gift(frame) -> Rel | None:
