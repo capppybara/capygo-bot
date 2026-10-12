@@ -404,8 +404,8 @@ class AutoGulu(Task):
                     return None
                 continue
             elif time.time() - started >= RUN_TIMEOUT:
-                self.flag(ctx, f"a Gulu run didn't end within {RUN_TIMEOUT // 60} "
-                               "minutes. Check the game.")
+                ctx.log.warning("auto-gulu: a run didn't end within %d minutes; "
+                                "check the game", RUN_TIMEOUT // 60)
                 return None
             if wait(ctx, SKILL_POLL):
                 return None

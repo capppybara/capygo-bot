@@ -462,6 +462,16 @@ class HardModeAutorun(Task):
         ctx.log.info("hard-mode join: the multiple didn't reach %dx", target)
         return False
 
+    def _in_run(self, ctx: Context, frame) -> bool:
+        """In a run already: a battle ("Round: N/15"), a skill screen, an event or
+        the result."""
+        from ..perception import ocr_lines
+
+        top = " ".join(t for t, _, _ in ocr_lines(_crop(frame, RUN_TOP))).lower()
+        return "round" in top or "choose skill" in top or self._event_up(frame) or \
+            self._present(ctx, "finish_success", frame) or \
+            self._present(ctx, "finish_failure", frame)
+
     def _join(self, ctx: Context) -> str | None:
         """Get into the friend's team: "team" once on the team screen, "run" if
         already in a run (started mid-run: play it from here). Otherwise accept
