@@ -16,9 +16,11 @@ under the character with HP / ATK / DEF below it, then Pets.
     border, its sword badge, the "Ex.N" level, the rarity ("SS") and the "+N"
     enhancement are masked out (user: "+N" made the same weapon look like new
     ones), and the slot's color doesn't count. On 50 guild profiles one weapon
-    always scored >= 0.99 against itself and <= 0.62 against the others. The
-    slot is the per-pixel median of 3 frames, because the icons are animated: a
-    sheen passes through them now and then (user). A slot that matches none is
+    always scored >= 0.99 against itself and <= 0.62 against the others (with a
+    few px of shift allowed: >= 0.95 / <= 0.69). The slot is the per-pixel
+    darkest of 6 frames over ~1.25s, because the icons are animated: a sheen
+    passes through them now and then (user), sometimes washing the whole slot
+    out white for ~1s. A slot that matches none is
     saved once, in color, as ~/Downloads/capy-bot/pvp/weapons/unknown-N.png and
     reported as "unknown-N", with a line in unknown.csv there (when it was first
     seen, on whose profile, that profile's screenshot). To name it, rename the
@@ -78,11 +80,14 @@ DEFAULT_LAYOUT = (182, 209, 298)          # name y, UID y, slot top (a guild mem
 ROLE_TAGS = ("vice leader", "leader", "elite", "member")  # guild role after a name
 
 TITLE_MATCH = 0.85
-WEAPON_MATCH = 0.85       # same weapon >= 0.99, another weapon <= 0.62 (50 profiles)
+WEAPON_MATCH = 0.80       # same weapon 0.95-0.99, another <= 0.69 (shift-tolerant)
+SHIFT = 5                 # px: the compare tolerates the slot sitting this far off
 CLIP_SENTINEL = "capygo-none"  # seeded before a copy so a stale value can't fool us
 SETTLE_TIMEOUT = 3.0      # the screen slides and fades in
 STILL_DIFF = 2.0          # two frames this alike (banner not moving) = settled
-SLOT_FRAMES = 3           # median of this many frames: drops the icon's passing sheen
+SLOT_FRAMES = 6           # the darkest of these frames, per pixel, drops the icons'
+SLOT_GAP = 0.25           # sheen: it can wash a whole slot out white for ~1s
+                          # (2026-10-11: 3 frames over 0.5s weren't enough)
 SIG = 75                  # the slot is compared at 75x75 px (its size at 642x951)
 DARK = 60                 # grey below this = the art's black outline
 
@@ -337,17 +342,21 @@ def _signature(slot):
 
 def _best_match(sig, folder: str, unknown: bool) -> tuple[str, float]:
     """The slot picture in `folder` most like `sig`, among the unknown-N ones or
-    the named ones: (file stem, score)."""
+    the named ones: (file stem, score). The compare slides sig's middle over each
+    picture by up to SHIFT px (an arena profile's slot can sit a pixel or two off
+    a guild one's). A slot with no outline at all (washed out by the sheen) is no
+    match - a blank would "match" everything."""
     best, score = "", 0.0
-    if not os.path.isdir(folder):
+    if not os.path.isdir(folder) or float(sig.max()) == 0.0:
         return best, score
+    inner = sig[SHIFT:-SHIFT, SHIFT:-SHIFT]
     for f in sorted(os.listdir(folder)):
         if not f.endswith(".png") or f.startswith("unknown-") != unknown:
             continue
         slot = cv2.imread(os.path.join(folder, f))
         if slot is None:
             continue
-        s = float(cv2.matchTemplate(sig, _signature(slot), cv2.TM_CCOEFF_NORMED).max())
+        s = float(cv2.matchTemplate(_signature(slot), inner, cv2.TM_CCOEFF_NORMED).max())
         if s > score:
             best, score = f[:-4], s
     return best, score
@@ -430,13 +439,15 @@ def _settled(ctx: Context):
 
 
 def _weapon_slot(ctx: Context, frame, lay: Layout):
-    """The weapon slot as the per-pixel median of SLOT_FRAMES frames ~0.25s apart:
-    the icon's sheen passes, so the median drops it."""
+    """The weapon slot as the per-pixel darkest of SLOT_FRAMES frames SLOT_GAP
+    apart: the icon's sheen only brightens it (sometimes the whole slot, for ~1s),
+    and the match looks at the dark outline, so any frame without the sheen at a
+    pixel gives that pixel's true value."""
     slots = [weapon_slot(frame, lay)]
     for _ in range(SLOT_FRAMES - 1):
-        time.sleep(0.25)
+        time.sleep(SLOT_GAP)
         slots.append(weapon_slot(ctx.frame(), lay))
-    return np.median(np.stack(slots), axis=0).astype(np.uint8)
+    return np.min(np.stack(slots), axis=0).astype(np.uint8)
 
 
 def read_profile(ctx: Context, save_to: str | None = None) -> Profile:
