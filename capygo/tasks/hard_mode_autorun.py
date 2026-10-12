@@ -408,7 +408,9 @@ class HardModeAutorun(Task):
         from ..perception import ocr_lines
 
         for text, _, _ in ocr_lines(_crop(frame, CHAPTER_TITLE)):
-            m = re.match(r"^\s*(\d+)\s*\.", text)
+            # "180.Land of Dragon Sleep XIII"; cropped, OCR can drop the dot
+            # ("180 Land of ..." - 2026-10-11: the chapter never read)
+            m = re.match(r"^\s*(\d{1,4})\s*[.,]?\s*[A-Za-z]", text)
             if m:
                 return int(m.group(1))
         return None
