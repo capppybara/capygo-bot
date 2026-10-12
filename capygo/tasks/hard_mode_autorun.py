@@ -37,17 +37,18 @@ The run-finished (Victory/Defeat) screen is dismissed by a tap, not a button.
 
 Joining (user, 2026-10-10: "pretty much same as gulu, but there is an extra step
 before host starts where you change the multiplier"): accept the friend's Hard
-Chapters invite (invites.py), set the energy multiple on the team screen (the
-same + / - and cost check as solo), wait for the host's start (meanwhile taking
-a new invite from them, should they restart in a new room), wait for the run to
-finish, and go again. The multiple drops back to 1x after every run, when the
+Chapters invite (invites.py), set the energy multiple on the team screen with
++ / - (reading its "Nx Reward" label), wait for the host's start (meanwhile
+taking a new invite from them, should they restart in a new room: that run
+starts over fresh, not counted), wait for the run to finish, and go again. The multiple drops back to 1x after every run, when the
 host changes chapter, and when the invitations popup is closed (user). So while
 waiting for the start, the bot reads the multiple every 2s and sets it whenever
 it isn't the target (user, 2026-10-11). It used to read the chapter and set the
 multiple once the agreed one showed, but that OCR missed now and then; the
 Chapter setting is solo-only now. The check stops once the multiple has read
 the same for 10 minutes, and starts again after the invitations popup closes
-(user: it's there to catch a reset).
+(user: it's there to catch a reset). It never holds up the start and invite
+checks: one + / - tap per pass, after those two.
 Seen live 2026-10-10: the team screen is solo's layout ("180.Land of Dragon Sleep
 XIII" title at y 149, Start "x15", the +/- multiple, plus a Leave button); the
 host can start ~2s after the join, too soon to set the multiple (then it's
@@ -172,6 +173,7 @@ class HardModeAutorun(Task):
     START_TIMEOUT = 30 * 60  # waiting for the host to start
     MULTIPLE_WATCH = 10 * 60  # stop checking the multiple once it's read the same
                               # this long (user, 2026-10-11)
+    MULTIPLE_TAPS = 3         # taps that don't move the multiple before leaving it
 
     STEP_WAIT = 0.8       # settle after a menu click
     FINISH_POLL = 30.0    # seconds between finish-screen checks
@@ -415,35 +417,6 @@ class HardModeAutorun(Task):
         m = re.search(r"(\d+)\s*[xX×]\s*reward", text, flags=re.I)
         return int(m.group(1)) if m and int(m.group(1)) in VALID_MULTIPLES else None
 
-    def _set_multiple(self, ctx: Context, run_no: int, total: int) -> bool:
-        """Joining: step the multiple to the target one + / - tap at a time,
-        reading the "Nx Reward" label after each. False if the label won't read
-        (the host started: the team screen is gone) or it never gets there."""
-        target = self.params["energy_multiple"]
-        if target not in VALID_MULTIPLES:
-            target = min(VALID_MULTIPLES, key=lambda v: abs(v - target))
-        for _ in range(2 * len(VALID_MULTIPLES) + 2):
-            if ctx.should_stop():
-                return False
-            cur = None
-            for _ in range(3):  # OCR is occasionally flaky
-                cur = self._read_multiple(ctx.frame())
-                if cur is not None:
-                    break
-                time.sleep(0.3)
-            if cur is None:
-                ctx.log.info("hard-mode join: can't read the multiple (the team screen "
-                             "is gone?)")
-                return False
-            if cur == target:
-                ctx.log.info("hard-mode join: multiple = %dx", target)
-                return True
-            up = VALID_MULTIPLES.index(cur) < VALID_MULTIPLES.index(target)
-            self._click_pos(ctx, PLUS_BTN if up else MINUS_BTN, "+" if up else "-",
-                            f"{cur}x -> {target}x", wait=0.4)
-        ctx.log.info("hard-mode join: the multiple didn't reach %dx", target)
-        return False
-
     def _in_run(self, ctx: Context, frame) -> bool:
         """In a run already: a battle ("Round: N/15"), a skill screen, an event or
         the result."""
@@ -492,79 +465,88 @@ class HardModeAutorun(Task):
                         friend, self.INVITE_TIMEOUT // 60)
         return None
 
-    def _wait_host_start(self, ctx: Context, run_no: int, total: int) -> bool:
-        """Until the run starts: True as soon as a run screen shows ("Round: N/15",
-        a skill screen, an event, a result - user: detect the start and proceed).
-        Meanwhile, on the team screen, read the multiple every JOIN_POLL and set it
-        whenever it isn't the target (user, 2026-10-11: it resets after every run,
-        when the host changes chapter, and when the invitations are closed). The
-        chapter isn't read: its OCR missed now and then. A set that can't reach the
-        target (e.g. too little energy) isn't retried until the multiple changes;
-        an unreadable label (the host started) isn't acted on. Also takes a new
-        invite from the friend (a new room, if their start failed). Other screens
-        (loading, transitions): wait. The multiple check stops once it has read
-        the same value for MULTIPLE_WATCH, and starts again after the invitations
-        popup closes. Gives up after START_TIMEOUT."""
+    def _wait_host_start(self, ctx: Context) -> str | None:
+        """Until the run starts. "started" as soon as a run screen shows ("Round:
+        N/15", a skill screen, an event, a result - user: detect the start and
+        proceed); "new room" once a new invite from the friend is accepted (their
+        start failed and they made a new room: the caller starts that run over
+        fresh, not counted - user); None on a stop or no start in START_TIMEOUT;
+        else what went wrong.
+
+        Each pass checks, in order (user, 2026-10-11: the multiple must never hold
+        up the other two): the run's start, the invitation banner, then at most ONE
+        + / - tap toward the target multiple. The multiple resets after every run,
+        when the host changes chapter, and when the invitations popup closes
+        (user), so it's read every JOIN_POLL - until it has read the same for
+        MULTIPLE_WATCH, and again after the popup closes. MULTIPLE_TAPS taps that
+        don't move it (e.g. too little energy) and it's left there until it
+        changes. The chapter isn't read: its OCR missed now and then. Other screens
+        (loading, transitions): wait."""
         friend = self.params["friend"]
         target = self.params["energy_multiple"]
         if target not in VALID_MULTIPLES:
             target = min(VALID_MULTIPLES, key=lambda v: abs(v - target))
         start = time.time()
-        self.start_problem = None  # set when it returns False for a problem
-        last = None    # the multiple last read on the team screen
-        stuck = None   # the multiple a set couldn't move from (not retried there)
-        watching, same_since = True, start  # checking the multiple; `last` read since
+        last = None          # the multiple last read on the team screen
+        same_since = start   # ... reading `last` since
+        taps = 0             # taps at `last` that didn't move it
+        watching = True      # still checking the multiple
         while time.time() - start < self.START_TIMEOUT:
             if ctx.should_stop():
-                return False
+                return None
             frame = ctx.frame()
             if self._in_run(ctx, frame):
                 if last != target:  # user: the host can start fast; skip it this time
                     ctx.log.info("hard-mode join: the run started before the multiple "
                                  "was set -> skipped this run")
                 ctx.log.info("hard-mode join: the host started the run")
-                return True
-            if self._team_screen(ctx, frame):
-                cur = self._read_multiple(frame) if watching else None
-                if cur is not None:
-                    if cur != last:
-                        same_since = time.time()
-                    elif time.time() - same_since >= self.MULTIPLE_WATCH:
-                        ctx.log.info("hard-mode join: the multiple has read %dx for %d "
-                                     "minutes -> no longer checking it", cur,
-                                     self.MULTIPLE_WATCH // 60)
-                        watching, cur = False, None
-                    last = cur if cur is not None else last
-                if cur is not None and cur != target and cur != stuck:
-                    ctx.log.info("hard-mode join: the multiple is %dx -> set %dx",
-                                 cur, target)
-                    if self._set_multiple(ctx, run_no, total):
-                        last, stuck, same_since = target, None, time.time()
-                    elif ctx.should_stop():
-                        return False
-                    else:
-                        stuck = self._read_multiple(ctx.frame())
-                    continue
-                banner = invites.find_banner(frame)
-                if banner is not None:
-                    got = invites.accept(
-                        ctx, friend, "hard", banner, joined=lambda f: self._team_screen(ctx, f),
-                        started=lambda f: self._in_run(ctx, f),
-                        prefix="hard-mode join", quiet=True)
-                    if got is None:
-                        self.start_problem = None if ctx.should_stop() else \
-                            "a new invite couldn't be accepted"
-                        return False
-                    if got:
-                        ctx.log.info("hard-mode join: moved to %s's new room", friend)
-                    # closing the invitations resets the multiple (user): check again
-                    stuck, watching, same_since = None, True, time.time()
-                    continue
+                return "started"
+            if not self._team_screen(ctx, frame):
+                if self._sleep(ctx, self.JOIN_POLL):
+                    return None
+                continue
+            banner = invites.find_banner(frame)
+            if banner is not None:
+                got = invites.accept(
+                    ctx, friend, "hard", banner, joined=lambda f: self._team_screen(ctx, f),
+                    started=lambda f: self._in_run(ctx, f),
+                    prefix="hard-mode join", quiet=True)
+                if got is None:
+                    return None if ctx.should_stop() else "a new invite couldn't be accepted"
+                if got:
+                    ctx.log.info("hard-mode join: moved to %s's new room -> starting this "
+                                 "run fresh", friend)
+                    return "new room"
+                # closing the invitations resets the multiple (user): check it again
+                watching, same_since, taps = True, time.time(), 0
+                continue
+            cur = self._read_multiple(frame) if watching else None
+            if cur is not None:
+                if cur != last:
+                    if cur == target:
+                        ctx.log.info("hard-mode join: multiple = %dx", cur)
+                    last, same_since, taps = cur, time.time(), 0
+                elif time.time() - same_since >= self.MULTIPLE_WATCH:
+                    ctx.log.info("hard-mode join: the multiple has read %dx for %d minutes "
+                                 "-> no longer checking it", cur, self.MULTIPLE_WATCH // 60)
+                    watching = False
+                if watching and cur != target:
+                    if taps < self.MULTIPLE_TAPS:
+                        up = VALID_MULTIPLES.index(cur) < VALID_MULTIPLES.index(target)
+                        taps += 1
+                        self._click_pos(ctx, PLUS_BTN if up else MINUS_BTN,
+                                        "+" if up else "-", f"{cur}x -> {target}x",
+                                        wait=0.4)
+                        continue  # the start and the invites again before the next tap
+                    if taps == self.MULTIPLE_TAPS:
+                        taps += 1  # logged once
+                        ctx.log.info("hard-mode join: the multiple won't move from %dx "
+                                     "-> leaving it until it changes", cur)
             if self._sleep(ctx, self.JOIN_POLL):
-                return False
+                return None
         ctx.log.warning("hard-mode join: the host didn't start in %d minutes",
                         self.START_TIMEOUT // 60)
-        return False
+        return None
 
     def _play_joined(self, ctx: Context) -> str:
         """The run, from the start to its result. Skill screens are picked as they
@@ -776,8 +758,12 @@ class HardModeAutorun(Task):
             return "stop"  # a stop, or no invite in 30 minutes
         if where == "problem":
             return "the invite couldn't be accepted"
-        if where == "team" and not self._wait_host_start(ctx, run_no, total):
-            return self.start_problem or "stop"  # else a stop / no start in 30 min
+        if where == "team":
+            started = self._wait_host_start(ctx)
+            if started == "new room":
+                return "again"  # fresh, as a new run; nothing counted (user)
+            if started != "started":
+                return started or "stop"  # None: a stop / no start in 30 min
         result = self._play_joined(ctx)
         if result == "stopped":
             return "stop"
