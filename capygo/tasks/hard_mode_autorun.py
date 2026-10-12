@@ -498,21 +498,27 @@ class HardModeAutorun(Task):
         return None
 
     def _wait_host_start(self, ctx: Context, run_no: int, total: int) -> bool:
-        """Until the team screen goes away (the host started). Each round: once the
-        agreed chapter shows, set the multiple (once; again if the host goes to
-        another chapter and back); take a new invite from the friend (a new room,
-        if their start failed). True once the run has started."""
+        """Until the run starts: True as soon as a run screen shows ("Round: N/15",
+        a skill screen, an event, a result - user: detect the start and proceed).
+        Meanwhile, on the team screen: once the agreed chapter shows, set the
+        multiple (once; again if the host goes to another chapter and back - a
+        failed try isn't repeated); take a new invite from the friend (a new room,
+        if their start failed). Other screens (loading, transitions): wait."""
         friend, agreed = self.params["friend"], self.params["chapter"]
         start = time.time()
-        gone = 0
-        is_set = False          # the multiple is set for the agreed chapter
+        is_set = False          # the multiple is set (or given up) for the agreed chapter
         other = unread = None   # what was last logged, so it's logged once
         while time.time() - start < self.START_TIMEOUT:
             if ctx.should_stop():
                 return False
             frame = ctx.frame()
+            if self._in_run(ctx, frame):
+                if not is_set:  # user: the host can start fast; skip it this time
+                    ctx.log.info("hard-mode join: the run started before the multiple "
+                                 "could be set -> skipped this run")
+                ctx.log.info("hard-mode join: the host started the run")
+                return True
             if self._team_screen(ctx, frame):
-                gone = 0
                 chapter = self._read_chapter(frame)
                 if chapter == agreed and not is_set:
                     ctx.log.info("hard-mode join: chapter %d (agreed) -> set the multiple",
@@ -520,7 +526,7 @@ class HardModeAutorun(Task):
                     if not self._set_multiple(ctx, run_no, total):
                         if ctx.should_stop():
                             return False
-                        # the host started mid-way (or the cost didn't read): skip
+                        # the host started mid-way (or the label didn't read): skip
                         # it this run (user), don't stop
                         ctx.log.info("hard-mode join: couldn't set the multiple "
                                      "-> skipped this run")
@@ -540,7 +546,7 @@ class HardModeAutorun(Task):
                 if banner is not None:
                     got = invites.accept(
                         ctx, friend, "hard", banner, joined=lambda f: self._team_screen(ctx, f),
-                        started=lambda f: not self._team_screen(ctx, f) and not invites.popup_open(f),
+                        started=lambda f: self._in_run(ctx, f),
                         prefix="hard-mode join", quiet=True)
                     if got is None:
                         return False
@@ -548,14 +554,6 @@ class HardModeAutorun(Task):
                         ctx.log.info("hard-mode join: moved to %s's new room", friend)
                         is_set = False
                     continue
-            elif not invites.popup_open(frame):
-                gone += 1
-                if gone >= 2:  # two looks in a row off the team screen: started
-                    if not is_set:  # user: the host can start fast; skip it this time
-                        ctx.log.info("hard-mode join: the run started before the "
-                                     "multiple could be set -> skipped this run")
-                    ctx.log.info("hard-mode join: the host started the run")
-                    return True
             if self._sleep(ctx, self.JOIN_POLL):
                 return False
         ctx.log.warning("hard-mode join: the host didn't start in %d minutes",
