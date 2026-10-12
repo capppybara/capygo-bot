@@ -282,19 +282,20 @@ For each run, the bot:
 
 1. Checks every 10 seconds, for up to 30 minutes, for the "New Invitation"
    banner. It opens it, makes sure the invitations are Gulu Mine's, and accepts
-   the friend's invite. If their invite isn't there, it taps Reject all to clear
-   the others, then closes the popup. It never taps "No longer show".
+   the friend's invite. If their invite isn't there, it taps Reject all, then
+   switches to Hard Chapters and taps Reject all there too, then closes the
+   popup. It never taps "No longer show".
 2. Plays the run to the end. Every 2 seconds it looks for a skill screen and
    picks the top cards: two picks on each of battle 1's two screens, one pick
    on each later screen.
 3. Taps OK on the Victory or Defeat screen.
 
 While it waits for the host to start, the bot opens the invitation banner
-when it shows, at most every 10 seconds. Sometimes the host can't start, leaves, and invites you from
-a new room; the bot then accepts that new invite. If the banner holds only other
-players' invites, the bot taps Reject all, so the banner comes back only for a
-new invite. If the popup can't be switched to Gulu Mine, it closes the popup
-without rejecting anything.
+when it shows, at most every 10 seconds. Sometimes the host can't start, leaves,
+and invites you from a new room; the bot then accepts that new invite. If the
+banner holds only other players' invites, the bot rejects them in every mode, so
+the banner comes back only for a new invite. If the popup can't be switched to
+Gulu Mine, it closes the popup without rejecting anything.
 
 Where the result screen leaves you tells the bot whether the host stayed. Back
 on the Gulu team screen means the host stayed, so it waits for the next start.
@@ -397,8 +398,9 @@ Hard Mode is off.
 
 Joining, the bot:
 
-1. Accepts the host's Hard Chapters invite. Invites from anyone else get Reject
-   all.
+1. Accepts the host's Hard Chapters invite. If it isn't there, the bot taps
+   Reject all in Hard Chapters and in Gulu Mine, so other invites don't keep the
+   banner up.
 2. Reads your multiple every 2 seconds on the team screen and sets it whenever it
    isn't your setting. It resets to 1x after each run, when the host changes
    chapter, and when the invitations popup closes. It stops checking once the
@@ -407,8 +409,7 @@ Joining, the bot:
    for that run. If the host doesn't start within 30 minutes, it stops. The
    multiple never holds up the other checks: each pass looks for the start and
    the invitation banner first, then makes one + or - tap. It opens the
-   invitations at most every 10 seconds: another mode's invites keep the banner
-   up, and Reject all only clears the mode on screen.
+   invitations at most every 10 seconds.
    If the host makes a new room and invites you again, the bot accepts and
    starts that run over. The run you left isn't counted.
 3. Plays the run: picks the top skill(s) on each skill screen, opens the
