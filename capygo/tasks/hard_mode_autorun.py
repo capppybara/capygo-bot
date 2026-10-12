@@ -480,9 +480,10 @@ class HardModeAutorun(Task):
         fresh, not counted - user); None on a stop or no start in START_TIMEOUT;
         else what went wrong.
 
-        Each pass checks, in order (user, 2026-10-11: the multiple must never hold
-        up the other two): the run's start, the invitation banner, then at most ONE
-        + / - tap toward the target multiple. The multiple resets after every run,
+        Each pass checks, in order: the run's start, then the multiple (at most
+        ONE + / - tap toward the target, then the start again - user, 2026-10-11:
+        the multiple must never hold up the start), then, once the multiple needs
+        no tap, the invitation banner (user, 2026-10-12: the multiple first). The multiple resets after every run,
         when the host changes chapter, and when the invitations popup closes
         (user), so it's read every JOIN_POLL - until it has read the same for
         MULTIPLE_WATCH, and again after the popup closes. MULTIPLE_TAPS taps that
@@ -513,24 +514,6 @@ class HardModeAutorun(Task):
                 if self._sleep(ctx, self.JOIN_POLL):
                     return None
                 continue
-            # at most every INVITE_POLL (user, 2026-10-12: it ran non-stop - another
-            # mode's invites keep the banner up; Reject all only clears the mode shown)
-            banner = invites.find_banner(frame) if time.time() >= next_banner else None
-            if banner is not None:
-                next_banner = time.time() + self.INVITE_POLL
-                got = invites.accept(
-                    ctx, friend, "hard", banner, joined=lambda f: self._team_screen(ctx, f),
-                    started=lambda f: self._in_run(ctx, f),
-                    prefix="hard-mode join", quiet=True)
-                if got is None:
-                    return None if ctx.should_stop() else "a new invite couldn't be accepted"
-                if got:
-                    ctx.log.info("hard-mode join: moved to %s's new room -> starting this "
-                                 "run fresh", friend)
-                    return "new room"
-                # closing the invitations resets the multiple (user): check it again
-                watching, same_since, taps = True, time.time(), 0
-                continue
             cur = self._read_multiple(frame) if watching else None
             if cur is not None:
                 if cur != last:
@@ -548,11 +531,30 @@ class HardModeAutorun(Task):
                         self._click_pos(ctx, PLUS_BTN if up else MINUS_BTN,
                                         "+" if up else "-", f"{cur}x -> {target}x",
                                         wait=0.4)
-                        continue  # the start and the invites again before the next tap
+                        continue  # the start again before the next tap
                     if taps == self.MULTIPLE_TAPS:
                         taps += 1  # logged once
                         ctx.log.info("hard-mode join: the multiple won't move from %dx "
                                      "-> leaving it until it changes", cur)
+            # The invitations: once the multiple needs no tap (user, 2026-10-12: set
+            # it first), and at most every INVITE_POLL (it ran non-stop: another
+            # mode's invites kept the banner up).
+            banner = invites.find_banner(frame) if time.time() >= next_banner else None
+            if banner is not None:
+                next_banner = time.time() + self.INVITE_POLL
+                got = invites.accept(
+                    ctx, friend, "hard", banner, joined=lambda f: self._team_screen(ctx, f),
+                    started=lambda f: self._in_run(ctx, f),
+                    prefix="hard-mode join", quiet=True)
+                if got is None:
+                    return None if ctx.should_stop() else "a new invite couldn't be accepted"
+                if got:
+                    ctx.log.info("hard-mode join: moved to %s's new room -> starting this "
+                                 "run fresh", friend)
+                    return "new room"
+                # closing the invitations resets the multiple (user): check it again
+                watching, same_since, taps = True, time.time(), 0
+                continue
             if self._sleep(ctx, self.JOIN_POLL):
                 return None
         ctx.log.warning("hard-mode join: the host didn't start in %d minutes",

@@ -406,10 +406,10 @@ Joining, the bot:
    chapter, and when the invitations popup closes. It stops checking once the
    multiple has read the same for 10 minutes, and checks again after the
    invitations popup closes. If the host starts too fast, it skips the multiple
-   for that run. If the host doesn't start within 30 minutes, it stops. The
-   multiple never holds up the other checks: each pass looks for the start and
-   the invitation banner first, then makes one + or - tap. It opens the
-   invitations at most every 10 seconds.
+   for that run. If the host doesn't start within 30 minutes, it stops. Each
+   pass looks for the start first, then makes one + or - tap if the multiple
+   needs it. The invitations wait until the multiple is set, and open at most
+   every 10 seconds.
    If the host makes a new room and invites you again, the bot accepts and
    starts that run over. The run you left isn't counted.
 3. Plays the run: picks the top skill(s) on each skill screen, opens the
