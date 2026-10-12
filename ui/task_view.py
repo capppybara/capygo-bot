@@ -216,7 +216,10 @@ class TaskScreen(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         full = form_widget.sizeHint().height()
         scroll.setMaximumHeight(full)            # never taller than the form itself
-        scroll.setMinimumHeight(min(full, 150))  # but always shows a few rows
+        # but always shows a few rows; a short form with no chore switches shows in
+        # full (Hard Mode's Host field sat below the fold)
+        short = not self._switch_keys and full <= 260
+        scroll.setMinimumHeight(full if short else min(full, 150))
         box_layout.addWidget(scroll)
         root.addWidget(box, 1)
 

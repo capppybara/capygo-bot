@@ -4,8 +4,9 @@ A mode selector at its top-left shows one mode's invites at a time; its drop-dow
 always lists Gulu Mine first, then Hard Chapters, then Holy Grail War (locked).
 
 Shared by auto-gulu and hard-mode-autorun's joining: find the friend's invite
-for a mode and accept it. Never the ✗, "Reject all", or the "No longer show
-invitation messages" box.
+for a mode and accept it. No invite from the friend: "Reject all", then close
+(user, 2026-10-11: clear the others' invites, so the banner only comes back for
+a new one). Never a card's ✗ or the "No longer show invitation messages" box.
 """
 
 from __future__ import annotations
@@ -27,6 +28,9 @@ INVITES_TITLE = RelRect(0.28, 0.179, 0.42, 0.042)  # "Team Invitation"
 MODE_LABEL = RelRect(0.218, 0.240, 0.25, 0.032)    # the selector: "Gulu Mine"
 MODE_SELECTOR = (220, 240)
 INVITE_NAMES = (180, 380, 260, 640)                # px x0, x1, y0, y1: host names
+INVITE_LIST = RelRect(0.19, 0.27, 0.62, 0.40)      # the cards, or "No Invitations"
+REJECT_ALL = RelRect(0.30, 0.740, 0.40, 0.060)     # "Reject all" (316,733), below
+                                                   # the "No longer show" box (y 668)
 ACCEPT_X, ACCEPT_DY = 476, 21                      # a card's ✓: host name y + 21
 NAME_MATCH = 0.8
 SETTLE = 1.0
@@ -102,6 +106,24 @@ def close_popup(ctx: Context, prefix: str, quiet: bool = False) -> bool:
     return _tap(ctx, x, "close the invitation popup", prefix, quiet)
 
 
+def reject_all(ctx: Context, prefix: str) -> bool:
+    """Tap "Reject all" if any invites are listed (found by its label, so never the
+    "No longer show" box above it). False on a stop."""
+    frame = ctx.frame()
+    if "no invitation" in _words(frame, INVITE_LIST):
+        return True
+    h, w = frame.shape[:2]
+    x0, y0, _, _ = REJECT_ALL.to_pixels(w, h)
+    for t, cx, cy in ocr_lines(_crop(frame, REJECT_ALL)):
+        if "reject" in t.lower():
+            if not _tap(ctx, Rel((x0 + cx) / w, (y0 + cy) / h), "Reject all", prefix,
+                        False):
+                return False
+            return not wait(ctx, SETTLE)
+    ctx.log.info("%s: no Reject all button", prefix)
+    return True
+
+
 def accept(ctx: Context, friend: str, mode: str, banner: Rel | None, *,
            joined: Callable, started: Callable | None = None, prefix: str,
            quiet: bool = False) -> bool | None:
@@ -146,6 +168,10 @@ def accept(ctx: Context, friend: str, mode: str, banner: Rel | None, *,
     if name_y is None:
         if not quiet:
             ctx.log.info("%s: no %s invite from %s yet", prefix, m.title, friend)
+        if not reject_all(ctx, prefix):
+            return None
+        if not popup_open(ctx.frame()):  # Reject all closed it
+            return False
         return False if close_popup(ctx, prefix, quiet) or quiet else None
     if not _tap(ctx, Rel(ACCEPT_X / 642, (name_y + ACCEPT_DY) / 951),
                 f"accept {friend}'s invite (✓)", prefix, False):

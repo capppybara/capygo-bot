@@ -40,14 +40,13 @@ before host starts where you change the multiplier"): accept the friend's Hard
 Chapters invite (invites.py), set the energy multiple on the team screen (the
 same + / - and cost check as solo), wait for the host's start (meanwhile taking
 a new invite from them, should they restart in a new room), wait for the run to
-finish, and go again. The multiple belongs to the host's chapter (user): set it
-once they've picked, and again whenever they change chapter; it also drops back
-to 1x after every run. So in join mode the Chapter setting is the chapter agreed
-with the host: while waiting for the start, the bot reads the chapter on the team
-screen, and once it's the agreed one it sets the multiple (from 1x) - "if the
-chapter matches then you adjust multiple and that should be fine" (user). Another
-chapter: it waits; back to the agreed one: it sets the multiple again. The joiner's screens hadn't been seen when this was
-written: it logs every step and stops (with a screenshot) on anything unexpected.
+finish, and go again. The multiple drops back to 1x after every run, when the
+host changes chapter, and when the invitations popup is closed (user). So while
+waiting for the start, the bot reads the multiple every 2s and sets it whenever
+it isn't the target (user, 2026-10-11). It used to read the chapter and set the
+multiple once the agreed one showed, but that OCR missed now and then; the
+Chapter setting is solo-only now. The host not starting within 10 minutes ends
+the task.
 Seen live 2026-10-10: the team screen is solo's layout ("180.Land of Dragon Sleep
 XIII" title at y 149, Start "x15", the +/- multiple, plus a Leave button); the
 host can start ~2s after the join, too soon to set the multiple (then it's
@@ -77,9 +76,6 @@ VALID_MULTIPLES = [1, 2, 3, 5, 10, 20]
 # Energy cost shown inside the Start button ("x15" .. "x300"), read by OCR to
 # verify the multiple (the cost scales linearly with the multiple).
 ENERGY_COST_REGION = RelRect(0.412, 0.755, 0.198, 0.040)
-# Joining: the team screen's chapter title ("180.<name>"). A guess (where the home
-# screen shows its chapter title) until checked live.
-CHAPTER_TITLE = RelRect(0.15, 0.11, 0.70, 0.07)
 # Joining: the "3x Reward" label under Start shows the multiple itself. Setting
 # it by the energy cost failed (2026-10-11): after the 6 resetting "-" taps the
 # cost wouldn't read, twice, long before the host started. So joining steps + / -
@@ -145,12 +141,12 @@ class HardModeAutorun(Task):
                    "repeating until the run count, a failure, or low energy.")
     START_HINT = ("Solo: start on the Hard Mode screen (chapter + Start visible) with Hard "
                   "Mode ON - the switch next to Start must be red, not blue. Joining: start "
-                  "anywhere; it waits for the friend's invite.")
+                  "anywhere; it waits for the host's invite.")
 
     PARAMS = [
-        Param("chapter", "int", 180, "Chapter", min=1, max=9999,
-              help="hard mode chapter number to run; joining: the chapter agreed "
-                   "with the host (the multiple is set once it shows)"),
+        Param("chapter", "int", 180, "Chapter (solo)", min=1, max=9999,
+              help="hard mode chapter number to run solo; joining runs the host's "
+                   "chapter"),
         Param("energy_multiple", "int", 20, "Energy multiple", min=1, max=20,
               choices=VALID_MULTIPLES, suffix="x",
               help="energy multiple to run at (1, 2, 3, 5, 10, or 20)"),
@@ -159,8 +155,8 @@ class HardModeAutorun(Task):
         Param("join", "bool", False, "Join a friend's run",
               help="accept the friend's Hard Chapters invite instead of running solo "
                    "(the host picks the chapter; your energy multiple still applies)"),
-        Param("friend", "str", local_default("friend"), "Friend (joining)",
-              help="whose invite to accept"),
+        Param("friend", "str", local_default("friend"), "Host (joining)",
+              help="whose invite to accept (default: friend in config.local.yaml)"),
     ]
 
     JOIN_POLL = 2.0          # look for the start / the team screen this often
@@ -172,7 +168,7 @@ class HardModeAutorun(Task):
     MAX_RECOVERIES = 10      # problems in a row (no run in between) before stopping (user)
     INVITE_POLL = 10.0       # and for the friend's invite this often
     INVITE_TIMEOUT = 30 * 60
-    START_TIMEOUT = 30 * 60  # waiting for the host to start
+    START_TIMEOUT = 10 * 60  # waiting for the host to start (user, 2026-10-11)
 
     STEP_WAIT = 0.8       # settle after a menu click
     FINISH_POLL = 30.0    # seconds between finish-screen checks
@@ -405,32 +401,16 @@ class HardModeAutorun(Task):
         if shot:
             ctx.log.warning("hard-mode join: screen saved: %s", shot)
 
-    def _read_chapter(self, frame) -> int | None:
-        """The chapter on the team screen, from its "<number>.<name>" title (a guess
-        at its place: where the home screen shows "266.Ancient Frogdom XIX" - to be
-        checked live)."""
-        import re
-
-        from ..perception import ocr_lines
-
-        for text, _, _ in ocr_lines(_crop(frame, CHAPTER_TITLE)):
-            # "180.Land of Dragon Sleep XIII"; cropped, OCR can drop the dot
-            # ("180 Land of ..." - 2026-10-11: the chapter never read)
-            m = re.match(r"^\s*(\d{1,4})\s*[.,]?\s*[A-Za-z]", text)
-            if m:
-                return int(m.group(1))
-        return None
-
     def _read_multiple(self, frame) -> int | None:
         """The multiple from the "3x Reward" label under Start, or None (not on the
-        team screen)."""
+        team screen, or a misread: not one of VALID_MULTIPLES)."""
         import re
 
         from ..perception import ocr_lines
 
         text = " ".join(t for t, _, _ in ocr_lines(_crop(frame, REWARD_LABEL)))
         m = re.search(r"(\d+)\s*[xX×]\s*reward", text, flags=re.I)
-        return int(m.group(1)) if m else None
+        return int(m.group(1)) if m and int(m.group(1)) in VALID_MULTIPLES else None
 
     def _set_multiple(self, ctx: Context, run_no: int, total: int) -> bool:
         """Joining: step the multiple to the target one + / - tap at a time,
@@ -455,7 +435,6 @@ class HardModeAutorun(Task):
             if cur == target:
                 ctx.log.info("hard-mode join: multiple = %dx", target)
                 return True
-            cur = min(VALID_MULTIPLES, key=lambda v: abs(v - cur))
             up = VALID_MULTIPLES.index(cur) < VALID_MULTIPLES.index(target)
             self._click_pos(ctx, PLUS_BTN if up else MINUS_BTN, "+" if up else "-",
                             f"{cur}x -> {target}x", wait=0.4)
@@ -513,49 +492,46 @@ class HardModeAutorun(Task):
     def _wait_host_start(self, ctx: Context, run_no: int, total: int) -> bool:
         """Until the run starts: True as soon as a run screen shows ("Round: N/15",
         a skill screen, an event, a result - user: detect the start and proceed).
-        Meanwhile, on the team screen: once the agreed chapter shows, set the
-        multiple (once; again if the host goes to another chapter and back - a
-        failed try isn't repeated); take a new invite from the friend (a new room,
-        if their start failed). Other screens (loading, transitions): wait."""
-        friend, agreed = self.params["friend"], self.params["chapter"]
+        Meanwhile, on the team screen, read the multiple every JOIN_POLL and set it
+        whenever it isn't the target (user, 2026-10-11: it resets after every run,
+        when the host changes chapter, and when the invitations are closed). The
+        chapter isn't read: its OCR missed now and then. A set that can't reach the
+        target (e.g. too little energy) isn't retried until the multiple changes;
+        an unreadable label (the host started) isn't acted on. Also takes a new
+        invite from the friend (a new room, if their start failed). Other screens
+        (loading, transitions): wait. Gives up after START_TIMEOUT."""
+        friend = self.params["friend"]
+        target = self.params["energy_multiple"]
+        if target not in VALID_MULTIPLES:
+            target = min(VALID_MULTIPLES, key=lambda v: abs(v - target))
         start = time.time()
         self.start_problem = None  # set when it returns False for a problem
-        is_set = False          # the multiple is set (or given up) for the agreed chapter
-        other = unread = None   # what was last logged, so it's logged once
+        last = None    # the multiple last read on the team screen
+        stuck = None   # the multiple a set couldn't move from (not retried there)
         while time.time() - start < self.START_TIMEOUT:
             if ctx.should_stop():
                 return False
             frame = ctx.frame()
             if self._in_run(ctx, frame):
-                if not is_set:  # user: the host can start fast; skip it this time
+                if last != target:  # user: the host can start fast; skip it this time
                     ctx.log.info("hard-mode join: the run started before the multiple "
-                                 "could be set -> skipped this run")
+                                 "was set -> skipped this run")
                 ctx.log.info("hard-mode join: the host started the run")
                 return True
             if self._team_screen(ctx, frame):
-                chapter = self._read_chapter(frame)
-                if chapter == agreed and not is_set:
-                    ctx.log.info("hard-mode join: chapter %d (agreed) -> set the multiple",
-                                 chapter)
-                    if not self._set_multiple(ctx, run_no, total):
-                        if ctx.should_stop():
-                            return False
-                        # the host started mid-way (or the label didn't read): skip
-                        # it this run (user), don't stop
-                        ctx.log.info("hard-mode join: couldn't set the multiple "
-                                     "-> skipped this run")
-                    is_set, other = True, None
+                cur = self._read_multiple(frame)
+                if cur is not None:
+                    last = cur
+                if cur is not None and cur != target and cur != stuck:
+                    ctx.log.info("hard-mode join: the multiple is %dx -> set %dx",
+                                 cur, target)
+                    if self._set_multiple(ctx, run_no, total):
+                        last, stuck = target, None
+                    elif ctx.should_stop():
+                        return False
+                    else:
+                        stuck = self._read_multiple(ctx.frame())
                     continue
-                if chapter is not None and chapter != agreed:
-                    is_set = False
-                    if chapter != other:
-                        ctx.log.info("hard-mode join: the host is on chapter %d, not %d "
-                                     "-> waiting", chapter, agreed)
-                        other = chapter
-                elif chapter is None and not unread:
-                    ctx.log.info("hard-mode join: can't read the chapter on the team "
-                                 "screen")
-                    unread = True
                 banner = invites.find_banner(frame)
                 if banner is not None:
                     got = invites.accept(
@@ -568,7 +544,7 @@ class HardModeAutorun(Task):
                         return False
                     if got:
                         ctx.log.info("hard-mode join: moved to %s's new room", friend)
-                        is_set = False
+                    stuck = None  # closing the invitations resets the multiple (user)
                     continue
             if self._sleep(ctx, self.JOIN_POLL):
                 return False
@@ -748,13 +724,13 @@ class HardModeAutorun(Task):
         it at once; MAX_RECOVERIES problems in a row with no run in between end it
         too (something is really broken)."""
         if not self.params["friend"].strip():
-            ctx.log.warning("hard-mode join: no Friend set -> enter their in-game name, "
+            ctx.log.warning("hard-mode join: no Host set -> enter their in-game name, "
                             "or set defaults: friend: in config.local.yaml")
             return
         multiple = self.params["energy_multiple"]
         total = self.params["runs"]
-        ctx.log.info("hard-mode join: %s's chapter %d at %dx, %d run(s)",
-                     self.params["friend"], self.params["chapter"], multiple, total)
+        ctx.log.info("hard-mode join: %s's runs at %dx, %d run(s)",
+                     self.params["friend"], multiple, total)
         done = problems = 0
         while done < total and not ctx.should_stop():
             try:

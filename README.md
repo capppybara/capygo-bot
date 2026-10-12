@@ -280,7 +280,8 @@ For each run, the bot:
 
 1. Checks every 10 seconds, for up to 30 minutes, for the "New Invitation"
    banner. It opens it, makes sure the invitations are Gulu Mine's, and accepts
-   the friend's invite. It never taps Reject or "No longer show".
+   the friend's invite. If their invite isn't there, it taps Reject all to clear
+   the others, then closes the popup. It never taps "No longer show".
 2. Plays the run to the end. Every 2 seconds it looks for a skill screen and
    picks the top cards: two picks on each of battle 1's two screens, one pick
    on each later screen.
@@ -378,23 +379,26 @@ Start is red, not blue). Joining, anywhere: it waits for the friend's invite.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Chapter | 180 | The Hard Mode chapter to run |
+| Chapter (solo) | 180 | The Hard Mode chapter to run solo. Joining runs the host's chapter |
 | Energy multiple | 20x | Energy (and reward) per run: 1x, 2x, 3x, 5x, 10x or 20x |
 | Number of runs | 10 | How many runs before it stops |
 | Join a friend's run | off | On: join the friend's Hard Chapters runs instead of running solo |
-| Friend (joining) | from `config.local.yaml` | Whose invite to accept |
+| Host (joining) | from `config.local.yaml` | Whose invite to accept. Change it to play with someone else |
 
 Each solo run it selects the chapter, sets the multiple, presses Start, and waits for
 the result. It checks the energy cost on the Start button to confirm the
 multiple. It stops early when a run is lost, when energy runs short, or when
 Hard Mode is off.
 
-Joining, Chapter is the chapter you agreed with the host. The bot:
+Joining, the bot:
 
-1. Accepts the friend's Hard Chapters invite.
-2. Sets your multiple once the agreed chapter shows on the team screen, and
-   again whenever the host switches back to it. If the host starts too fast, it
-   skips the multiple for that run.
+1. Accepts the host's Hard Chapters invite. Invites from anyone else get Reject
+   all.
+2. Reads your multiple every 2 seconds on the team screen and sets it whenever it
+   isn't your setting. It resets to 1x after each run, when the host changes
+   chapter, and when the invitations popup closes. If the host starts too fast,
+   it skips the multiple for that run. If the host doesn't start within 10
+   minutes, it stops.
 3. Plays the run: picks the top skill(s) on each skill screen, opens the
    treasure chest and takes its top skill, signs the demon's pact, and takes the
    angel's first gift. Other events run out their countdown.
