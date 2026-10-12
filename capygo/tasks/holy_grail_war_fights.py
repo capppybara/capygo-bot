@@ -43,7 +43,8 @@ from .event import TABS, go_events
 from .event_holy_grail_war import HolyGrailWar
 from .event_plaza import SELECT_TITLE, TITLE_REGION
 from .martial_arts_tournament import (SCHEDULE_BTN, SNIPE_UTC, STAGE_TITLE, TITLE_TAP, Foe,
-                                      ListLayout, MartialArtsTournament, _px, _words)
+                                      ListLayout, MartialArtsTournament, _px, _words,
+                                      read_foes, tickets)
 from . import pvp
 
 HGW = ListLayout(power_x=(186, 250), points_x=(288, 345), find_x=(288, 345),
@@ -108,7 +109,17 @@ class HolyGrailWarFights(MartialArtsTournament):
     ]
 
     # --- getting there -----------------------------------------------------------
+    def _on_list(self, frame) -> bool:
+        """This mode's Qualifiers list is up: the title, and "N/2" tickets on the
+        Challenge buttons (martial's read "N/1")."""
+        if "qualifier" not in _words(frame, STAGE_TITLE) or self._wrong_screen(frame):
+            return False
+        return tickets(frame, read_foes(frame, HGW), HGW) is not None
+
     def _open_qualifiers(self, ctx: Context) -> bool:
+        if not ctx.dry_run and self._on_list(ctx.frame()):
+            self._log.info("already on the Qualifiers list")  # user: start from here
+            return self._tap(ctx, _px(TITLE_TAP), "title (wake the list)")
         if not go_events(ctx):
             self._log.warning("couldn't get to the Events screen")
             return False
