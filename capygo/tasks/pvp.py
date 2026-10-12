@@ -7,8 +7,13 @@ saves the screenshot, and closes it. After the result, record() adds one row to
 the log. Scouting never stands in the fight's way: a profile that doesn't open
 is logged and the fight goes on.
 
+Holy Grail War (2v2) fights get their own log, record_team(): only what the
+list shows - the team's name, power and points - and the result (user,
+2026-10-11).
+
 Everything stays on this Mac, outside the repo:
   ~/Downloads/capy-bot/pvp/fights.csv           one row per fight
+  ~/Downloads/capy-bot/pvp/holy-grail-war.csv   one row per Holy Grail War fight
   ~/Downloads/capy-bot/pvp/profiles/*.png       each opponent's profile screen
   ~/Downloads/capy-bot/pvp/weapons/unknown-N.png weapon pictures to label
 """
@@ -38,6 +43,13 @@ COLUMNS = [
     "opp_uid", "opp_name", "opp_power", "opp_hp", "opp_atk", "opp_def", "opp_weapon",
     "power_ratio", "profile_png", "note",
 ]
+
+
+TEAM_CSV = os.path.join("pvp", "holy-grail-war.csv")
+# my_power: your team's power (the task's setting, both players); my_points and
+# opp_points from the list, like fights.csv; opp_team as the list shows it.
+TEAM_COLUMNS = ["time_utc", "won", "my_power", "my_points", "opp_team", "opp_power",
+                "opp_points", "note"]
 
 
 def _t(v: Decimal | None) -> str:
@@ -115,14 +127,37 @@ def record(ctx: Context, mode: str, result: str | None, *, my_power: Decimal | N
         "profile_png": p.screenshot,
         "note": "; ".join(notes),
     }
+    _append(ctx, FIGHTS_CSV, COLUMNS, row_data)
+
+
+def record_team(ctx: Context, result: str | None, *, my_power: Decimal | None,
+                my_points: int | None, team: str, power: Decimal | None,
+                points: int | None, note: str = "") -> None:
+    """Add one Holy Grail War fight to holy-grail-war.csv (with a header row the
+    first time). Never raises: the log is a side job."""
+    if ctx.dry_run:
+        return
+    _append(ctx, TEAM_CSV, TEAM_COLUMNS, {
+        "time_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "won": won(result),
+        "my_power": _t(my_power),
+        "my_points": "" if my_points is None else my_points,
+        "opp_team": team,
+        "opp_power": _t(power),
+        "opp_points": "" if points is None else points,
+        "note": note,
+    })
+
+
+def _append(ctx: Context, rel_path: str, columns: list[str], row: dict) -> None:
     try:
-        path = output_path(FIGHTS_CSV)
+        path = output_path(rel_path)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         new = not os.path.exists(path)
         with open(path, "a", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=COLUMNS)
+            w = csv.DictWriter(f, fieldnames=columns)
             if new:
                 w.writeheader()
-            w.writerow(row_data)
+            w.writerow(row)
     except OSError as e:
         ctx.log.warning("pvp: couldn't write the fight log: %s", e)

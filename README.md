@@ -18,6 +18,7 @@ automation in a desktop app, set a few options, and press Start.
 - [Goblin Miner](#goblin-miner)
 - [Hard Mode Autorun](#hard-mode-autorun)
 - [Martial Arts Tournament](#martial-arts-tournament)
+- [Holy Grail War](#holy-grail-war)
 - [Pet Armament Chest](#pet-armament-chest)
 - [Files it writes](#files-it-writes)
 - [Developer guide](#developer-guide)
@@ -85,6 +86,7 @@ Any of these stops a run within a second:
 | [Goblin Miner](#goblin-miner) | Mines Goblin Miner floors for the Capy King statue | The Goblin Miner grid |
 | [Hard Mode Autorun](#hard-mode-autorun) | Runs a Hard Mode chapter over and over | The Hard Mode screen |
 | [Martial Arts Tournament](#martial-arts-tournament) | Fights the Qualifiers opponents worth the most points that you can beat, now or at 6:50 AM | Anywhere |
+| [Holy Grail War](#holy-grail-war) | Fights the Holy Grail War Qualifiers teams worth the most points that you can beat (2v2) | Anywhere |
 | [Pet Armament Chest](#pet-armament-chest) | Opens Pet Armament chests, upgrading when it is worth it | The locked chest screen |
 | [Pet Synthesis](#pet-synthesis) | Turns surplus pet fragments into new pets until none are left | Anywhere |
 
@@ -455,6 +457,40 @@ stops starting fights 20 seconds before the cutoff. One attack takes about 15
 seconds, so 9 tickets take about 2.5 minutes. While it waits it keeps the Mac
 awake; the app must stay open and the game window visible.
 
+## Holy Grail War
+
+Holy Grail War fights the Holy Grail War Qualifiers the same way Martial Arts
+Tournament fights its own: the team worth the most points that you can beat, now
+or just before the round closes. Teams here are 2v2.
+
+**Start on:** anywhere. It opens Events → Arena → Holy Grail War → Schedule (the
+Qualifiers) itself. If Holy Grail War is on its division pick (Select Division),
+there's nothing to fight and it stops.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| Your team power (T) | 6.41 | Your power plus your teammate's, in trillions. The list shows each team's total, so teams are compared against this |
+| Power ratio | 1.1 | Fight only teams below this x your team power |
+| Sniping mode | off | Wait for 6:50 AM Pacific and use every fight then |
+| Fights (0 = until tickets run out) | 0 | 0 fights until fewer than 2 tickets are left. A number: always do that many, buying tickets if needed |
+
+How it differs from Martial Arts Tournament:
+
+- **2 tickets a fight.** The Challenge button shows your tickets as "8/2". With a
+  number of fights set, it buys up to 2 tickets for each fight it can't afford.
+- **Teams.** Tapping a row anywhere except Challenge opens Team Details (the two
+  players). The bot never taps there on purpose and closes Team Details if it
+  shows up.
+- **Its own log.** No profiles are opened. Each fight adds a row to
+  `~/Downloads/capy-bot/pvp/holy-grail-war.csv`: the team's name, power and
+  points as the list shows them, your points, and `won`. Names are read in
+  English, Korean, Japanese and Chinese, three times each; the most common read
+  is kept, and the `note` column says when the reads differed.
+
+Sniping waits for the next 13:50 UTC, like Martial Arts. The Qualifiers run for
+more than a day and close at 14:00 UTC (7:00 AM Pacific in summer), so start it
+on the last day.
+
 ## Pet Armament Chest
 
 Pet Armament Chest opens chests one at a time. For each chest it takes the 3
@@ -496,6 +532,7 @@ nothing. The bot then closes the popup and goes home. Each synthesis takes about
 | `logs/failed-<chore>-<time>.png` | The screen when an Auto Daily chore failed |
 | `~/Downloads/capy-bot/` | CSV exports and comparison graphs |
 | `~/Downloads/capy-bot/pvp/fights.csv` | Every arena and martial fight: the opponent's UID, name, power, stats and weapon, and `won` (1 = won, 0 = lost, blank = not known) |
+| `~/Downloads/capy-bot/pvp/holy-grail-war.csv` | Every Holy Grail War fight: the team's name, power and points, and `won` |
 | `~/Downloads/capy-bot/pvp/profiles/` | Each opponent's profile screen |
 | `~/Downloads/capy-bot/pvp/weapons/unknown-N.png` | Each weapon not seen before, saved the first time it shows up. Rename the file to the weapon's name to teach it. |
 | `~/Downloads/capy-bot/pvp/weapons/unknown.csv` | When each unknown weapon was first seen, and on whose profile |
@@ -558,6 +595,7 @@ capygo/
     get_guild_member_list.py, compare_guild_power.py
     goblin_miner.py, hard_mode_autorun.py, pet_armament_chest.py, pet_synthesis.py
     martial_arts_tournament.py
+    holy_grail_war_fights.py  Holy Grail War: the martial task with its own layout
 templates/<task-name>/      reference images matched at runtime
 ui/                         the PySide6 app: home and task screens, theme, icons
 tools/
@@ -585,6 +623,7 @@ setting, `-n` is a dry run, and `--list` shows every task and its settings.
 ./run.sh hard-mode-autorun -p chapter=180 -p energy_multiple=20 -p runs=10
 ./run.sh martial-arts-tournament -p my_cp=5.23 -p ratio=1.1
 ./run.sh martial-arts-tournament -p sniping=true   # waits for 6:50 AM Pacific
+./run.sh holy-grail-war-fights -p my_cp=6.41 -p max_attacks=3
 ./run.sh pet-armament-chest -p runs=20 -n
 ./run.sh pet-synthesis
 ./run.sh restart-game                      # kill the game, reopen it, get to home

@@ -22,6 +22,17 @@ from .icons import app_icon_pixmap, task_icon_pixmap
 from .task_view import task_process
 
 
+def home_order(names: list[str]) -> list[str]:
+    """Alphabetical, except a task with HOME_AFTER sits right after that task
+    (user: Holy Grail War under Martial Arts)."""
+    order = [n for n in names if not getattr(get_task_class(n), "HOME_AFTER", "")]
+    for n in names:
+        after = getattr(get_task_class(n), "HOME_AFTER", "")
+        if after:
+            order.insert(order.index(after) + 1 if after in order else len(order), n)
+    return order
+
+
 class TaskCard(QFrame):
     """A clickable card showing a task's icon, title, and description."""
 
@@ -119,7 +130,7 @@ class HomeScreen(QWidget):
         col.setContentsMargins(0, 0, 10, 0)  # room for the scrollbar
         col.setSpacing(12)
 
-        for name in list_tasks():
+        for name in home_order(list_tasks()):
             if getattr(get_task_class(name), "HIDDEN", False):
                 continue  # e.g. compare-guild-power: reached via a button, not a card
             col.addWidget(TaskCard(name, on_select))

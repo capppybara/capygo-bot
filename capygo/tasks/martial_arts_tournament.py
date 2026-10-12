@@ -29,6 +29,7 @@ attack then; it stops starting new fights 20 seconds before the 5-minute cutoff.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -93,6 +94,29 @@ POLL = 0.5
 SETTLE = 1.0
 
 
+@dataclass(frozen=True)
+class ListLayout:
+    """Where a Qualifiers list's numbers sit (px in the 642x951 frame), so another
+    mode's list (holy_grail_war_fights.py) can reuse this task."""
+    power_x: tuple[int, int]      # a row's power, right of the sword icon
+    points_x: tuple[int, int]
+    find_x: tuple[int, int]       # the points column, to find the rows
+    challenge_dy: int             # a row's Challenge button: points y + this
+    tickets_dy: int               # the ticket count ("9/1") on it: points y + this
+    ticket_cost: int              # tickets a challenge takes (the "/1")
+    tappable: tuple[int, int]     # the button's y range where it's fully on screen
+
+
+MARTIAL = ListLayout(POWER_X, POINTS_X, ROW_FIND_X, -2, TICKETS_DY, 1, TAPPABLE)
+
+
+class _Tagged(logging.LoggerAdapter):
+    """Puts the task's tag in front of each log line ("martial: ...")."""
+
+    def process(self, msg, kwargs):
+        return f"{self.extra['tag']}: {msg}", kwargs
+
+
 class _Stillness:
     """Spots a frozen fight: the screen not changing at all for FROZEN_AFTER
     seconds (a running fight always animates). 2026-10-06's snipe hit one: the
@@ -136,7 +160,7 @@ def _cell(frame, xs: tuple[int, int], y: float, scale: int = 2) -> str:
     return " ".join(t for t, _, _ in ocr_lines(crop))
 
 
-def _power_at(frame, y: float) -> Decimal | None:
+def _power_at(frame, y: float, xs: tuple[int, int] = POWER_X) -> Decimal | None:
     """A row's power. The crop starts after the sword icon: with the icon in it,
     OCR added stray digits ("112.54T" for 2.54T, "412.58T" live). A read with no
     unit ("2.131") is retried at a shifted crop or size. A value between 100B and
@@ -145,7 +169,7 @@ def _power_at(frame, y: float) -> Decimal | None:
     happens: the opponent is skipped rather than guessed."""
     seen: list[Decimal] = []
     for dy, scale in ((0, 2), (0, 3), (-1, 2), (1, 2), (-1, 3), (1, 3)):
-        power = _power(_cell(frame, POWER_X, y + dy, scale))
+        power = _power(_cell(frame, xs, y + dy, scale))
         if power is None:
             continue
         if PLAUSIBLE[0] <= power <= PLAUSIBLE[1] or power in seen:
@@ -154,27 +178,29 @@ def _power_at(frame, y: float) -> Decimal | None:
     return None
 
 
-def read_foes(frame) -> list[Foe]:
+def read_foes(frame, lay: ListLayout = MARTIAL) -> list[Foe]:
     """The opponents whose power and points both read on this screen."""
     h, w = frame.shape[:2]
     kx, ky = w / 642, h / 951
     y0, y1 = LIST_Y
-    col = frame[int(y0 * ky):int(y1 * ky), int(ROW_FIND_X[0] * kx):int(ROW_FIND_X[1] * kx)]
+    fx = lay.find_x
+    col = frame[int(y0 * ky):int(y1 * ky), int(fx[0] * kx):int(fx[1] * kx)]
     foes = []
     for t, _, cy in ocr_lines(col):
         y = cy / ky + y0
-        points = re.sub(r"\D", "", _cell(frame, POINTS_X, y))
-        power = _power_at(frame, y)
+        points = re.sub(r"\D", "", _cell(frame, lay.points_x, y))
+        power = _power_at(frame, y, lay.power_x)
         if points and power is not None:
             foes.append(Foe(power, int(points), round(y)))
     return foes
 
 
-def tickets(frame, foes: list[Foe]) -> int | None:
+def tickets(frame, foes: list[Foe], lay: ListLayout = MARTIAL) -> int | None:
     """Your tickets, from the "9/1" on the Challenge buttons (most common read)."""
     reads = []
     for f in foes:
-        m = re.search(r"(\d+)\s*/\s*1\b", _cell(frame, (455, 530), f.y + TICKETS_DY))
+        m = re.search(rf"(\d+)\s*/\s*{lay.ticket_cost}\b",
+                      _cell(frame, (455, 530), f.y + lay.tickets_dy))
         if m:
             reads.append(int(m.group(1)))
     return max(set(reads), key=reads.count) if reads else None
@@ -206,6 +232,10 @@ class MartialArtsTournament(Task):
     DESCRIPTION = ("Qualifiers: fight the opponent with the most points below your "
                    "power limit until the tickets run out, now or at 6:50 AM (sniping).")
     START_HINT = "Start anywhere in the game. Set your CP (power) first."
+    TAG = "martial"              # log prefix
+    LAYOUT = MARTIAL             # the Qualifiers list
+    MY_POINTS = MY_POINTS        # your points under the list
+    BUYS_PER_FIGHT = 1           # tickets bought for one challenge, at most
     PARAMS = [
         Param("my_cp", "float", 4.7, "Your CP (T)", min=0.01, max=10000,
               help="your power in trillions; opponents are compared against it"),
@@ -223,13 +253,14 @@ class MartialArtsTournament(Task):
     ]
 
     def run(self, ctx: Context) -> None:
+        self._log = _Tagged(ctx.log, {"tag": self.TAG})
         p = self.params
         cp = Decimal(str(p["my_cp"]))
         deadline = None
         if p["sniping"]:
             at = next_snipe(p["snipe_utc"])
             local = at.astimezone().strftime("%a %-I:%M %p %Z")
-            ctx.log.info("martial: sniping - waiting until %s (%s UTC)", local,
+            self._log.info("sniping - waiting until %s (%s UTC)", local,
                          at.strftime("%H:%M"))
             if not self._wait_until(ctx, at):
                 return
@@ -238,7 +269,7 @@ class MartialArtsTournament(Task):
         if not self._open_qualifiers(ctx):
             return
         done = self._attacks(ctx, cp, Decimal(str(p["ratio"])), p["max_attacks"], deadline)
-        ctx.log.info("martial: %d attack(s) in %.0fs", done, time.time() - started)
+        self._log.info("%d attack(s) in %.0fs", done, time.time() - started)
         go_home(ctx)
 
     # --- getting there -----------------------------------------------------------
@@ -250,7 +281,7 @@ class MartialArtsTournament(Task):
                 keep_awake = subprocess.Popen(
                     ["caffeinate", "-di", "-w", str(os.getpid())])
             except OSError:
-                ctx.log.warning("martial: couldn't keep the Mac awake (caffeinate)")
+                self._log.warning("couldn't keep the Mac awake (caffeinate)")
         try:
             next_note = time.time()
             while True:
@@ -258,7 +289,7 @@ class MartialArtsTournament(Task):
                 if left <= 0 or ctx.dry_run:
                     return True
                 if time.time() >= next_note:
-                    ctx.log.info("martial: %s to go", str(timedelta(seconds=int(left))))
+                    self._log.info("%s to go", str(timedelta(seconds=int(left))))
                     next_note = time.time() + (600 if left > 900 else 60)
                 if wait(ctx, min(5.0, left)):
                     return False
@@ -268,20 +299,20 @@ class MartialArtsTournament(Task):
 
     def _open_qualifiers(self, ctx: Context) -> bool:
         if not go_events(ctx):
-            ctx.log.warning("martial: couldn't get to the Events screen")
+            self._log.warning("couldn't get to the Events screen")
             return False
         if not (self._tap(ctx, TABS["arena"], "Arena tab")
                 and self._tap(ctx, MartialArts.CARD, "Martial Arts Tournament")):
             return False
         if not ctx.dry_run and not self._until(
                 ctx, lambda: "martial" in _words(ctx.frame(), HALL_TITLE)):
-            ctx.log.warning("martial: the Martial Arts Hall didn't open")
+            self._log.warning("the Martial Arts Hall didn't open")
             return False
         if not self._tap(ctx, SCHEDULE_BTN, "Schedule"):
             return False
         if not ctx.dry_run and not self._until(
                 ctx, lambda: "qualifier" in _words(ctx.frame(), STAGE_TITLE)):
-            ctx.log.warning("martial: the Qualifiers didn't open (another stage?)")
+            self._log.warning("the Qualifiers didn't open (another stage?)")
             return False
         return self._tap(ctx, _px(TITLE_TAP), "title (wake the list)")
 
@@ -292,10 +323,10 @@ class MartialArtsTournament(Task):
         self.restarts = 0
         while not ctx.should_stop():
             if limit and done >= limit:
-                ctx.log.info("martial: %d attack(s) done (the limit)", done)
+                self._log.info("%d attack(s) done (the limit)", done)
                 break
             if deadline and datetime.now(timezone.utc) >= deadline:
-                ctx.log.info("martial: too close to the cutoff -> stopping")
+                self._log.info("too close to the cutoff -> stopping")
                 break
             if ctx.dry_run:  # nothing to read: show one attack's taps and stop
                 self._tap(ctx, _px((CHALLENGE_X, 383)), "Challenge")
@@ -305,23 +336,20 @@ class MartialArtsTournament(Task):
             foe = self._choose(ctx, cp, base)
             if foe is None:
                 break
-            points = re.sub(r"\D", "", _words(ctx.frame(), MY_POINTS))
+            points = re.sub(r"\D", "", _words(ctx.frame(), self.MY_POINTS))
             self.opponent = None
             result = self._fight(ctx, foe, buy=limit > 0)
             if result not in (None, NO_TICKETS):  # a fight happened: log it
-                pvp.record(ctx, "martial", result, my_power=cp,
-                           my_points=int(points) if points else None,
-                           list_power=foe.power, list_points=foe.points,
-                           opponent=self.opponent)
+                self._record(ctx, result, cp, int(points) if points else None, foe)
             if result == NO_TICKETS:
-                ctx.log.info("martial: out of tickets (the Purchase popup) -> done")
+                self._log.info("out of tickets (the Purchase popup) -> done")
                 break
             if result == STUCK:
                 if self.restarts >= RESTARTS:
-                    ctx.log.warning("martial: stuck again after a restart -> stopping")
+                    self._log.warning("stuck again after a restart -> stopping")
                     break
                 if deadline and datetime.now(timezone.utc) >= deadline:
-                    ctx.log.warning("martial: stuck, and no time left to restart")
+                    self._log.warning("stuck, and no time left to restart")
                     break
                 self.restarts += 1
                 if not (restart_game(ctx, "the fight is stuck")
@@ -331,8 +359,8 @@ class MartialArtsTournament(Task):
             if result is None:
                 break
             done += 1
-            ctx.log.info("martial: attack %d -> %s (your points: %s)", done, result,
-                         _words(ctx.frame(), MY_POINTS) or "?")
+            self._log.info("attack %d -> %s (your points: %s)", done, result,
+                         _words(ctx.frame(), self.MY_POINTS) or "?")
         return done
 
     def _choose(self, ctx: Context, cp: Decimal, base: Decimal) -> Foe | None:
@@ -341,73 +369,75 @@ class MartialArtsTournament(Task):
         for refresh in range(REFRESHES + 1):
             self._scroll(ctx, SCROLL_DOWN)
             frame = ctx.frame()
-            foes = read_foes(frame)
-            left = tickets(frame, foes)  # for the log; the Purchase popup ends the run
+            foes = read_foes(frame, self.LAYOUT)
+            left = tickets(frame, foes, self.LAYOUT)  # for the log; the Purchase popup
+                                                      # ends the run
             cap = cp * ratio
             for f in foes:
-                ctx.log.info("martial:   %sT, %d points%s", f.power, f.points,
+                self._log.info("  %sT, %d points%s", f.power, f.points,
                              "" if f.power < cap else "  (too strong)")
             foe = best(foes, cap)
             if foe is not None:
-                ctx.log.info("martial: pick %sT, %d points (below %sx = %.2fT; "
+                self._log.info("pick %sT, %d points (below %sx = %.2fT; "
                              "tickets %s)", foe.power, foe.points, ratio, cap, left)
                 return foe
             if refresh == REFRESHES:
                 break
             label = _words(frame, REFRESH_LABEL)
-            ctx.log.info("martial: nobody below %sx -> Refresh %d/%d (%s)", ratio,
+            self._log.info("nobody below %sx -> Refresh %d/%d (%s)", ratio,
                          refresh + 1, REFRESHES, label or "?")
             if not self._tap(ctx, _px(REFRESH_BTN), "Refresh", 2.0):
                 return None
             ratio += RATIO_STEP
-        ctx.log.warning("martial: no opponent below %sx your CP after %d refreshes -> "
+        self._log.warning("no opponent below %sx your CP after %d refreshes -> "
                         "stopping; attack the rest by hand", ratio, REFRESHES)
         return None
 
     def _fight(self, ctx: Context, foe: Foe, buy: bool = False) -> str | None:
         """Tap the foe's Challenge (scrolling up first if it's row 1), Skip the
         fight, OK the result. "victory"/"defeat"/"unknown", or None if no fight."""
-        if not TAPPABLE[0] <= foe.y - 2 <= TAPPABLE[1]:
+        lay = self.LAYOUT
+        if not lay.tappable[0] <= foe.y + lay.challenge_dy <= lay.tappable[1]:
             self._scroll(ctx, SCROLL_UP)
-            match = [f for f in read_foes(ctx.frame())
+            match = [f for f in read_foes(ctx.frame(), lay)
                      if f.power == foe.power and f.points == foe.points]
             if not match:
-                ctx.log.warning("martial: lost track of the pick after scrolling")
-                self._snapshot(ctx, "martial-lost-pick")
+                self._log.warning("lost track of the pick after scrolling")
+                self._snapshot(ctx, "lost-pick")
                 return None
             foe = match[0]
-        # The fight log (user, 2026-10-09): look at the opponent's profile first.
-        if self.params.get("scout", True):
-            self.opponent = pvp.scout(ctx, _px((PIC_X, foe.y + PIC_DY)), "martial")
-            if not ctx.dry_run and not self._back_on_qualifiers(ctx):
-                return None
+        if not self._before_fight(ctx, foe):
+            return None
         started = None
-        bought = False
-        for attempt in (1, 2, 3):
-            if not self._tap(ctx, _px((CHALLENGE_X, foe.y - 2)), "Challenge"):
+        bought = misses = 0
+        while True:
+            if not self._tap(ctx, _px((CHALLENGE_X, foe.y + lay.challenge_dy)), "Challenge"):
                 return None
             started = self._fight_or_purchase(ctx)
-            if started == NO_TICKETS and buy and not bought:
+            if started == NO_TICKETS and buy and bought < self.BUYS_PER_FIGHT:
                 # user: a set number of attacks is always done, buying tickets
                 if not self._buy_ticket(ctx):
                     return None
-                bought = True
+                bought += 1
                 continue
             if started in ("fight", NO_TICKETS, None):
                 break
             # neither the fight nor the Purchase popup: maybe a lost tap
-            ctx.log.info("martial: no fight after Challenge (try %d/2)", attempt)
+            misses += 1
+            self._log.info("no fight after Challenge (try %d/2)", misses)
             x = find_sprite(ctx, ctx.frame(), "close_x.png")
             if x is not None:
                 self._tap(ctx, x, "close the popup")
+            if misses >= 2:
+                break
         if started is None:
             return None
         if started == NO_TICKETS:
             self._close_purchase(ctx)
             return NO_TICKETS
         if started != "fight":
-            ctx.log.warning("martial: the fight didn't start after 2 tries -> stopping")
-            self._snapshot(ctx, "martial-no-fight")
+            self._log.warning("the fight didn't start after 2 tries -> stopping")
+            self._snapshot(ctx, "no-fight")
             return None
         if wait(ctx, FIGHT_SETTLE):
             return None
@@ -417,7 +447,7 @@ class MartialArtsTournament(Task):
         while time.time() < end:
             frame = ctx.frame()
             if still.frozen(frame):
-                ctx.log.warning("martial: the fight froze (no change for %.0fs) - a game "
+                self._log.warning("the fight froze (no change for %.0fs) - a game "
                                 "issue, not the bot", FROZEN_AFTER)
             title = _words(frame, RESULT_TITLE)
             if "victory" in title or "defeat" in title or "ok" in _words(
@@ -439,11 +469,31 @@ class MartialArtsTournament(Task):
             if wait(ctx, POLL):
                 return None
         stuck = fight_up(ctx.frame())
-        ctx.log.warning("martial: no result screen within %.0fs%s%s", RESULT_TIMEOUT,
+        self._log.warning("no result screen within %.0fs%s%s", RESULT_TIMEOUT,
                         " (the fight was frozen)" if still.reported else "",
                         "; Skip still showing -> the fight is stuck" if stuck else "")
-        self._snapshot(ctx, "martial-no-result")
+        self._snapshot(ctx, "no-result")
         return STUCK if stuck else None
+
+    # --- per-mode hooks (holy_grail_war_fights.py overrides these) ----------------
+    def _before_fight(self, ctx: Context, foe: Foe) -> bool:
+        """The fight log (user, 2026-10-09): look at the opponent's profile first.
+        False if the list didn't come back after it."""
+        if self.params.get("scout", True):
+            self.opponent = pvp.scout(ctx, _px((PIC_X, foe.y + PIC_DY)), "martial")
+            if not ctx.dry_run and not self._back_on_qualifiers(ctx):
+                return False
+        return True
+
+    def _record(self, ctx: Context, result: str, cp: Decimal, my_points: int | None,
+                foe: Foe) -> None:
+        """Log the fight in pvp.py's fights.csv, with the profile scouted before it."""
+        pvp.record(ctx, "martial", result, my_power=cp, my_points=my_points,
+                   list_power=foe.power, list_points=foe.points, opponent=self.opponent)
+
+    def _wrong_screen(self, frame) -> bool:
+        """After Challenge: a screen that means the tap missed (none here)."""
+        return False
 
     def _ok(self, ctx: Context) -> bool:
         """The result's OK: the arena's spot if it reads there, else wherever "OK"
@@ -467,7 +517,7 @@ class MartialArtsTournament(Task):
             close_profile(ctx)
         if self._until(ctx, lambda: "qualifier" in _words(ctx.frame(), STAGE_TITLE)):
             return True
-        self._snapshot(ctx, "martial-after-profile")
+        self._snapshot(ctx, "after-profile")
         return False
 
     def _fight_or_purchase(self, ctx: Context) -> str | None:
@@ -481,6 +531,8 @@ class MartialArtsTournament(Task):
                 return "fight"
             if "purchase" in _words(frame, PURCHASE_TEXT):
                 return NO_TICKETS
+            if self._wrong_screen(frame):
+                return ""
             if wait(ctx, POLL):
                 return None
         return ""
@@ -494,26 +546,26 @@ class MartialArtsTournament(Task):
         lines = [(t.lower(), cx, cy) for t, cx, cy in ocr_lines(frame)]
         words = " ".join(t for t, _, _ in lines)
         if "top up" in words or "top-up" in words or "$" in words:
-            ctx.log.warning("martial: the ticket popup looks like real money -> not "
+            self._log.warning("the ticket popup looks like real money -> not "
                             "buying")
-            self._snapshot(ctx, "martial-ticket-popup")
+            self._snapshot(ctx, "ticket-popup")
             self._close_purchase(ctx)
             return False
         buttons = [(cx, cy) for t, cx, cy in lines if "purchase" in t or t.strip() == "buy"]
         if len(buttons) < 2:  # need the title AND a button below it
-            ctx.log.warning("martial: no Purchase button found on the ticket popup")
-            self._snapshot(ctx, "martial-ticket-popup")
+            self._log.warning("no Purchase button found on the ticket popup")
+            self._snapshot(ctx, "ticket-popup")
             self._close_purchase(ctx)
             return False
         cx, cy = max(buttons, key=lambda b: b[1])
-        ctx.log.info("martial: out of tickets -> buying one (a set number of attacks)")
+        self._log.info("out of tickets -> buying one (a set number of attacks)")
         if not self._tap(ctx, Rel(cx / w, cy / h), "Purchase (1 ticket)", 2.0):
             return False
         if tap_to_close_up(ctx.frame()):
             self._tap(ctx, _px(TITLE_TAP), "close the reward")
         if "purchase" in _words(ctx.frame(), PURCHASE_TEXT):
-            ctx.log.warning("martial: the ticket popup is still open after buying")
-            self._snapshot(ctx, "martial-ticket-popup")
+            self._log.warning("the ticket popup is still open after buying")
+            self._snapshot(ctx, "ticket-popup")
             self._close_purchase(ctx)
             return False
         return True
@@ -524,12 +576,11 @@ class MartialArtsTournament(Task):
         self._tap(ctx, x if x is not None else PURCHASE_CLOSE, "close the Purchase popup")
 
     # --- helpers -----------------------------------------------------------------
-    @staticmethod
-    def _snapshot(ctx: Context, label: str) -> None:
+    def _snapshot(self, ctx: Context, label: str) -> None:
         """Save the screen to logs/ when something goes wrong, so it can be seen."""
-        shot = save_snapshot(ctx, label)
+        shot = save_snapshot(ctx, f"{self.TAG}-{label}")
         if shot:
-            ctx.log.warning("martial: screen saved: %s", shot)
+            self._log.warning("screen saved: %s", shot)
 
     def _scroll(self, ctx: Context, drag) -> None:
         (x0, y0), (x1, y1) = drag
@@ -539,7 +590,7 @@ class MartialArtsTournament(Task):
     def _tap(self, ctx: Context, target, what: str, after: float = 1.0) -> bool:
         if ctx.should_stop():
             return False
-        ctx.log.info("martial: tap %s", what)
+        self._log.info("tap %s", what)
         return tap(ctx, target, after)
 
     def _until(self, ctx: Context, check, timeout: float = OPEN_TIMEOUT) -> bool:
