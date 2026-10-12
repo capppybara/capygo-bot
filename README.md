@@ -401,6 +401,11 @@ Joining, Chapter is the chapter you agreed with the host. The bot:
 4. Closes the result and waits for the next start. A kick and re-invite is fine:
    it accepts the new invite and doesn't count a run.
 
+If something goes wrong mid-way, it doesn't stop: it saves a screenshot, waits
+for the run to end (the Victory or Defeat screen, or back on the team screen),
+and starts over. Only 10 problems in a row with no run in between stop it.
+You can start it in the middle of a run too: it plays the rest of it.
+
 ## Martial Arts Tournament
 
 Martial Arts Tournament spends your Qualifier tickets on the opponents worth the

@@ -167,6 +167,9 @@ class HardModeAutorun(Task):
     SKILL_POLL = 2.0         # in the run: look for a skill screen this often
     RUN_TIMEOUT = 15 * 60    # a joined run ends well before this
     RESULT_TAPS = 6          # taps to close the result screen before giving up
+    RECOVER_POLL = 5.0       # after a problem: look for the run's end this often
+    RECOVER_TIMEOUT = 15 * 60
+    MAX_RECOVERIES = 10      # problems in a row (no run in between) before stopping (user)
     INVITE_POLL = 10.0       # and for the friend's invite this often
     INVITE_TIMEOUT = 30 * 60
     START_TIMEOUT = 30 * 60  # waiting for the host to start
@@ -463,7 +466,8 @@ class HardModeAutorun(Task):
         """Get into the friend's team: "team" once on the team screen, "run" if
         already in a run (started mid-run: play it from here). Otherwise accept
         their Hard Chapters invite: look for the banner every 10s (and for the
-        team screen every 2s), up to 30 minutes. None on a stop or a timeout."""
+        team screen every 2s), up to 30 minutes. None on a stop or a timeout,
+        "problem" if an accept went wrong."""
         friend = self.params["friend"]
         start = time.time()
         next_banner = start
@@ -487,8 +491,7 @@ class HardModeAutorun(Task):
                                          or self._in_run(ctx, f),
                                          prefix="hard-mode join")
                     if got is None:
-                        self._snap(ctx, "hard-join-accept")
-                        return None
+                        return None if ctx.should_stop() else "problem"
                     if got:
                         return "team"
             if self._sleep(ctx, self.JOIN_POLL):
@@ -506,6 +509,7 @@ class HardModeAutorun(Task):
         if their start failed). Other screens (loading, transitions): wait."""
         friend, agreed = self.params["friend"], self.params["chapter"]
         start = time.time()
+        self.start_problem = None  # set when it returns False for a problem
         is_set = False          # the multiple is set (or given up) for the agreed chapter
         other = unread = None   # what was last logged, so it's logged once
         while time.time() - start < self.START_TIMEOUT:
@@ -549,6 +553,8 @@ class HardModeAutorun(Task):
                         started=lambda f: self._in_run(ctx, f),
                         prefix="hard-mode join", quiet=True)
                     if got is None:
+                        self.start_problem = None if ctx.should_stop() else \
+                            "a new invite couldn't be accepted"
                         return False
                     if got:
                         ctx.log.info("hard-mode join: moved to %s's new room", friend)
@@ -726,6 +732,11 @@ class HardModeAutorun(Task):
         return False
 
     def _join_loop(self, ctx: Context) -> None:
+        """Run after run. Something going wrong doesn't end the task (user,
+        2026-10-11: "add some durability"): it's logged with a screenshot, the bot
+        waits for the run to end (_recover) and starts the loop over. A stop ends
+        it at once; MAX_RECOVERIES problems in a row with no run in between end it
+        too (something is really broken)."""
         if not self.params["friend"].strip():
             ctx.log.warning("hard-mode join: no Friend set -> enter their in-game name, "
                             "or set defaults: friend: in config.local.yaml")
@@ -734,37 +745,84 @@ class HardModeAutorun(Task):
         total = self.params["runs"]
         ctx.log.info("hard-mode join: %s's chapter %d at %dx, %d run(s)",
                      self.params["friend"], self.params["chapter"], multiple, total)
-        done = 0
+        done = problems = 0
         while done < total and not ctx.should_stop():
-            where = self._join(ctx)
-            if where is None:
+            try:
+                outcome = self._one_run(ctx, done + 1, total)
+            except Exception as e:  # noqa: BLE001 - a bug mustn't end the task either
+                ctx.log.exception("hard-mode join: error")
+                outcome = f"an error ({e})"
+            if outcome == "stop" or ctx.should_stop():
                 break
-            if where == "team" and not self._wait_host_start(ctx, done + 1, total):
-                self._snap(ctx, "hard-join-start")
-                break
-            result = self._play_joined(ctx)
-            if result in ("success", "failure") and not self.played:
-                # a result screen the bot didn't play (started on it): close it
-                ctx.log.info("hard-mode join: a result from before the start -> "
-                             "closing it, not counted")
-                if not self._dismiss_result(ctx):
-                    self._snap(ctx, "hard-join-result")
+            if outcome == "done":
+                done += 1
+                problems = 0
+            elif outcome != "again":  # a problem: say what, wait for the end, go again
+                problems += 1
+                if problems > self.MAX_RECOVERIES:
+                    ctx.log.warning("hard-mode join: %d problems in a row -> stopping",
+                                    problems)
                     break
-                continue
-            if result == "no run":
-                ctx.log.info("hard-mode join: back on a team screen with no run played "
-                             "(kicked? the host can re-invite) -> waiting again")
-                continue
-            ctx.log.info("hard-mode join: run %d/%d result: %s", done + 1, total, result)
-            if result in ("success", "failure"):
-                if not self._dismiss_result(ctx):
-                    self._snap(ctx, "hard-join-result")
+                if not self._recover(ctx, outcome):
                     break
-            elif result != "restart":
-                self._snap(ctx, "hard-join-finish")
-                break
-            done += 1
         ctx.log.info("hard-mode join done: %d/%d runs", done, total)
+
+    def _one_run(self, ctx: Context, run_no: int, total: int) -> str:
+        """One pass: join, wait for the start, play, close the result. "done" (a
+        run played), "again" (nothing to count - go round), "stop" (a stop, or no
+        invite / no start in 30 minutes), or what went wrong."""
+        where = self._join(ctx)
+        if where is None:
+            return "stop"  # a stop, or no invite in 30 minutes
+        if where == "problem":
+            return "the invite couldn't be accepted"
+        if where == "team" and not self._wait_host_start(ctx, run_no, total):
+            return self.start_problem or "stop"  # else a stop / no start in 30 min
+        result = self._play_joined(ctx)
+        if result == "stopped":
+            return "stop"
+        if result == "no run":
+            ctx.log.info("hard-mode join: back on a team screen with no run played "
+                         "(kicked? the host can re-invite) -> waiting again")
+            return "again"
+        if result == "timeout":
+            return f"no result within {self.RUN_TIMEOUT // 60} minutes"
+        if result in ("success", "failure") and not self.played:
+            # a result screen the bot didn't play (started on it): close it
+            ctx.log.info("hard-mode join: a result from before the start -> closing it, "
+                         "not counted")
+            return "again" if self._dismiss_result(ctx) else "the result won't close"
+        ctx.log.info("hard-mode join: run %d/%d result: %s", run_no, total, result)
+        if result in ("success", "failure") and not self._dismiss_result(ctx):
+            return "the result won't close"
+        return "done"
+
+    def _recover(self, ctx: Context, why: str) -> bool:
+        """After a problem: wait (checking every 5s, up to RECOVER_TIMEOUT) for the
+        run to end - a Victory / Defeat screen (closed), or back on a team screen or
+        home - so the loop can start over. False on a stop or if nothing turns up."""
+        self._snap(ctx, "hard-join-problem")
+        ctx.log.warning("hard-mode join: %s -> waiting for the run to end, then starting "
+                        "over", why)
+        from .daily import HOME, home_state
+
+        end = time.time() + self.RECOVER_TIMEOUT
+        while time.time() < end:
+            if self._sleep(ctx, self.RECOVER_POLL):
+                return False
+            frame = ctx.frame()
+            if self._present(ctx, "finish_success", frame) or \
+                    self._present(ctx, "finish_failure", frame):
+                ctx.log.info("hard-mode join: the run ended -> closing its result")
+                if self._dismiss_result(ctx):
+                    return True
+                continue
+            if self._team_screen(ctx, frame) or home_state(frame) == HOME:
+                ctx.log.info("hard-mode join: back on a team / home screen -> starting over")
+                return True
+        ctx.log.warning("hard-mode join: nothing turned up in %d minutes -> stopping",
+                        self.RECOVER_TIMEOUT // 60)
+        return False
 
     # --- main loop --------------------------------------------------------
     def run(self, ctx: Context) -> None:
