@@ -290,7 +290,10 @@ class HardModeAutorun(Task):
         return None
 
     def _select_multiple(self, ctx: Context, target: int, run_no: int, total: int,
-                         reset: bool = False) -> bool:
+                         reset: bool = False, guard=None) -> bool:
+        """Set the energy multiple with - / +, checking the cost. `guard` (joining):
+        checked before every tap - once it's false (the host started: the team
+        screen is gone) nothing more is tapped, and it returns False."""
         if target not in VALID_MULTIPLES:
             target = min(VALID_MULTIPLES, key=lambda v: abs(v - target))
         target_i = VALID_MULTIPLES.index(target)
@@ -301,8 +304,12 @@ class HardModeAutorun(Task):
             # there directly (no reset, per the game's behavior). A second attempt
             # resets with '-' (it floors at 1x) in case entry wasn't at 1x; so does
             # every attempt with `reset` (a joiner's screen may hold any multiple).
+            if guard is not None and not guard():
+                return False
             if attempt > 1 or reset:
                 for _ in range(len(VALID_MULTIPLES)):
+                    if guard is not None and not guard():
+                        return False
                     self._click_pos(ctx, MINUS_BTN, "-", "reset to 1x", wait=0.3)
             base = self._read_cost(ctx)  # 1x cost, varies by chapter
             if base is None:
@@ -315,9 +322,13 @@ class HardModeAutorun(Task):
             # matches. Self-heals a missed click without a full reset.
             cur_i = 0  # entry / post-reset state is 1x
             for _ in range(2 + len(VALID_MULTIPLES)):
+                if guard is not None and not guard():
+                    return False
                 delta = target_i - cur_i
                 btn, lbl = (PLUS_BTN, "+") if delta > 0 else (MINUS_BTN, "-")
                 for _ in range(abs(delta)):
+                    if guard is not None and not guard():
+                        return False
                     self._click_pos(ctx, btn, lbl, f"toward {target}x", wait=0.3)
                 cost = self._read_cost(ctx)
                 if cost is None:
@@ -330,7 +341,8 @@ class HardModeAutorun(Task):
                 cur_i = VALID_MULTIPLES.index(cur)
                 ctx.log.info("cost x%s reads as %dx (want x%d for %dx); adjusting",
                              cost, cur, want, target)
-        ctx.log.warning("could not set the %dx multiple reliably -> stopping", target)
+        ctx.log.warning("could not set the %dx multiple reliably%s", target,
+                        "" if guard is not None else " -> stopping")
         return False
 
     # --- phase 3/4: run + wait --------------------------------------------
@@ -416,9 +428,12 @@ class HardModeAutorun(Task):
         return None
 
     def _set_multiple(self, ctx: Context, run_no: int, total: int) -> bool:
-        """Set the multiple, always from 1x (the screen may hold any multiple)."""
+        """Set the multiple, always from 1x (the screen may hold any multiple), and
+        only while the team screen is up: the host can start in the middle of it
+        (2026-10-11: the bot kept tapping - on the first skill screen - and then
+        stopped the task)."""
         return self._select_multiple(ctx, self.params["energy_multiple"], run_no, total,
-                                     reset=True)
+                                     reset=True, guard=lambda: self._team_screen(ctx))
 
     def _in_run(self, ctx: Context, frame) -> bool:
         """In a run already: a battle ("Round: N/15"), a skill screen, an event or
@@ -489,7 +504,12 @@ class HardModeAutorun(Task):
                     ctx.log.info("hard-mode join: chapter %d (agreed) -> set the multiple",
                                  chapter)
                     if not self._set_multiple(ctx, run_no, total):
-                        return False
+                        if ctx.should_stop():
+                            return False
+                        # the host started mid-way (or the cost didn't read): skip
+                        # it this run (user), don't stop
+                        ctx.log.info("hard-mode join: couldn't set the multiple "
+                                     "-> skipped this run")
                     is_set, other = True, None
                     continue
                 if chapter is not None and chapter != agreed:
@@ -542,13 +562,14 @@ class HardModeAutorun(Task):
         stuck_since = None
         in_event = False
         open_taps = 0
-        played = False   # a skill screen, an event or a result was seen
+        played = False   # a skill screen or an event was seen (a result alone isn't:
+        self.played = False  # started on a Victory screen, none of it was played)
         while time.time() - start < self.RUN_TIMEOUT:
             if ctx.should_stop():
                 return "stopped"
             frame = ctx.frame()
             if self._event_up(frame):
-                played = True
+                played = self.played = True
                 sign = self._label_at(frame, SIGN_BUTTON, "sign")
                 if sign is not None and open_taps < OPEN_TAPS:
                     if open_taps == 0:  # its skill is an offering too (user)
@@ -592,7 +613,7 @@ class HardModeAutorun(Task):
             if self._present(ctx, "start_button", frame):
                 return "restart" if played else "no run"
             if skills.on_skill_screen(frame):
-                played = True
+                played = self.played = True
                 got = skills.picks(frame)
                 if got is not None and got[0] > 0:  # picked, still up: a tap didn't take?
                     stuck_since = stuck_since or time.time()
@@ -710,6 +731,14 @@ class HardModeAutorun(Task):
                 self._snap(ctx, "hard-join-start")
                 break
             result = self._play_joined(ctx)
+            if result in ("success", "failure") and not self.played:
+                # a result screen the bot didn't play (started on it): close it
+                ctx.log.info("hard-mode join: a result from before the start -> "
+                             "closing it, not counted")
+                if not self._dismiss_result(ctx):
+                    self._snap(ctx, "hard-join-result")
+                    break
+                continue
             if result == "no run":
                 ctx.log.info("hard-mode join: back on a team screen with no run played "
                              "(kicked? the host can re-invite) -> waiting again")
