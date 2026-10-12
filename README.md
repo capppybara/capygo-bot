@@ -289,9 +289,12 @@ For each run, the bot:
    on each later screen.
 3. Taps OK on the Victory or Defeat screen.
 
-While it waits for the host to start, the bot keeps opening the invitation
-banner. Sometimes the host can't start, leaves, and invites you from a new room;
-the bot then accepts that new invite.
+While it waits for the host to start, the bot opens the invitation banner
+whenever it shows. Sometimes the host can't start, leaves, and invites you from
+a new room; the bot then accepts that new invite. If the banner holds only other
+players' invites, the bot taps Reject all, so the banner comes back only for a
+new invite. If the popup can't be switched to Gulu Mine, it closes the popup
+without rejecting anything.
 
 Where the result screen leaves you tells the bot whether the host stayed. Back
 on the Gulu team screen means the host stayed, so it waits for the next start.
