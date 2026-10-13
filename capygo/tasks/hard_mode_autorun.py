@@ -8,8 +8,9 @@ Per run:
      then click Select.
   2. Set the energy multiple: click + under Start until the shown multiple
      matches the target (one of 1, 2, 3, 5, 10, 20).
-  3. Click Start (confirm the "no teammates" prompt if solo), then poll for the
-     run to finish: the Victory/Defeat screen (tap to dismiss it back to the main
+  3. Click Start (confirm the "no teammates" prompt if solo), then play the run
+     as joining does (_play_joined, user 2026-10-13): pick the skills, handle the
+     events, until the Victory/Defeat screen (tap to dismiss it back to the main
      screen) OR the starting screen already showing (the result screen was
      dismissed by the game or by the user -- count it and go again either way).
   4. On success (or the starting screen returning), run again (chapter + multiple
@@ -168,6 +169,7 @@ class HardModeAutorun(Task):
               help="whose invite to accept (default: friend in config.local.yaml)"),
     ]
 
+    prefix = "hard-mode join"  # log prefix in the run (_play_joined): solo sets its own
     JOIN_POLL = 2.0          # look for the start / the team screen this often
     SKILL_POLL = 2.0         # in the run: look for a skill screen this often
     RUN_TIMEOUT = 15 * 60    # a joined run ends well before this
@@ -183,8 +185,6 @@ class HardModeAutorun(Task):
     MULTIPLE_TAPS = 3         # taps that don't move the multiple before leaving it
 
     STEP_WAIT = 0.8       # settle after a menu click
-    FINISH_POLL = 30.0    # seconds between finish-screen checks
-    FINISH_TIMEOUT = 600  # give up waiting for a finish after this many seconds
 
     # --- small helpers ----------------------------------------------------
     def _click(self, ctx: Context, name: str, label: str, reason: str, wait=None) -> bool:
@@ -360,24 +360,6 @@ class HardModeAutorun(Task):
             if remaining <= 0:
                 return False
             time.sleep(min(0.3, remaining))
-
-    def _wait_for_finish(self, ctx: Context) -> str:
-        t0 = time.time()
-        while time.time() - t0 < self.FINISH_TIMEOUT:
-            if self._sleep(ctx, self.FINISH_POLL):  # interruptible poll interval
-                return "stopped"
-            frame = ctx.frame()
-            # Already back on the starting screen (Start button showing): the run
-            # ended and the result screen was dismissed for us -- by the game, or
-            # by the user tapping it. Count it and move on, win or lose, instead
-            # of waiting out the timeout for a Victory/Defeat screen that's gone.
-            if self._present(ctx, "start_button", frame):
-                return "restart"
-            if self._present(ctx, "finish_failure", frame):
-                return "failure"
-            if self._present(ctx, "finish_success", frame):
-                return "success"
-        return "timeout"
 
     def _tap_until_main(self, ctx: Context, timeout: float = 45) -> bool:
         """Tap the results screen(s) back to main, re-tapping until Start returns.
@@ -611,7 +593,7 @@ class HardModeAutorun(Task):
                     continue
                 if not in_event:  # once per event: its screen, for building handlers
                     shot = save_snapshot(ctx, "hard-event")
-                    ctx.log.info("hard-mode join: an event (left to its countdown)%s",
+                    ctx.log.info("%s: an event (left to its countdown)%s", self.prefix,
                                  f"; screen saved: {shot}" if shot else "")
                 in_event = True
                 if self._sleep(ctx, self.SKILL_POLL):
@@ -632,17 +614,17 @@ class HardModeAutorun(Task):
                     stuck_since = stuck_since or time.time()
                     if time.time() - stuck_since >= skills.RESELECT_AFTER:
                         stuck_since = None
-                        if not skills.finish_screen(ctx, got, "hard-mode join"):
+                        if not skills.finish_screen(ctx, got, self.prefix):
                             return "stopped"
                         continue
                 else:
                     stuck_since = None
                 if got is not None and got[0] == 0:
-                    ctx.log.info("hard-mode join: skill screen (%d pick%s)", got[1],
+                    ctx.log.info("%s: skill screen (%d pick%s)", self.prefix, got[1],
                                  "s" if got[1] > 1 else "")
                     if self._sleep(ctx, skills.SKILL_SETTLE):
                         return "stopped"
-                    if not skills.pick_screen(ctx, got[1] == 2, "hard-mode join", mode="hard"):
+                    if not skills.pick_screen(ctx, got[1] == 2, self.prefix, mode="hard"):
                         return "stopped"
                     continue  # look again at once: the next screen may be up
                 if self._sleep(ctx, 0.5):
@@ -675,7 +657,7 @@ class HardModeAutorun(Task):
             if self._sleep(ctx, 0.5):
                 return False
         self._snap(ctx, "hard-treasure-pick")
-        ctx.log.info("hard-mode join: no skill screen after Open")
+        ctx.log.info("%s: no skill screen after Open", self.prefix)
         return True
 
     @staticmethod
@@ -838,6 +820,7 @@ class HardModeAutorun(Task):
         if self.params.get("join"):
             self._join_loop(ctx)
             return
+        self.prefix = "hard-mode"
         chapter = self.params["chapter"]
         multiple = self.params["energy_multiple"]
         total = self.params["runs"]
@@ -878,7 +861,13 @@ class HardModeAutorun(Task):
                 ctx.log.warning("run did not start (not enough energy) -> stopping")
                 break
 
-            result = self._wait_for_finish(ctx)
+            # The run itself as joining plays it (user, 2026-10-13): pick the skills,
+            # handle the events, until the result. Solo's own end and stop-on-a-loss
+            # stay. "no run" (Start back with no skill screen seen) still means the
+            # run ended: it launched (checked above).
+            result = self._play_joined(ctx)
+            if result == "no run":
+                result = "restart"
             ctx.log.info("run %d/%d result: %s", run_no, total, result)
             if result == "success":
                 if not self._tap_until_main(ctx):

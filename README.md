@@ -391,8 +391,9 @@ Start is red, not blue). Joining, anywhere: it waits for the friend's invite.
 | Join a friend's run | off | On: join the friend's Hard Chapters runs instead of running solo |
 | Host (joining) | from `config.local.yaml` | Whose invite to accept. Change it to play with someone else |
 
-Each solo run it selects the chapter, sets the multiple, presses Start, and waits for
-the result. It checks the energy cost on the Start button to confirm the
+Each solo run it selects the chapter, sets the multiple, presses Start, and plays
+the run the same way joining does (below): it picks the skills and handles the
+events until the result. It checks the energy cost on the Start button to confirm the
 multiple. It stops early when a run is lost, when energy runs short, or when
 Hard Mode is off.
 
