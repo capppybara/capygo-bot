@@ -6,8 +6,10 @@ Events -> Arena tab -> Holy Grail War -> "Hero Plaza" -> Schedule -> "Qualifiers
 and flow as the Martial Arts Qualifiers, so this is martial-arts-tournament with
 its own layout (user, 2026-10-11: "similar to martial-arts-tournament"). The
 differences (user):
-  1. A challenge takes 2 tickets ("8/2"): with a set number of fights, up to 2
-     tickets are bought per fight (one per Purchase, Challenge again after each).
+  1. A challenge takes 2 tickets ("8/2"): with a set number of fights, a fight
+     with too few tickets buys 2 at once - the Purchase popup's + set to 2 (user,
+     2026-10-13: a normal run never leaves an odd one). Should the quantity not
+     read 2, it buys what it shows, and Challenge's next Purchase buys the rest.
      With 0, the run ends when Challenge opens the Purchase popup (under 2 left).
   2. It's 2v2: each row is a team, and its power is the two players' total
      (checked: 1.54T + 1.02T on "Team Details" = the row's 2.57T). So "Your team
@@ -36,9 +38,9 @@ from decimal import Decimal
 import cv2
 
 from ..geometry import Rel, RelRect
-from ..perception import NAME_LANGUAGES, ocr_lines
+from ..perception import NAME_LANGUAGES, ocr_lines, read_int
 from ..task import Context, Param, register
-from .daily import find_sprite
+from .daily import _crop, find_sprite
 from .event import TABS, go_events
 from .event_holy_grail_war import HolyGrailWar
 from .event_plaza import SELECT_TITLE, TITLE_REGION
@@ -55,6 +57,8 @@ NAME_READS = (3, 4, 2)                              # upscales: read the name at
 NAME_PAD = 20                                       # px of border: a crop edge cut "H"
 TEAM_TITLE = RelRect(0.25, 0.255, 0.50, 0.050)      # "Team Details" (row tapped)
 TEAM_CLOSE = (320, 762)                             # its X, if the sprite isn't found
+QTY = RelRect(0.436, 0.478, 0.125, 0.042)           # the Purchase popup's quantity ("1")
+QTY_PLUS, QTY_MINUS = (392, 472), (251, 472)        # its + and -
 
 
 def read_team_name(frame, points_y: float) -> tuple[str, bool]:
@@ -92,7 +96,8 @@ class HolyGrailWarFights(MartialArtsTournament):
     TAG = "hgw"
     LAYOUT = HGW
     MY_POINTS = MY_POINTS
-    BUYS_PER_FIGHT = 2          # user: a challenge takes 2 tickets
+    TICKETS_PER_BUY = 2         # user: a challenge takes 2 tickets - buy both at once
+    BUYS_PER_FIGHT = 2          # a 2nd purchase only if the quantity wouldn't go to 2
     team, team_note = "", ""    # the fought team's name, for the log
     PARAMS = [
         Param("my_cp", "float", 6.41, "Your team power (T)", min=0.01, max=10000,
@@ -167,6 +172,26 @@ class HolyGrailWarFights(MartialArtsTournament):
         pvp.record_team(ctx, result, my_power=cp, my_points=my_points,
                         team=self.team, power=foe.power, points=foe.points,
                         note=self.team_note)
+
+    def _set_quantity(self, ctx: Context) -> int | None:
+        """Set the Purchase popup's quantity to TICKETS_PER_BUY with its + (or -,
+        should a tap have gone one too far). Returns what it reads at the end
+        (what gets bought), None on a stop."""
+        want = self.TICKETS_PER_BUY
+        for _ in range(4):
+            n = read_int(_crop(ctx.frame(), QTY))
+            if n is None or n == want:
+                break
+            up = n < want
+            if not self._tap(ctx, _px(QTY_PLUS if up else QTY_MINUS),
+                             f"{'+' if up else '-'} (ticket quantity {n} -> {want})", 0.6):
+                return None
+        else:
+            n = read_int(_crop(ctx.frame(), QTY))
+        if n != want:
+            self._log.warning("the ticket quantity reads %s, not %d -> buying that",
+                              n if n is not None else "?", want)
+        return n or 1
 
     def _wrong_screen(self, frame) -> bool:
         """Team Details: the Challenge tap landed on the row instead."""

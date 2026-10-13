@@ -486,7 +486,8 @@ there's nothing to fight and it stops.
 How it differs from Martial Arts Tournament:
 
 - **2 tickets a fight.** The Challenge button shows your tickets as "8/2". With a
-  number of fights set, it buys up to 2 tickets for each fight it can't afford.
+  number of fights set, it buys 2 tickets at once for each fight it can't afford:
+  it taps + in the Purchase popup until the quantity reads 2, then buys.
 - **Teams.** Tapping a row anywhere except Challenge opens Team Details (the two
   players). The bot never taps there on purpose and closes Team Details if it
   shows up.

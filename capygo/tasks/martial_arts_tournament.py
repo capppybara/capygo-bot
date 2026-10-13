@@ -261,7 +261,8 @@ class MartialArtsTournament(Task):
     TAG = "martial"              # log prefix
     LAYOUT = MARTIAL             # the Qualifiers list
     MY_POINTS = MY_POINTS        # your points under the list
-    BUYS_PER_FIGHT = 1           # tickets bought for one challenge, at most
+    BUYS_PER_FIGHT = 1           # purchases for one challenge, at most
+    TICKETS_PER_BUY = 1          # tickets a purchase buys (the popup opens at 1)
     PARAMS = [
         Param("my_cp", "float", 4.7, "Your CP (T)", min=0.01, max=10000,
               help="your power in trillions; opponents are compared against it"),
@@ -603,8 +604,12 @@ class MartialArtsTournament(Task):
             self._close_purchase(ctx)
             return False
         cx, cy = button
-        self._log.info("out of tickets -> buying one (a set number of attacks)")
-        if not self._tap(ctx, Rel(cx / w, cy / h), "Purchase (1 ticket)", 2.0):
+        n = self._set_quantity(ctx)
+        if n is None:
+            return False
+        self._log.info("out of tickets -> buying %d (a set number of attacks)", n)
+        if not self._tap(ctx, Rel(cx / w, cy / h),
+                         f"Purchase ({n} ticket{'s' if n > 1 else ''})", 2.0):
             return False
         if tap_to_close_up(ctx.frame()):
             self._tap(ctx, _px(TITLE_TAP), "close the reward")
@@ -614,6 +619,11 @@ class MartialArtsTournament(Task):
             self._close_purchase(ctx)
             return False
         return True
+
+    def _set_quantity(self, ctx: Context) -> int | None:
+        """The Purchase popup's quantity, set before buying: TICKETS_PER_BUY.
+        Martial buys 1, as the popup opens. None on a stop."""
+        return 1
 
     def _close_purchase(self, ctx: Context) -> None:
         """Close the ticket Purchase popup. Never buys."""
