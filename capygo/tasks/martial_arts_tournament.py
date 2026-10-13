@@ -218,6 +218,26 @@ def best(foes: list[Foe], cap: Decimal) -> Foe | None:
     return max(ok, key=lambda f: (f.points, -f.power), default=None)
 
 
+def purchase_popup(frame) -> tuple[tuple[int, int] | None, bool]:
+    """The ticket Purchase popup: (its Purchase button's px centre, or None; whether
+    it looks like real money). The popup spans its "Purchase" title (the top
+    "purchase" line) to its button (the lowest); only the text inside that band
+    and the middle of the screen counts for the money check - the list behind it
+    showed through once: a Challenge button's ticket icon read as "$" ("$ 1/2"),
+    and the second ticket of a Holy Grail War fight wasn't bought (2026-10-13)."""
+    h, w = frame.shape[:2]
+    lines = [(t.lower(), cx, cy) for t, cx, cy in ocr_lines(frame)]
+    buttons = [(cx, cy) for t, cx, cy in lines if "purchase" in t or t.strip() == "buy"]
+    if len(buttons) < 2:
+        return None, False
+    top = min(b[1] for b in buttons) - 0.01 * h
+    bottom = max(b[1] for b in buttons) + 0.04 * h
+    inside = " ".join(t for t, cx, cy in lines
+                      if top <= cy <= bottom and 0.12 * w <= cx <= 0.88 * w)
+    money = "top up" in inside or "top-up" in inside or "$" in inside
+    return max(buttons, key=lambda b: b[1]), money
+
+
 def next_snipe(hhmm: str = SNIPE_UTC, now: datetime | None = None) -> datetime:
     """The next time `hhmm` (UTC) comes round. 13:50 UTC = 6:50 AM Pacific in
     summer, 5:50 AM in winter."""
@@ -570,21 +590,19 @@ class MartialArtsTournament(Task):
         looks like real money. True once the popup has closed."""
         frame = ctx.frame()
         h, w = frame.shape[:2]
-        lines = [(t.lower(), cx, cy) for t, cx, cy in ocr_lines(frame)]
-        words = " ".join(t for t, _, _ in lines)
-        if "top up" in words or "top-up" in words or "$" in words:
+        button, money = purchase_popup(frame)
+        if money:
             self._log.warning("the ticket popup looks like real money -> not "
-                            "buying")
+                              "buying")
             self._snapshot(ctx, "ticket-popup")
             self._close_purchase(ctx)
             return False
-        buttons = [(cx, cy) for t, cx, cy in lines if "purchase" in t or t.strip() == "buy"]
-        if len(buttons) < 2:  # need the title AND a button below it
+        if button is None:  # need the title AND a button below it
             self._log.warning("no Purchase button found on the ticket popup")
             self._snapshot(ctx, "ticket-popup")
             self._close_purchase(ctx)
             return False
-        cx, cy = max(buttons, key=lambda b: b[1])
+        cx, cy = button
         self._log.info("out of tickets -> buying one (a set number of attacks)")
         if not self._tap(ctx, Rel(cx / w, cy / h), "Purchase (1 ticket)", 2.0):
             return False
