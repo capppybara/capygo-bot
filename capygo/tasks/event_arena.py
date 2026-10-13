@@ -224,7 +224,6 @@ class AutoArena(EventTask):
         ctx.log.info("%s: %d attacks (%d victories, %d defeats), points %s -> %s",
                      self.name, len(results), results.count("victory"),
                      results.count("defeat"), start_points, end_points)
-        pvp.summarize(ctx)  # the players' win rates (user, 2026-10-13)
         return go_events(ctx)  # back arrow -> the Events screen, for the next event
 
     def _attack(self, ctx: Context, n: int, my_power: Decimal,

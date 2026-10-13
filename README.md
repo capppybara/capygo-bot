@@ -566,7 +566,7 @@ nothing. The bot then closes the popup and goes home. Each synthesis takes about
 | `~/Downloads/capy-bot/` | CSV exports and comparison graphs |
 | `~/Downloads/capy-bot/pvp/fights.csv` | Every arena and martial fight: the season (martial only), the opponent's UID, name, power, stats and weapon, and `won` (1 = won, 0 = lost, blank = not known) |
 | `~/Downloads/capy-bot/pvp/holy-grail-war.csv` | Every Holy Grail War fight: the season, the team's name, power and points, and `won` |
-| `~/Downloads/capy-bot/pvp/players.csv` | One row per arena and martial opponent (by UID): fights, wins, losses, win rate, and their latest fight. Rebuilt from `fights.csv` at the end of every Arena and Martial Arts run |
+| `~/Downloads/capy-bot/pvp/players.csv` | One row per arena and martial opponent (by UID): fights, wins, losses, win rate, and their latest fight. Rebuilt from `fights.csv` after every fight, so it's always current |
 | `~/Downloads/capy-bot/pvp/profiles/` | Each opponent's profile screen |
 | `~/Downloads/capy-bot/pvp/weapons/unknown-N.png` | Each weapon not seen before, saved the first time it shows up. Rename the file to the weapon's name to teach it. |
 | `~/Downloads/capy-bot/pvp/weapons/unknown.csv` | When each unknown weapon was first seen, and on whose profile |

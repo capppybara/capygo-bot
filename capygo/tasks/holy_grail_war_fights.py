@@ -236,9 +236,6 @@ class HolyGrailWarFights(MartialArtsTournament):
         """Team Details: the Challenge tap landed on the row instead."""
         return "team details" in _words(frame, TEAM_TITLE)
 
-    def _summarize(self, ctx: Context) -> None:
-        """No player summary: the team log has no UIDs."""
-
     def _scroll(self, ctx: Context, drag) -> None:
         super()._scroll(ctx, drag)
         self._close_team(ctx)  # a drag taken as a tap opens Team Details

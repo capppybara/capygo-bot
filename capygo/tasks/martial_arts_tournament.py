@@ -309,7 +309,6 @@ class MartialArtsTournament(Task):
             return
         done = self._attacks(ctx, cp, Decimal(str(p["ratio"])), p["max_attacks"], deadline)
         self._log.info("%d attack(s) in %.0fs", done, time.time() - started)
-        self._summarize(ctx)
         go_home(ctx)
 
     # --- getting there -----------------------------------------------------------
@@ -617,10 +616,6 @@ class MartialArtsTournament(Task):
     def _wrong_screen(self, frame) -> bool:
         """After Challenge: a screen that means the tap missed (none here)."""
         return False
-
-    def _summarize(self, ctx: Context) -> None:
-        """End of the run: rebuild the players' win rates (pvp.summarize; user)."""
-        pvp.summarize(ctx)
 
     def _ok(self, ctx: Context) -> bool:
         """The result's OK: the arena's spot if it reads there, else wherever "OK"
