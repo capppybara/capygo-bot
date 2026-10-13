@@ -444,7 +444,12 @@ For each attack the bot:
 
 1. Scrolls the list a little so all 6 opponents show, and reads each one's power
    and points. B and T are converted (1T = 1000B).
-2. Fights the one with the most points whose power is below the ratio x your CP.
+2. Fights the one with the most points whose power is below the ratio x your CP,
+   skipping a player you've fought 5 or more times and beaten less than 40% of
+   the time (arena and martial fights together, by UID). The UID is on their
+   profile, so once anyone in the log has 5 fights, the bot opens candidates'
+   profiles best first until one passes. That's the profile the fight log opens
+   anyway, so it only costs time (about 4 seconds) for each player it skips.
 3. If none qualifies, taps Refresh (free or paid) and looks again, raising the
    ratio by 0.1 each time: 1.1, 1.2, up to 1.6 after 5 refreshes. If there is
    still none, it stops.
@@ -561,6 +566,7 @@ nothing. The bot then closes the popup and goes home. Each synthesis takes about
 | `~/Downloads/capy-bot/` | CSV exports and comparison graphs |
 | `~/Downloads/capy-bot/pvp/fights.csv` | Every arena and martial fight: the season (martial only), the opponent's UID, name, power, stats and weapon, and `won` (1 = won, 0 = lost, blank = not known) |
 | `~/Downloads/capy-bot/pvp/holy-grail-war.csv` | Every Holy Grail War fight: the season, the team's name, power and points, and `won` |
+| `~/Downloads/capy-bot/pvp/players.csv` | One row per arena and martial opponent (by UID): fights, wins, losses, win rate, and their latest fight. Rebuilt from `fights.csv` at the end of every Arena and Martial Arts run |
 | `~/Downloads/capy-bot/pvp/profiles/` | Each opponent's profile screen |
 | `~/Downloads/capy-bot/pvp/weapons/unknown-N.png` | Each weapon not seen before, saved the first time it shows up. Rename the file to the weapon's name to teach it. |
 | `~/Downloads/capy-bot/pvp/weapons/unknown.csv` | When each unknown weapon was first seen, and on whose profile |

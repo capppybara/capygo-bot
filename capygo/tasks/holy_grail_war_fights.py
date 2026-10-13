@@ -56,7 +56,7 @@ from .event_plaza import SELECT_TITLE, TITLE_REGION
 from .invites import same_name
 from .martial_arts_tournament import (LIST_Y, SCHEDULE_BTN, SNIPE_UTC, STAGE_TITLE,
                                       TITLE_TAP, Foe, ListLayout, MartialArtsTournament,
-                                      _px, _words, read_foes, tickets)
+                                      _px, _words, best, read_foes, tickets)
 from . import pvp
 
 HGW = ListLayout(power_x=(186, 250), points_x=(288, 345), find_x=(288, 345),
@@ -183,7 +183,7 @@ class HolyGrailWarFights(MartialArtsTournament):
         latest fight with you this season was a loss."""
         lost = [n for n, won in pvp.team_results().items() if won == "0"]
         if ctx.dry_run or not lost:
-            return super()._pick(ctx, foes, cap, frame, before)
+            return best(foes, cap)  # not martial's _pick: no profiles here
         for foe in sorted((f for f in foes if f.power < cap),
                           key=lambda f: (-f.points, f.power)):
             name = self._name_on(foe, frame, before)
@@ -235,6 +235,9 @@ class HolyGrailWarFights(MartialArtsTournament):
     def _wrong_screen(self, frame) -> bool:
         """Team Details: the Challenge tap landed on the row instead."""
         return "team details" in _words(frame, TEAM_TITLE)
+
+    def _summarize(self, ctx: Context) -> None:
+        """No player summary: the team log has no UIDs."""
 
     def _scroll(self, ctx: Context, drag) -> None:
         super()._scroll(ctx, drag)

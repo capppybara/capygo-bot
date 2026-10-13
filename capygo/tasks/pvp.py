@@ -13,6 +13,7 @@ list shows - the team's name, power and points - and the result (user,
 
 Everything stays on this Mac, outside the repo:
   ~/Downloads/capy-bot/pvp/fights.csv           one row per fight
+  ~/Downloads/capy-bot/pvp/players.csv          one row per opponent: win rate (summarize)
   ~/Downloads/capy-bot/pvp/holy-grail-war.csv   one row per Holy Grail War fight
   ~/Downloads/capy-bot/pvp/profiles/*.png       each opponent's profile screen
   ~/Downloads/capy-bot/pvp/weapons/unknown-N.png weapon pictures to label
@@ -179,6 +180,84 @@ def record_team(ctx: Context, result: str | None, *, my_power: Decimal | None,
         "opp_points": "" if points is None else points,
         "note": note,
     })
+
+
+PLAYERS_CSV = os.path.join("pvp", "players.csv")
+# One row per opponent (by UID), arena and martial together: rebuilt from
+# fights.csv at the end of each arena and martial run (user, 2026-10-13), and
+# read by martial's pick. fights / wins / losses / win_rate: fights with a known
+# result; unknown: the rest. name, last_*: their latest fight.
+PLAYER_COLUMNS = ["uid", "name", "fights", "wins", "losses", "win_rate", "unknown",
+                  "arena", "martial", "last_fight_utc", "last_won", "last_power"]
+
+
+def _player_rows() -> list[dict]:
+    """fights.csv aggregated by opponent UID (PLAYER_COLUMNS), most fights first.
+    Raises OSError without a log."""
+    with open(output_path(FIGHTS_CSV), newline="", encoding="utf-8") as f:
+        fights = sorted(csv.DictReader(f), key=lambda r: r.get("time_utc", ""))
+    players: dict[str, dict] = {}
+    for r in fights:
+        uid = r.get("opp_uid", "")
+        if not uid:
+            continue
+        p = players.setdefault(uid, {"uid": uid, "fights": 0, "wins": 0, "losses": 0,
+                                     "unknown": 0, "arena": 0, "martial": 0})
+        result = r.get("won", "")
+        p["fights"] += result in ("0", "1")
+        p["wins"] += result == "1"
+        p["losses"] += result == "0"
+        p["unknown"] += result not in ("0", "1")
+        if r.get("mode") in ("arena", "martial"):
+            p[r["mode"]] += 1
+        p["name"] = r.get("opp_name") or p.get("name", "")
+        p["last_fight_utc"], p["last_won"] = r.get("time_utc", ""), result
+        p["last_power"] = r.get("opp_power", "")
+    for p in players.values():
+        p["win_rate"] = f"{p['wins'] / p['fights']:.3f}" if p["fights"] else ""
+    return sorted(players.values(), key=lambda p: (-p["fights"], p["uid"]))
+
+
+def summarize(ctx: Context) -> None:
+    """Rebuild players.csv from fights.csv. Run at the end of each arena and
+    martial run. Never raises: a side job."""
+    if ctx.dry_run:
+        return
+    try:
+        rows = _player_rows()
+    except OSError:
+        return  # no fights logged yet
+    try:
+        path = output_path(PLAYERS_CSV)
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=PLAYER_COLUMNS)
+            w.writeheader()
+            w.writerows(rows)
+        ctx.log.info("pvp: %d players' win rates -> %s", len(rows), path)
+    except OSError as e:
+        ctx.log.warning("pvp: couldn't write the player summary: %s", e)
+
+
+def player_records() -> dict[str, tuple[int, int]]:
+    """Your record against each opponent, all time, arena and martial together
+    (user, 2026-10-13: same players, same 1v1 fights): uid -> (wins, fights with a
+    known result). From players.csv (summarize), or fights.csv when it's missing.
+    {} without either."""
+    try:
+        with open(output_path(PLAYERS_CSV), newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+    except OSError:
+        try:
+            rows = _player_rows()
+        except OSError:
+            return {}
+    rec = {}
+    for r in rows:
+        try:
+            rec[str(r["uid"])] = (int(r["wins"]), int(r["fights"]))
+        except (KeyError, ValueError):
+            continue
+    return rec
 
 
 def team_results() -> dict[str, str]:

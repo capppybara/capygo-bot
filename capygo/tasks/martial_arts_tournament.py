@@ -25,6 +25,11 @@ Normal mode attacks until the tickets run out. Sniping mode waits for the next
 13:50 UTC (6:50 AM Pacific in summer, 5:50 AM in winter: 10 minutes before the
 round closes at 14:00 UTC, so 5 minutes before challenges stop) and uses every
 attack then; it stops starting new fights 20 seconds before the 5-minute cutoff.
+Picking (user, 2026-10-13): a player fought 5+ times (arena and martial, all
+time, by UID) and beaten under 40% of the time is skipped. The UID needs their
+profile, so when anyone in the log has 5+ fights, candidates are scouted best
+first (the profile the fight log opens anyway) until one passes; otherwise the
+pick is as before and the profile is opened just before the fight.
 Sniping starts 1 minute before that with a game restart (user, 2026-10-12: a
 clean game for it; a fight froze in 10-06's snipe), closing the start-up
 notices, then goes straight to the list; the cutoff is unchanged.
@@ -86,6 +91,8 @@ FIGHT_TIMEOUT = 15.0
 PURCHASE_TEXT = RelRect(0.10, 0.20, 0.80, 0.35)    # out of tickets: "Purchase ..." popup
 PURCHASE_CLOSE = Rel(0.5, 0.714)                   # its X, if the sprite isn't found
 NO_TICKETS, STUCK = "no tickets", "stuck"
+SKIP_MIN_FIGHTS = 5       # user: skip a player only after this many fights with them
+SKIP_BELOW = 0.40         # ... and a win rate below this
 RESTARTS = 1              # restart the game at most this often per run (a stuck
                           # fight; the restart before a snipe doesn't count)
 RESTART_LEAD = 60         # sniping: restart the game this long before the snipe (user)
@@ -262,6 +269,8 @@ class MartialArtsTournament(Task):
     LAYOUT = MARTIAL             # the Qualifiers list
     MY_POINTS = MY_POINTS        # your points under the list
     BUYS_PER_FIGHT = 1           # purchases for one challenge, at most
+    opponent = None              # the fight's scouted profile (pvp.scout)
+    pick_failed = False          # _pick hit a problem: stop rather than refresh
     TICKETS_PER_BUY = 1          # tickets a purchase buys (the popup opens at 1)
     PARAMS = [
         Param("my_cp", "float", 4.7, "Your CP (T)", min=0.01, max=10000,
@@ -300,6 +309,7 @@ class MartialArtsTournament(Task):
             return
         done = self._attacks(ctx, cp, Decimal(str(p["ratio"])), p["max_attacks"], deadline)
         self._log.info("%d attack(s) in %.0fs", done, time.time() - started)
+        self._summarize(ctx)
         go_home(ctx)
 
     # --- getting there -----------------------------------------------------------
@@ -383,11 +393,12 @@ class MartialArtsTournament(Task):
                 self._tap(ctx, SKIP_BTN, "Skip")
                 self._tap(ctx, OK_BTN, "OK")
                 return 1
+            self.opponent = None  # _choose may scout the pick already (_pick)
+            self.pick_failed = False
             foe = self._choose(ctx, cp, base)
             if foe is None:
                 break
             points = re.sub(r"\D", "", _words(ctx.frame(), self.MY_POINTS))
-            self.opponent = None
             result = self._fight(ctx, foe, buy=limit > 0)
             if result not in (None, NO_TICKETS):  # a fight happened: log it
                 self._record(ctx, result, cp, int(points) if points else None, foe)
@@ -428,6 +439,8 @@ class MartialArtsTournament(Task):
                 self._log.info("  %sT, %d points%s", f.power, f.points,
                              "" if f.power < cap else "  (too strong)")
             foe = self._pick(ctx, foes, cap, frame, before)
+            if self.pick_failed or ctx.should_stop():
+                return None
             if foe is not None:
                 self._log.info("pick %sT, %d points (below %sx = %.2fT; "
                              "tickets %s)", foe.power, foe.points, ratio, cap, left)
@@ -530,13 +543,66 @@ class MartialArtsTournament(Task):
     def _pick(self, ctx: Context, foes: list[Foe], cap: Decimal, frame,
               before) -> Foe | None:
         """The opponent to fight among `foes` (read off `frame`; `before`: the list
-        before the scroll): the most points below the power cap."""
-        return best(foes, cap)
+        before the scroll): the most points below the power cap, skipping a player
+        fought SKIP_MIN_FIGHTS+ times and beaten under SKIP_BELOW of them (user,
+        2026-10-13). Their UID comes from their profile: candidates are scouted
+        best first, until one passes - only when someone in the log has enough
+        fights to be skipped (else no extra profiles). The returned foe's y is
+        where it is on screen now. None: nobody (refresh); self.pick_failed: stop."""
+        records = pvp.player_records()
+        if ctx.dry_run or not self.params.get("scout", True) or not any(
+                n >= SKIP_MIN_FIGHTS for _, n in records.values()):
+            return best(foes, cap)
+        current = foes
+        for cand in sorted((f for f in foes if f.power < cap),
+                           key=lambda f: (-f.points, f.power)):
+            foe, current = self._locate(ctx, cand, current)
+            if foe is None:
+                self._log.warning("lost track of %sT, %d points -> next", cand.power,
+                                  cand.points)
+                continue
+            self.opponent = pvp.scout(ctx, _px((PIC_X, foe.y + PIC_DY)), "martial")
+            if not self._back_on_qualifiers(ctx):
+                self.pick_failed = True
+                return None
+            uid = self.opponent.uid if self.opponent else None
+            wins, n = records.get(uid, (0, 0)) if uid else (0, 0)
+            if n >= SKIP_MIN_FIGHTS and wins / n < SKIP_BELOW:
+                self._log.info("skip uid %s (%sT, %d points): won %d of %d against "
+                               "them (%.0f%%)", uid, foe.power, foe.points, wins, n,
+                               100 * wins / n)
+                self.opponent = None
+                continue
+            if n:
+                self._log.info("uid %s: won %d of %d against them", uid, wins, n)
+            return foe
+        return None
+
+    def _locate(self, ctx: Context, cand: Foe, current: list[Foe]
+                ) -> tuple[Foe | None, list[Foe]]:
+        """`cand` where its Challenge is fully on screen: as read (`current`), or
+        after scrolling the list up (row 1) or down (row 6) and reading it again.
+        (foe or None, the rows now on screen)."""
+        lay = self.LAYOUT
+
+        def tappable(f: Foe) -> bool:
+            return lay.tappable[0] <= f.y + lay.challenge_dy <= lay.tappable[1]
+
+        def same(f: Foe) -> bool:
+            return f.power == cand.power and f.points == cand.points
+        hit = next((f for f in current if same(f)), None)
+        if hit is not None and tappable(hit):
+            return hit, current
+        up = hit is not None and hit.y + lay.challenge_dy < lay.tappable[0]
+        self._scroll(ctx, SCROLL_UP if up else SCROLL_DOWN)
+        current = read_foes(ctx.frame(), lay)
+        hit = next((f for f in current if same(f)), None)
+        return (hit if hit is not None and tappable(hit) else None), current
 
     def _before_fight(self, ctx: Context, foe: Foe) -> bool:
         """The fight log (user, 2026-10-09): look at the opponent's profile first.
         False if the list didn't come back after it."""
-        if self.params.get("scout", True):
+        if self.params.get("scout", True) and self.opponent is None:  # not by _pick
             self.opponent = pvp.scout(ctx, _px((PIC_X, foe.y + PIC_DY)), "martial")
             if not ctx.dry_run and not self._back_on_qualifiers(ctx):
                 return False
@@ -551,6 +617,10 @@ class MartialArtsTournament(Task):
     def _wrong_screen(self, frame) -> bool:
         """After Challenge: a screen that means the tap missed (none here)."""
         return False
+
+    def _summarize(self, ctx: Context) -> None:
+        """End of the run: rebuild the players' win rates (pvp.summarize; user)."""
+        pvp.summarize(ctx)
 
     def _ok(self, ctx: Context) -> bool:
         """The result's OK: the arena's spot if it reads there, else wherever "OK"
