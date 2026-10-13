@@ -25,6 +25,8 @@ Normal mode attacks until the tickets run out. Sniping mode waits for the next
 13:50 UTC (6:50 AM Pacific in summer, 5:50 AM in winter: 10 minutes before the
 round closes at 14:00 UTC, so 5 minutes before challenges stop) and uses every
 attack then; it stops starting new fights 20 seconds before the 5-minute cutoff.
+Sniping restarts the game 1 minute before the snipe (user, 2026-10-12: a clean
+game for it; a fight froze in 10-06's snipe), then opens the list at the snipe.
 """
 
 from __future__ import annotations
@@ -83,7 +85,10 @@ FIGHT_TIMEOUT = 15.0
 PURCHASE_TEXT = RelRect(0.10, 0.20, 0.80, 0.35)    # out of tickets: "Purchase ..." popup
 PURCHASE_CLOSE = Rel(0.5, 0.714)                   # its X, if the sprite isn't found
 NO_TICKETS, STUCK = "no tickets", "stuck"
-RESTARTS = 1              # restart the game at most this often per run
+RESTARTS = 1              # restart the game at most this often per run (a stuck
+                          # fight; the restart before a snipe doesn't count)
+RESTART_LEAD = 60         # sniping: restart the game this long before the snipe (user)
+RESTART_MIN = 45          # ... unless less than this is left (a restart takes ~30s)
 FIGHT_SETTLE = 2.0        # user (arena): a couple of seconds before Skip
 SKIP_RETRY = 5.0         # user: tap Skip every 5 seconds while it shows
 RESULT_TIMEOUT = 30.0    # user: Skip still showing after 30s = stuck
@@ -262,7 +267,7 @@ class MartialArtsTournament(Task):
             local = at.astimezone().strftime("%a %-I:%M %p %Z")
             self._log.info("sniping - waiting until %s (%s UTC)", local,
                          at.strftime("%H:%M"))
-            if not self._wait_until(ctx, at):
+            if not (self._fresh_start(ctx, at) and self._wait_until(ctx, at)):
                 return
             deadline = at + WINDOW - timedelta(seconds=CUTOFF_MARGIN)
         started = time.time()
@@ -273,7 +278,26 @@ class MartialArtsTournament(Task):
         go_home(ctx)
 
     # --- getting there -----------------------------------------------------------
-    def _wait_until(self, ctx: Context, at: datetime) -> bool:
+    def _fresh_start(self, ctx: Context, at: datetime) -> bool:
+        """Sniping: restart the game RESTART_LEAD before the snipe at `at`, so it
+        runs on a fresh game. Started later than that: at once, unless under
+        RESTART_MIN is left (then skipped). A failed restart is logged and the
+        snipe goes on. False only on a stop."""
+        if not self._wait_until(ctx, at - timedelta(seconds=RESTART_LEAD),
+                                "to the restart before the snipe"):
+            return False
+        left = (at - datetime.now(timezone.utc)).total_seconds()
+        if left < RESTART_MIN and not ctx.dry_run:
+            self._log.info("%.0fs to the snipe: too close for a restart -> skipping it",
+                           left)
+            return True
+        if not restart_game(ctx, "a fresh game for the snipe"):
+            if ctx.should_stop():
+                return False
+            self._log.warning("the restart before the snipe failed -> sniping anyway")
+        return True
+
+    def _wait_until(self, ctx: Context, at: datetime, what: str = "to go") -> bool:
         """Sleep until `at`, keeping the Mac awake (caffeinate) and stoppable."""
         keep_awake = None
         if not ctx.dry_run:
@@ -289,7 +313,7 @@ class MartialArtsTournament(Task):
                 if left <= 0 or ctx.dry_run:
                     return True
                 if time.time() >= next_note:
-                    self._log.info("%s to go", str(timedelta(seconds=int(left))))
+                    self._log.info("%s %s", str(timedelta(seconds=int(left))), what)
                     next_note = time.time() + (600 if left > 900 else 60)
                 if wait(ctx, min(5.0, left)):
                     return False

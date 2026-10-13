@@ -461,7 +461,9 @@ next 13:50 UTC: 6:50 AM Pacific in summer, 5:50 AM in winter. The round closes a
 14:00 UTC and challenges stop 5 minutes before that, so it has 5 minutes. It
 stops starting fights 20 seconds before the cutoff. One attack takes about 15
 seconds, so 9 tickets take about 2.5 minutes. While it waits it keeps the Mac
-awake; the app must stay open and the game window visible.
+awake; the app must stay open and the game window visible. One minute before the
+snipe it restarts the game (about 30 seconds), so the snipe runs on a fresh
+game. With less than 45 seconds to go, it skips the restart.
 
 ## Holy Grail War
 
@@ -493,7 +495,8 @@ How it differs from Martial Arts Tournament:
   English, Korean, Japanese and Chinese, three times each; the most common read
   is kept, and the `note` column says when the reads differed.
 
-Sniping waits for the next 13:50 UTC, like Martial Arts. The Qualifiers run for
+Sniping waits for the next 13:50 UTC and restarts the game a minute before,
+like Martial Arts. The Qualifiers run for
 more than a day and close at 14:00 UTC (7:00 AM Pacific in summer), so start it
 on the last day.
 
