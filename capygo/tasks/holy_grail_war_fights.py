@@ -17,7 +17,8 @@ differences (user):
      opens "Team Details" (the two players, an X below): never tapped on purpose,
      closed whenever it shows up.
   3. No profile scouting: the log is pvp/holy-grail-war.csv (pvp.record_team) with
-     the team's name, power and points as the list shows them, and the result.
+     the team's name, power and points as the list shows them, the result, and
+     the season (pvp.season: one every 4 weeks from Saturday 2026-10-10).
      The name is read with Vision's accurate model and Korean / Japanese /
      Chinese on (English alone dropped "팀카피" entirely), three times at
      different sizes, keeping the most common read.
@@ -112,6 +113,10 @@ class HolyGrailWarFights(MartialArtsTournament):
         Param("snipe_utc", "str", SNIPE_UTC, "Snipe time (UTC, HH:MM)", hidden=True,
               help="for tests: -p snipe_utc=HH:MM; the cutoff is 5 minutes later"),
     ]
+
+    def run(self, ctx: Context) -> None:
+        ctx.log.info("hgw: Holy Grail War season %d", pvp.season())
+        super().run(ctx)
 
     # --- getting there -----------------------------------------------------------
     def _on_list(self, frame) -> bool:

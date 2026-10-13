@@ -9,7 +9,7 @@ is logged and the fight goes on.
 
 Holy Grail War (2v2) fights get their own log, record_team(): only what the
 list shows - the team's name, power and points - and the result (user,
-2026-10-11).
+2026-10-11), plus the season (season(): user, 2026-10-13).
 
 Everything stays on this Mac, outside the repo:
   ~/Downloads/capy-bot/pvp/fights.csv           one row per fight
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import csv
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from ..geometry import Rel
@@ -46,10 +46,24 @@ COLUMNS = [
 
 
 TEAM_CSV = os.path.join("pvp", "holy-grail-war.csv")
-# my_power: your team's power (the task's setting, both players); my_points and
-# opp_points from the list, like fights.csv; opp_team as the list shows it.
-TEAM_COLUMNS = ["time_utc", "won", "my_power", "my_points", "opp_team", "opp_power",
-                "opp_points", "note"]
+# season: season(); my_power: your team's power (the task's setting, both
+# players); my_points and opp_points from the list, like fights.csv; opp_team as
+# the list shows it.
+TEAM_COLUMNS = ["time_utc", "season", "won", "my_power", "my_points", "opp_team",
+                "opp_power", "opp_points", "note"]
+# Holy Grail War seasons (user, 2026-10-13): each starts on a Saturday and lasts a
+# week, one every 4 weeks. Season 1 started Saturday 2026-10-10 (the first one
+# logged); the number goes up by itself.
+SEASON_ONE = date(2026, 10, 10)
+SEASON_EVERY = 28   # days
+
+
+def season(when: datetime | None = None) -> int:
+    """The Holy Grail War season `when` (default: now) falls in: 1 for the one
+    that started 2026-10-10, 2 from 2026-11-07, ... Between seasons (the three
+    weeks off), the last one that started. By the UTC date."""
+    when = when or datetime.now(timezone.utc)
+    return (when.astimezone(timezone.utc).date() - SEASON_ONE).days // SEASON_EVERY + 1
 
 
 def _t(v: Decimal | None) -> str:
@@ -137,8 +151,11 @@ def record_team(ctx: Context, result: str | None, *, my_power: Decimal | None,
     first time). Never raises: the log is a side job."""
     if ctx.dry_run:
         return
+    now = datetime.now(timezone.utc)
+    _upgrade_team_csv(ctx)
     _append(ctx, TEAM_CSV, TEAM_COLUMNS, {
-        "time_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "time_utc": now.isoformat(timespec="seconds"),
+        "season": season(now),
         "won": won(result),
         "my_power": _t(my_power),
         "my_points": "" if my_points is None else my_points,
@@ -147,6 +164,32 @@ def record_team(ctx: Context, result: str | None, *, my_power: Decimal | None,
         "opp_points": "" if points is None else points,
         "note": note,
     })
+
+
+def _upgrade_team_csv(ctx: Context) -> None:
+    """A holy-grail-war.csv from before the season column: add it to every row
+    (from its time_utc), keeping a copy as holy-grail-war-before-season.csv.bak.
+    Never raises."""
+    path = output_path(TEAM_CSV)
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+            header = rows[0].keys() if rows else []
+    except OSError:
+        return  # no log yet: it's written with the season column
+    if not rows or "season" in header:
+        return
+    try:
+        os.replace(path, path.replace(".csv", "-before-season.csv.bak"))
+        for r in rows:
+            r["season"] = season(datetime.fromisoformat(r["time_utc"]))
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=TEAM_COLUMNS, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(rows)
+        ctx.log.info("pvp: added the season column to %s", path)
+    except (OSError, ValueError, KeyError) as e:
+        ctx.log.warning("pvp: couldn't add the season column: %s", e)
 
 
 def _append(ctx: Context, rel_path: str, columns: list[str], row: dict) -> None:

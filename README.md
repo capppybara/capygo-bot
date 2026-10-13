@@ -492,13 +492,19 @@ How it differs from Martial Arts Tournament:
   players). The bot never taps there on purpose and closes Team Details if it
   shows up.
 - **Its own log.** No profiles are opened. Each fight adds a row to
-  `~/Downloads/capy-bot/pvp/holy-grail-war.csv`: the team's name, power and
-  points as the list shows them, your points, and `won`. Names are read in
+  `~/Downloads/capy-bot/pvp/holy-grail-war.csv`: the season, the team's name,
+  power and points as the list shows them, your points, and `won`. Names are read in
   English, Korean, Japanese and Chinese, three times each; the most common read
   is kept, and the `note` column says when the reads differed.
 
 Sniping starts at 13:49 UTC with a game restart, then goes straight to the
-fights, like Martial Arts. The Qualifiers run for
+fights, like Martial Arts.
+
+**Seasons.** A Holy Grail War season starts on a Saturday and lasts a week, and
+a new one starts every 4 weeks. The bot counts them itself: season 1 started
+Saturday 2026-10-10, season 2 starts 2026-11-07, and so on. Each fight's row
+gets the season it was fought in; a fight between seasons counts toward the last
+one that started. The Qualifiers run for
 more than a day and close at 14:00 UTC (7:00 AM Pacific in summer), so start it
 on the last day.
 
@@ -543,7 +549,7 @@ nothing. The bot then closes the popup and goes home. Each synthesis takes about
 | `logs/failed-<chore>-<time>.png` | The screen when an Auto Daily chore failed |
 | `~/Downloads/capy-bot/` | CSV exports and comparison graphs |
 | `~/Downloads/capy-bot/pvp/fights.csv` | Every arena and martial fight: the opponent's UID, name, power, stats and weapon, and `won` (1 = won, 0 = lost, blank = not known) |
-| `~/Downloads/capy-bot/pvp/holy-grail-war.csv` | Every Holy Grail War fight: the team's name, power and points, and `won` |
+| `~/Downloads/capy-bot/pvp/holy-grail-war.csv` | Every Holy Grail War fight: the season, the team's name, power and points, and `won` |
 | `~/Downloads/capy-bot/pvp/profiles/` | Each opponent's profile screen |
 | `~/Downloads/capy-bot/pvp/weapons/unknown-N.png` | Each weapon not seen before, saved the first time it shows up. Rename the file to the weapon's name to teach it. |
 | `~/Downloads/capy-bot/pvp/weapons/unknown.csv` | When each unknown weapon was first seen, and on whose profile |
