@@ -281,6 +281,8 @@ class MartialArtsTournament(Task):
 
     def run(self, ctx: Context) -> None:
         self._log = _Tagged(ctx.log, {"tag": self.TAG})
+        if pvp.season(self.TAG) is not None:
+            self._log.info("season %d", pvp.season(self.TAG))
         p = self.params
         cp = Decimal(str(p["my_cp"]))
         deadline = None

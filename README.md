@@ -456,6 +456,11 @@ Out of tickets, Challenge opens a ticket Purchase popup instead of a fight. With
 **Attacks** at 0 the bot closes it and finishes. With a number set, it always
 does that many attacks, buying a ticket each time it runs out.
 
+**Seasons.** A Martial Arts season starts on a Saturday and lasts 2 weeks, back
+to back. Season 1 started Saturday 2026-10-03, season 2 starts 2026-10-17, and
+so on. Each fight's row in `fights.csv` gets its season; arena rows leave it
+blank.
+
 **Normal mode** attacks until the tickets run out. **Sniping mode** waits for the
 next 13:50 UTC: 6:50 AM Pacific in summer, 5:50 AM in winter. The round closes at
 14:00 UTC and challenges stop 5 minutes before that, so it has 5 minutes. It
@@ -504,7 +509,7 @@ fights, like Martial Arts.
 a new one starts every 4 weeks. The bot counts them itself: season 1 started
 Saturday 2026-10-10, season 2 starts 2026-11-07, and so on. Each fight's row
 gets the season it was fought in; a fight between seasons counts toward the last
-one that started. The Qualifiers run for
+one that started. Martial Arts has seasons too (see Martial Arts Tournament). The Qualifiers run for
 more than a day and close at 14:00 UTC (7:00 AM Pacific in summer), so start it
 on the last day.
 
@@ -548,7 +553,7 @@ nothing. The bot then closes the popup and goes home. Each synthesis takes about
 | `logs/<task>-<time>.log` | A log of every run |
 | `logs/failed-<chore>-<time>.png` | The screen when an Auto Daily chore failed |
 | `~/Downloads/capy-bot/` | CSV exports and comparison graphs |
-| `~/Downloads/capy-bot/pvp/fights.csv` | Every arena and martial fight: the opponent's UID, name, power, stats and weapon, and `won` (1 = won, 0 = lost, blank = not known) |
+| `~/Downloads/capy-bot/pvp/fights.csv` | Every arena and martial fight: the season (martial only), the opponent's UID, name, power, stats and weapon, and `won` (1 = won, 0 = lost, blank = not known) |
 | `~/Downloads/capy-bot/pvp/holy-grail-war.csv` | Every Holy Grail War fight: the season, the team's name, power and points, and `won` |
 | `~/Downloads/capy-bot/pvp/profiles/` | Each opponent's profile screen |
 | `~/Downloads/capy-bot/pvp/weapons/unknown-N.png` | Each weapon not seen before, saved the first time it shows up. Rename the file to the weapon's name to teach it. |

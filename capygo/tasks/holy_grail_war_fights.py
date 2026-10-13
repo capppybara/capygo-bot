@@ -114,10 +114,6 @@ class HolyGrailWarFights(MartialArtsTournament):
               help="for tests: -p snipe_utc=HH:MM; the cutoff is 5 minutes later"),
     ]
 
-    def run(self, ctx: Context) -> None:
-        ctx.log.info("hgw: Holy Grail War season %d", pvp.season())
-        super().run(ctx)
-
     # --- getting there -----------------------------------------------------------
     def _on_list(self, frame) -> bool:
         """This mode's Qualifiers list is up: the title, and "N/2" tickets on the

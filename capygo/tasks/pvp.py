@@ -9,7 +9,7 @@ is logged and the fight goes on.
 
 Holy Grail War (2v2) fights get their own log, record_team(): only what the
 list shows - the team's name, power and points - and the result (user,
-2026-10-11), plus the season (season(): user, 2026-10-13).
+2026-10-11). Both logs have a season column (season(): user, 2026-10-13).
 
 Everything stays on this Mac, outside the repo:
   ~/Downloads/capy-bot/pvp/fights.csv           one row per fight
@@ -38,7 +38,7 @@ PROFILES_DIR = os.path.join("pvp", "profiles")
 # from the opponent list when the profile couldn't be read (user; noted then).
 # opp_points: always from the list (a profile shows no points).
 COLUMNS = [
-    "time_utc", "mode", "won",
+    "time_utc", "mode", "season", "won",
     "my_power", "my_points", "opp_points",
     "opp_uid", "opp_name", "opp_power", "opp_hp", "opp_atk", "opp_def", "opp_weapon",
     "power_ratio", "profile_png", "note",
@@ -46,24 +46,30 @@ COLUMNS = [
 
 
 TEAM_CSV = os.path.join("pvp", "holy-grail-war.csv")
-# season: season(); my_power: your team's power (the task's setting, both
+# season: season("hgw"); my_power: your team's power (the task's setting, both
 # players); my_points and opp_points from the list, like fights.csv; opp_team as
 # the list shows it.
 TEAM_COLUMNS = ["time_utc", "season", "won", "my_power", "my_points", "opp_team",
                 "opp_power", "opp_points", "note"]
-# Holy Grail War seasons (user, 2026-10-13): each starts on a Saturday and lasts a
-# week, one every 4 weeks. Season 1 started Saturday 2026-10-10 (the first one
-# logged); the number goes up by itself.
-SEASON_ONE = date(2026, 10, 10)
-SEASON_EVERY = 28   # days
+# Seasons (user, 2026-10-13), each starting on a Saturday; the number goes up by
+# itself. Holy Grail War: a week long, one every 4 weeks; season 1 started
+# 2026-10-10. Martial Arts: every 2 weeks, back to back; season 1 is the one that
+# started 2026-10-03 (season 2 starts 2026-10-17). The arena has none (blank).
+SEASONS = {           # mode: (season 1's first day, days from one season to the next)
+    "hgw": (date(2026, 10, 10), 28),
+    "martial": (date(2026, 10, 3), 14),
+}
 
 
-def season(when: datetime | None = None) -> int:
-    """The Holy Grail War season `when` (default: now) falls in: 1 for the one
-    that started 2026-10-10, 2 from 2026-11-07, ... Between seasons (the three
-    weeks off), the last one that started. By the UTC date."""
+def season(mode: str, when: datetime | None = None) -> int | None:
+    """The season `when` (default: now) falls in for `mode` ("hgw", "martial"),
+    or None for a mode without seasons. Between Holy Grail War seasons (its
+    three weeks off): the last one that started. By the UTC date."""
+    if mode not in SEASONS:
+        return None
+    first, every = SEASONS[mode]
     when = when or datetime.now(timezone.utc)
-    return (when.astimezone(timezone.utc).date() - SEASON_ONE).days // SEASON_EVERY + 1
+    return (when.astimezone(timezone.utc).date() - first).days // every + 1
 
 
 def _t(v: Decimal | None) -> str:
@@ -123,9 +129,12 @@ def record(ctx: Context, mode: str, result: str | None, *, my_power: Decimal | N
         notes.append("power from the list")
     ratio = (f"{power / my_power:.3f}" if power is not None and my_power
              else "")
+    now = datetime.now(timezone.utc)
+    n = season(mode, now)
     row_data = {
-        "time_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "time_utc": now.isoformat(timespec="seconds"),
         "mode": mode,
+        "season": "" if n is None else n,
         "won": won(result),
         "my_power": _t(my_power),
         "my_points": "" if my_points is None else my_points,
@@ -141,6 +150,7 @@ def record(ctx: Context, mode: str, result: str | None, *, my_power: Decimal | N
         "profile_png": p.screenshot,
         "note": "; ".join(notes),
     }
+    _upgrade_csv(ctx, FIGHTS_CSV, COLUMNS, lambda r: r.get("mode", ""))
     _append(ctx, FIGHTS_CSV, COLUMNS, row_data)
 
 
@@ -152,10 +162,10 @@ def record_team(ctx: Context, result: str | None, *, my_power: Decimal | None,
     if ctx.dry_run:
         return
     now = datetime.now(timezone.utc)
-    _upgrade_team_csv(ctx)
+    _upgrade_csv(ctx, TEAM_CSV, TEAM_COLUMNS, lambda r: "hgw")
     _append(ctx, TEAM_CSV, TEAM_COLUMNS, {
         "time_utc": now.isoformat(timespec="seconds"),
-        "season": season(now),
+        "season": season("hgw", now),
         "won": won(result),
         "my_power": _t(my_power),
         "my_points": "" if my_points is None else my_points,
@@ -166,25 +176,25 @@ def record_team(ctx: Context, result: str | None, *, my_power: Decimal | None,
     })
 
 
-def _upgrade_team_csv(ctx: Context) -> None:
-    """A holy-grail-war.csv from before the season column: add it to every row
-    (from its time_utc), keeping a copy as holy-grail-war-before-season.csv.bak.
+def _upgrade_csv(ctx: Context, rel_path: str, columns: list[str], mode_of) -> None:
+    """A log from before the season column: add it to every row (from its
+    time_utc and mode_of(row)), keeping a copy as <name>-before-season.csv.bak.
     Never raises."""
-    path = output_path(TEAM_CSV)
+    path = output_path(rel_path)
     try:
         with open(path, newline="", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
-            header = rows[0].keys() if rows else []
     except OSError:
         return  # no log yet: it's written with the season column
-    if not rows or "season" in header:
+    if not rows or "season" in rows[0]:
         return
     try:
         os.replace(path, path.replace(".csv", "-before-season.csv.bak"))
         for r in rows:
-            r["season"] = season(datetime.fromisoformat(r["time_utc"]))
+            n = season(mode_of(r), datetime.fromisoformat(r["time_utc"]))
+            r["season"] = "" if n is None else n
         with open(path, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=TEAM_COLUMNS, extrasaction="ignore")
+            w = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
             w.writeheader()
             w.writerows(rows)
         ctx.log.info("pvp: added the season column to %s", path)
