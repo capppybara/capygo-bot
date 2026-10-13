@@ -23,6 +23,14 @@ differences (user):
      Chinese on (English alone dropped "팀카피" entirely), three times at
      different sizes, keeping the most common read.
 
+Picking (user, 2026-10-13): this season's log is looked up by team name. A team
+whose latest fight with you this season was a loss is skipped (logged); a team
+never fought, or beaten last time, is picked as in martial - the most points
+below the power cap. Names are read only when this season has a loss logged,
+best candidate first, until one isn't excluded. Row 1's name is cut off after
+the scroll, so it's read on the list as it was before the scroll. Names match
+loosely (invites.same_name), so an OCR slip still finds the team.
+
 Layout (642x951, seen 2026-10-11): rows 78px apart; a row's name at its points'
 y - 29 (x 150..420), power at x 186..250 and points at x 288..345 on the points'
 line, Challenge's label at the points' y - 8 and the "8/2" at y - 25. After the
@@ -45,9 +53,10 @@ from .daily import _crop, find_sprite
 from .event import TABS, go_events
 from .event_holy_grail_war import HolyGrailWar
 from .event_plaza import SELECT_TITLE, TITLE_REGION
-from .martial_arts_tournament import (SCHEDULE_BTN, SNIPE_UTC, STAGE_TITLE, TITLE_TAP, Foe,
-                                      ListLayout, MartialArtsTournament, _px, _words,
-                                      read_foes, tickets)
+from .invites import same_name
+from .martial_arts_tournament import (LIST_Y, SCHEDULE_BTN, SNIPE_UTC, STAGE_TITLE,
+                                      TITLE_TAP, Foe, ListLayout, MartialArtsTournament,
+                                      _px, _words, read_foes, tickets)
 from . import pvp
 
 HGW = ListLayout(power_x=(186, 250), points_x=(288, 345), find_x=(288, 345),
@@ -167,6 +176,35 @@ class HolyGrailWarFights(MartialArtsTournament):
         self._log.info("team %r%s", self.team or "?",
                        f" ({self.team_note})" if self.team_note else "")
         return True
+
+    def _pick(self, ctx: Context, foes: list[Foe], cap: Decimal, frame,
+              before) -> Foe | None:
+        """Martial's pick (the most points below the cap), skipping a team whose
+        latest fight with you this season was a loss."""
+        lost = [n for n, won in pvp.team_results().items() if won == "0"]
+        if ctx.dry_run or not lost:
+            return super()._pick(ctx, foes, cap, frame, before)
+        for foe in sorted((f for f in foes if f.power < cap),
+                          key=lambda f: (-f.points, f.power)):
+            name = self._name_on(foe, frame, before)
+            if not name or not any(same_name(name, n) for n in lost):
+                return foe
+            self._log.info("skip %r (%sT, %d points): lost to them last time this "
+                           "season", name, foe.power, foe.points)
+        return None
+
+    @staticmethod
+    def _name_on(foe: Foe, frame, before) -> str:
+        """The team name of `foe`'s row: on `frame` if its name shows there, else on
+        `before` (the list before the scroll: row 1). "" if not read."""
+        def shows(y: float) -> bool:
+            return y + NAME_DY - NAME_HALF >= LIST_Y[0]
+        if shows(foe.y):
+            return read_team_name(frame, foe.y)[0]
+        for f in read_foes(before, HGW) if before is not None else []:
+            if f.power == foe.power and f.points == foe.points and shows(f.y):
+                return read_team_name(before, f.y)[0]
+        return ""
 
     def _record(self, ctx: Context, result: str, cp: Decimal, my_points: int | None,
                 foe: Foe) -> None:

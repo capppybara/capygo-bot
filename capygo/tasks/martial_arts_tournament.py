@@ -417,6 +417,7 @@ class MartialArtsTournament(Task):
         """Scroll down, read all 6, pick; refresh (up to 5, ratio +0.1 each)."""
         ratio = base
         for refresh in range(REFRESHES + 1):
+            before = ctx.frame()  # the list before the scroll (row 1's name: hgw)
             self._scroll(ctx, SCROLL_DOWN)
             frame = ctx.frame()
             foes = read_foes(frame, self.LAYOUT)
@@ -426,7 +427,7 @@ class MartialArtsTournament(Task):
             for f in foes:
                 self._log.info("  %sT, %d points%s", f.power, f.points,
                              "" if f.power < cap else "  (too strong)")
-            foe = best(foes, cap)
+            foe = self._pick(ctx, foes, cap, frame, before)
             if foe is not None:
                 self._log.info("pick %sT, %d points (below %sx = %.2fT; "
                              "tickets %s)", foe.power, foe.points, ratio, cap, left)
@@ -526,6 +527,12 @@ class MartialArtsTournament(Task):
         return STUCK if stuck else None
 
     # --- per-mode hooks (holy_grail_war_fights.py overrides these) ----------------
+    def _pick(self, ctx: Context, foes: list[Foe], cap: Decimal, frame,
+              before) -> Foe | None:
+        """The opponent to fight among `foes` (read off `frame`; `before`: the list
+        before the scroll): the most points below the power cap."""
+        return best(foes, cap)
+
     def _before_fight(self, ctx: Context, foe: Foe) -> bool:
         """The fight log (user, 2026-10-09): look at the opponent's profile first.
         False if the list didn't come back after it."""

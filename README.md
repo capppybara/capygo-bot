@@ -490,6 +490,12 @@ there's nothing to fight and it stops.
 
 How it differs from Martial Arts Tournament:
 
+- **It remembers this season.** Before picking, it looks up each team in this
+  season's log by name. A team that beat you the last time you fought them this
+  season is skipped (the log says so). A team you haven't fought this season, or
+  beat last time, is picked as usual: the most points below the power limit.
+  Fights from the same run count, so a loss is remembered right away.
+
 - **2 tickets a fight.** The Challenge button shows your tickets as "8/2". With a
   number of fights set, it buys 2 tickets at once for each fight it can't afford:
   it taps + in the Purchase popup until the quantity reads 2, then buys.

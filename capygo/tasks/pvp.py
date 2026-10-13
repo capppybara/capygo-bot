@@ -181,6 +181,25 @@ def record_team(ctx: Context, result: str | None, *, my_power: Decimal | None,
     })
 
 
+def team_results() -> dict[str, str]:
+    """Holy Grail War: each team's latest result this season, by name as logged
+    ("1" won, "0" lost, "" not known), from holy-grail-war.csv - the fights this
+    run logged included. {} outside a season week or without a log."""
+    now = season("hgw")
+    if now is None:
+        return {}
+    try:
+        with open(output_path(TEAM_CSV), newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+    except OSError:
+        return {}
+    last: dict[str, str] = {}
+    for r in sorted(rows, key=lambda r: r.get("time_utc", "")):
+        if r.get("season") == str(now) and r.get("opp_team"):
+            last[r["opp_team"]] = r.get("won", "")
+    return last
+
+
 def _upgrade_csv(ctx: Context, rel_path: str, columns: list[str], mode_of) -> None:
     """A log from before the season column: add it to every row (from its
     time_utc and mode_of(row)), keeping a copy as <name>-before-season.csv.bak.
