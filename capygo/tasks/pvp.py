@@ -51,25 +51,30 @@ TEAM_CSV = os.path.join("pvp", "holy-grail-war.csv")
 # the list shows it.
 TEAM_COLUMNS = ["time_utc", "season", "won", "my_power", "my_points", "opp_team",
                 "opp_power", "opp_points", "note"]
-# Seasons (user, 2026-10-13), each starting on a Saturday; the number goes up by
-# itself. Holy Grail War: a week long, one every 4 weeks; season 1 started
-# 2026-10-10. Martial Arts: every 2 weeks, back to back; season 1 is the one that
-# started 2026-10-03 (season 2 starts 2026-10-17). The arena has none (blank).
+# Seasons (user, 2026-10-13): each starts on a Saturday and lasts a week; the
+# number goes up by itself. Holy Grail War: one every 4 weeks, season 1 from
+# 2026-10-10. Martial Arts: one every 2 weeks, season 1 from 2026-10-03 (season 2
+# from 2026-10-17). A fight outside a season week, or in the arena: blank.
 SEASONS = {           # mode: (season 1's first day, days from one season to the next)
     "hgw": (date(2026, 10, 10), 28),
     "martial": (date(2026, 10, 3), 14),
 }
+SEASON_DAYS = 7       # a season's length
 
 
 def season(mode: str, when: datetime | None = None) -> int | None:
-    """The season `when` (default: now) falls in for `mode` ("hgw", "martial"),
-    or None for a mode without seasons. Between Holy Grail War seasons (its
-    three weeks off): the last one that started. By the UTC date."""
+    """The season `when` (default: now) falls in for `mode` ("hgw", "martial"):
+    1 for the week from its first day, 2 for the week `every` days later, ...
+    None outside a season week (user: a season lasts one week), before season 1,
+    or for a mode without seasons. By the UTC date."""
     if mode not in SEASONS:
         return None
     first, every = SEASONS[mode]
     when = when or datetime.now(timezone.utc)
-    return (when.astimezone(timezone.utc).date() - first).days // every + 1
+    days = (when.astimezone(timezone.utc).date() - first).days
+    if days < 0 or days % every >= SEASON_DAYS:
+        return None
+    return days // every + 1
 
 
 def _t(v: Decimal | None) -> str:

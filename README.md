@@ -456,10 +456,10 @@ Out of tickets, Challenge opens a ticket Purchase popup instead of a fight. With
 **Attacks** at 0 the bot closes it and finishes. With a number set, it always
 does that many attacks, buying a ticket each time it runs out.
 
-**Seasons.** A Martial Arts season starts on a Saturday and lasts 2 weeks, back
-to back. Season 1 started Saturday 2026-10-03, season 2 starts 2026-10-17, and
-so on. Each fight's row in `fights.csv` gets its season; arena rows leave it
-blank.
+**Seasons.** A Martial Arts season starts on a Saturday and lasts a week, and a
+new one starts every 2 weeks. Season 1 ran 2026-10-03 to 10-09, season 2 runs
+2026-10-17 to 10-23, and so on. Each fight's row in `fights.csv` gets its
+season; a fight outside a season week, and every arena row, leaves it blank.
 
 **Normal mode** attacks until the tickets run out. **Sniping mode** waits for the
 next 13:50 UTC: 6:50 AM Pacific in summer, 5:50 AM in winter. The round closes at
@@ -508,8 +508,8 @@ fights, like Martial Arts.
 **Seasons.** A Holy Grail War season starts on a Saturday and lasts a week, and
 a new one starts every 4 weeks. The bot counts them itself: season 1 started
 Saturday 2026-10-10, season 2 starts 2026-11-07, and so on. Each fight's row
-gets the season it was fought in; a fight between seasons counts toward the last
-one that started. Martial Arts has seasons too (see Martial Arts Tournament). The Qualifiers run for
+gets the season it was fought in; a fight outside a season week gets none.
+Martial Arts has seasons too (see Martial Arts Tournament). The Qualifiers run for
 more than a day and close at 14:00 UTC (7:00 AM Pacific in summer), so start it
 on the last day.
 
