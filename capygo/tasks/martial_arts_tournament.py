@@ -287,7 +287,7 @@ class MartialArtsTournament(Task):
         unless under RESTART_MIN is left (then no restart). A failed restart is
         logged and the snipe goes on. False only on a stop."""
         if not self._wait_until(ctx, at - timedelta(seconds=RESTART_LEAD),
-                                "to the restart before the snipe"):
+                                "until the restart and snipe"):
             return False
         left = (at - datetime.now(timezone.utc)).total_seconds()
         if left < RESTART_MIN and not ctx.dry_run:
