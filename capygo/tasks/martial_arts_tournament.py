@@ -25,8 +25,9 @@ Normal mode attacks until the tickets run out. Sniping mode waits for the next
 13:50 UTC (6:50 AM Pacific in summer, 5:50 AM in winter: 10 minutes before the
 round closes at 14:00 UTC, so 5 minutes before challenges stop) and uses every
 attack then; it stops starting new fights 20 seconds before the 5-minute cutoff.
-Sniping restarts the game 1 minute before the snipe (user, 2026-10-12: a clean
-game for it; a fight froze in 10-06's snipe), then opens the list at the snipe.
+Sniping starts 1 minute before that with a game restart (user, 2026-10-12: a
+clean game for it; a fight froze in 10-06's snipe), closing the start-up
+notices, then goes straight to the list; the cutoff is unchanged.
 """
 
 from __future__ import annotations
@@ -264,10 +265,11 @@ class MartialArtsTournament(Task):
         deadline = None
         if p["sniping"]:
             at = next_snipe(p["snipe_utc"])
-            local = at.astimezone().strftime("%a %-I:%M %p %Z")
-            self._log.info("sniping - waiting until %s (%s UTC)", local,
-                         at.strftime("%H:%M"))
-            if not (self._fresh_start(ctx, at) and self._wait_until(ctx, at)):
+            go = at - timedelta(seconds=RESTART_LEAD)
+            self._log.info("sniping - restarting the game at %s (%s UTC), then fighting "
+                           "until the cutoff", go.astimezone().strftime("%a %-I:%M %p %Z"),
+                           go.strftime("%H:%M"))
+            if not self._fresh_start(ctx, at):
                 return
             deadline = at + WINDOW - timedelta(seconds=CUTOFF_MARGIN)
         started = time.time()
@@ -279,10 +281,11 @@ class MartialArtsTournament(Task):
 
     # --- getting there -----------------------------------------------------------
     def _fresh_start(self, ctx: Context, at: datetime) -> bool:
-        """Sniping: restart the game RESTART_LEAD before the snipe at `at`, so it
-        runs on a fresh game. Started later than that: at once, unless under
-        RESTART_MIN is left (then skipped). A failed restart is logged and the
-        snipe goes on. False only on a stop."""
+        """Sniping's one trigger: RESTART_LEAD before the snipe time `at`, restart
+        the game (it closes the start-up notices), and the snipe goes on at once -
+        no second wait (user, 2026-10-12). Started later than that: at once,
+        unless under RESTART_MIN is left (then no restart). A failed restart is
+        logged and the snipe goes on. False only on a stop."""
         if not self._wait_until(ctx, at - timedelta(seconds=RESTART_LEAD),
                                 "to the restart before the snipe"):
             return False
