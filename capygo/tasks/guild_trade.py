@@ -13,7 +13,9 @@ Rules (user, 2026-10-04):
     below it instead.
   - The map sometimes shows a boat as gold when it isn't: after tapping, the
     panel's banner must be the UR orange too.
-  - Power below 6T, and one of the first 2 cargo slots is a golden chest or 200
+  - Power below 1.2x yours - the arena's rule, your power as the Arena chore last
+    read it (event_arena.last_my_power; user, 2026-10-15; it was a fixed 6T) - and
+    one of the first 2 cargo slots is a golden chest or 200
     badges (the badge emblem, matched by picture, with "x200" under it). Both
     pictures are templates in templates/guild-trade/. Nothing past slot 2 matters, and the
     cargo row is never dragged (a press on an item opens its info).
@@ -47,7 +49,7 @@ from ..geometry import Rel, RelRect
 from ..perception import load_template, ocr_lines
 from ..task import Context, register
 from .daily import NEUTRAL, _crop, find_sprite, tap_to_close_up
-from .event_arena import SKIP_BTN, _power, fight_up
+from .event_arena import MAX_POWER_RATIO, SKIP_BTN, _power, fight_up, last_my_power
 from .guild import GuildTask, go_guild
 
 TITLE = RelRect(0.10, 0.035, 0.32, 0.045)          # "Guild Trade" / "Plunder"
@@ -70,7 +72,6 @@ TEMPLATES = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "templates", "guild-trade")   # chest.png, badge.png
 
 TARGET = 4                 # the game's daily cap
-MAX_POWER = Decimal(6)     # user: < 6T
 MAX_REFRESHES = 30         # Refresh is free, but don't loop forever
 CHEST_MATCH = 0.75         # chest.png: real 0.91-1.00, anything else <= 0.26
 BADGE_MATCH = 0.70         # badge.png (the emblem only): badges 0.86-1.00, else <= 0.42
@@ -201,16 +202,17 @@ def _template(name: str):
     return load_template(os.path.join(TEMPLATES, f"{name}.png"))
 
 
-def why_not(p: Panel) -> str | None:
-    """None if the selected boat is worth plundering, else the reason it isn't."""
+def why_not(p: Panel, cap: Decimal) -> str | None:
+    """None if the selected boat is worth plundering (its owner below `cap`, in T),
+    else the reason it isn't."""
     if not p.ur:
         return "not UR (the map showed gold, the banner doesn't)"
     if p.plundered is None or p.plundered[0] >= p.plundered[1]:
         return f"already plundered ({p.plundered})"
     if p.power is None:
         return "power unreadable"
-    if p.power >= MAX_POWER:
-        return f"too strong ({p.power}T)"
+    if p.power >= cap:
+        return f"too strong ({p.power}T, the limit is {cap}T)"
     if not (p.chest or p.badge):
         return "no chest or 200 badges in the first 2 slots"
     return None
@@ -222,11 +224,22 @@ class GuildTrade(GuildTask):
     LABEL = "Guild trade plunder"
     ICON = "🏴‍☠️"
     DESCRIPTION = ("Guild -> Guild Trade -> Others' Trades: plunder gilded/golden boats "
-                   "under 6T with a chest or 200 badges up front, until 4 are looted, "
-                   "then go back.")
+                   "below 1.2x your power (read by the Arena) with a chest or 200 badges "
+                   "up front, until 4 are looted, then go back.")
     START_HINT = "Start on the main Adventure screen."
+    cap = Decimal(0)    # the owner-power limit, in T (set in run_daily)
 
     def run_daily(self, ctx: Context) -> bool:
+        mine = last_my_power()
+        if mine is None and not ctx.dry_run:
+            self.skip(ctx, "your power isn't known yet: the Arena chore reads it (it "
+                           "runs before this one) - switch it on, or run it once")
+            return True
+        if mine is not None:
+            self.cap = mine[0] * MAX_POWER_RATIO
+            ctx.log.info("%s: plunder below %sT (your %sT, read by the Arena %s, x %s)",
+                         self.name, self.cap, mine[0], mine[1][:16].replace("T", " "),
+                         MAX_POWER_RATIO)
         if not self.open_place(ctx, "guild trade"):
             return False
         if ctx.dry_run:
@@ -316,7 +329,7 @@ class GuildTrade(GuildTask):
                 return None
             if panel is None:
                 continue
-            reason = why_not(panel)
+            reason = why_not(panel, self.cap)
             if reason is not None:
                 ctx.log.info("%s: skip %s boat: %s", self.name, boat.kind, reason)
             elif panel.chest:
@@ -334,7 +347,7 @@ class GuildTrade(GuildTask):
             return None
         if reserve is not last:  # later taps selected other boats: select it again
             panel = self._select(ctx, reserve)
-            if panel is None or why_not(panel) is not None:
+            if panel is None or why_not(panel, self.cap) is not None:
                 ctx.log.info("%s: the 200-badges boat didn't check out again", self.name)
                 return None
         ctx.log.info("%s: no chest boat; plunder the %s boat with 200 badges", self.name,

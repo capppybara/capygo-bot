@@ -211,7 +211,9 @@ hold:
 - the panel's banner is UR orange (the map sometimes shows a boat as gold
   wrongly);
 - the boat can still be plundered;
-- its power is under 6T;
+- its owner's power is below 1.2x yours (the Arena's rule). Your power is the one
+  the Arena chore last read; it runs first. If the Arena has never run, Guild
+  trade skips itself with a note;
 - a golden chest or 200 badges sits in the first two cargo slots.
 
 If the sea has both a chest boat and a badge boat, it takes the chest. A lost
@@ -614,6 +616,7 @@ config.yaml                 window owner name, app path, match threshold, stop k
 config.local.yaml           personal defaults (friend, CP, chapter, ...); git-ignored,
                             see config.local.example.yaml
 data/app_settings.json      each automation's settings from its last Start; git-ignored
+data/my_power.json          your power as the Arena last read it (Guild trade's limit)
 capygo/
   window.py                 find the game window and its position
   capture.py                capture the window as an image

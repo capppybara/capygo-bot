@@ -31,9 +31,12 @@ stops and flags it.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import cv2
@@ -73,6 +76,10 @@ RESULT_TITLE = RelRect(0.25, 0.37, 0.50, 0.08)   # "Victory" / "Defeat"
 OK_BTN = Rel(0.5, 0.937)                         # result screen (replay is at the right
 OK_LABEL = RelRect(0.35, 0.915, 0.30, 0.05)      # edge above it - never tap that)
 MAX_POWER_RATIO = Decimal("1.2")                 # user: fight only below 1.2x my power
+# Your power as the arena last read it: guild trade's plunder cap is the same 1.2x
+# of it (user, 2026-10-15: "read it from arena settings"). In data/ (git-ignored).
+MY_POWER_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "data", "my_power.json")
 MIN_POINT_GAP = 10                               # user: prefer > 10 points above mine
 RUNS = 5
 
@@ -112,6 +119,29 @@ def _power(text: str) -> Decimal | None:
 def _points(text: str) -> int | None:
     digits = (text or "").replace(",", "").strip()
     return int(digits) if digits.isdigit() else None
+
+
+def save_my_power(power: Decimal) -> None:
+    """Remember your power (trillions) as read on the arena. Never raises."""
+    try:
+        os.makedirs(os.path.dirname(MY_POWER_FILE), exist_ok=True)
+        with open(MY_POWER_FILE, "w", encoding="utf-8") as f:
+            json.dump({"power_t": str(power),
+                       "time_utc": datetime.now(timezone.utc).isoformat(timespec="seconds")},
+                      f)
+    except OSError:
+        pass
+
+
+def last_my_power() -> tuple[Decimal, str] | None:
+    """(your power in trillions, when the arena read it - UTC ISO), or None if it
+    never has."""
+    try:
+        with open(MY_POWER_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return Decimal(data["power_t"]), data.get("time_utc", "")
+    except (OSError, ValueError, KeyError, ArithmeticError):
+        return None
 
 
 def read_me(frame) -> tuple[Decimal | None, int | None]:
@@ -205,6 +235,8 @@ class AutoArena(EventTask):
                                   LOAD_TIMEOUT):
                 return False
             power, points = read_me(ctx.frame())
+            if power is not None:
+                save_my_power(power)  # guild trade's cap (last_my_power)
             start_points = start_points if start_points is not None else points
             ctx.log.info("%s: attack %d/%d - you: power %sT, %s points", self.name, n,
                          RUNS, power, points)
