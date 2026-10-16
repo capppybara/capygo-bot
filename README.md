@@ -169,7 +169,8 @@ The log ends with a summary:
    then with the day's purple-cube draws. It skips each draw animation.
 3. **Points chests:** claims every points-bar chest with a red "!".
 4. **Travel:** in Capy Grand Voyage → Travel, it collects a finished travel and
-   sends the team out again for 20 hours.
+   sends the team out again for 20 hours, or for 24 hours before 2 AM UTC
+   (7 PM Pacific in summer, 6 PM in winter).
 
 ### Events
 

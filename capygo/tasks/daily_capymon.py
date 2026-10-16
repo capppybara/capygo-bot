@@ -19,9 +19,10 @@ middle bar) -> the Capymon screen. Then:
   Capymon tab -> "Capy Grand Voyage" -> the sea map -> Travel -> "Travel Team":
     4. A finished travel ("Travel completed") -> Island Travel -> Claim -> close
        the reward.
-    5. The empty slot ("+ Send Capymon...") -> the setup: 24 hours preset, minus
-       once (= 20 hours, checked), Quick (fills the team), Dispatch (energy).
-       Close (X).
+    5. The empty slot ("+ Send Capymon...") -> the setup: 24 hours preset, then
+       minus once (= 20 hours) - unless it's before 02:00 UTC: then 24 hours
+       stays (user, 2026-10-15). The hours are read back before Dispatch. Quick
+       (fills the team), Dispatch (energy). Close (X).
   The voyage map's "adventure" button (bottom-left) goes straight home.
 
 Reward popups are closed by tapping a title ABOVE their dark band (taps on the
@@ -32,6 +33,7 @@ from __future__ import annotations
 
 import re
 import time
+from datetime import datetime, timezone
 
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
@@ -81,12 +83,22 @@ HOURS = RelRect(0.39, 0.747, 0.22, 0.042)        # "20hours"
 QUICK_BTN = Rel(0.349, 0.858)
 DISPATCH_BTN = Rel(0.636, 0.860)
 ADVENTURE_BTN = Rel(0.173, 0.927)                # sea map bottom-left: home
-TRAVEL_HOURS = 20
+TRAVEL_HOURS = 20          # a travel sent from 02:00 UTC on (24h preset, minus once)
+TRAVEL_HOURS_EARLY = 24    # ... sent before then (the preset as is) - user
+EARLY_UNTIL_UTC = 2        # the hour (UTC) that splits them
+MINUS_STEP = 4             # hours one minus takes off
 
 POLL = 0.3
 SETTLE = 1.0
 OPEN_TIMEOUT = 6.0
 REWARD_TIMEOUT = 4.0
+
+
+def travel_hours(now: datetime | None = None) -> int:
+    """How long to send the team: 24 hours before 02:00 UTC, 20 hours after
+    (user, 2026-10-15)."""
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return TRAVEL_HOURS_EARLY if now.hour < EARLY_UNTIL_UTC else TRAVEL_HOURS
 
 
 def _words(frame, region: RelRect) -> str:
@@ -114,7 +126,7 @@ class Capymon(DailyTask):
     ICON = "🃏"
     DESCRIPTION = ("Equip -> Capymon: Card Table gift packs (free + 500 cubes), 10-draws "
                    "until none are left (cubes too), points chests; Grand Voyage travel: "
-                   "collect, then send for 20 hours. Then home.")
+                   "collect, then send for 20 hours (24 before 2 AM UTC). Then home.")
     START_HINT = "Start on the main Adventure screen."
 
     def run_daily(self, ctx: Context) -> bool:
@@ -275,16 +287,22 @@ class Capymon(DailyTask):
         if not self._wait(ctx, lambda: "island travel" in _words(ctx.frame(), ISLAND_TITLE)):
             ctx.log.warning("%s: the travel setup didn't open", self.name)
             return False
-        if not (self.tap(ctx, H24_BTN, "24 hours") and self.tap(ctx, MINUS_BTN, "minus")):
+        want = travel_hours()
+        ctx.log.info("%s: %s UTC -> %d hours", self.name,
+                     datetime.now(timezone.utc).strftime("%H:%M"), want)
+        if not self.tap(ctx, H24_BTN, "24 hours"):
             return False
+        for _ in range((TRAVEL_HOURS_EARLY - want) // MINUS_STEP):
+            if not self.tap(ctx, MINUS_BTN, "minus"):
+                return False
         hours = _words(ctx.frame(), HOURS)
-        if f"{TRAVEL_HOURS}hour" not in hours.replace(" ", ""):
-            self.flag(ctx, f"the travel time read {hours!r}, not {TRAVEL_HOURS} hours; "
+        if f"{want}hour" not in hours.replace(" ", ""):
+            self.flag(ctx, f"the travel time read {hours!r}, not {want} hours; "
                            "didn't dispatch. Send the team by hand.")
             return self._close_x(ctx)
         if not self.tap(ctx, QUICK_BTN, "Quick (fill the team)"):
             return False
-        if not self.tap(ctx, DISPATCH_BTN, f"Dispatch ({TRAVEL_HOURS}h)"):
+        if not self.tap(ctx, DISPATCH_BTN, f"Dispatch ({want}h)"):
             return False
         return self._wait(ctx, lambda: "travel team" in _words(ctx.frame(), TRAVEL_PANEL))
 
