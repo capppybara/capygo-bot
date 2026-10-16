@@ -49,13 +49,13 @@ from decimal import Decimal
 import cv2
 
 from ..geometry import Rel, RelRect
-from ..local import local_default
 from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
 from .daily import (_crop, find_sprite, go_home, save_snapshot, tap, tap_to_close_up,
                     wait)
 from .event import TABS, go_events
-from .event_arena import OK_BTN, OK_LABEL, RESULT_TITLE, SKIP_BTN, _power, fight_up
+from .event_arena import (OK_BTN, OK_LABEL, RESULT_TITLE, SKIP_BTN, _power, fight_up,
+                          last_my_power)
 from . import pvp
 from .event_martial_arts import MartialArts
 from .profile import close_profile, is_open as profile_open
@@ -255,6 +255,16 @@ def next_snipe(hhmm: str = SNIPE_UTC, now: datetime | None = None) -> datetime:
     return t if t > now else t + timedelta(days=1)
 
 
+def cp_seed() -> float:
+    """Your CP's starting value until Martial Arts has its own (user, 2026-10-16):
+    your power as the Arena chore last read it (event_arena.last_my_power), else
+    1.0. The app saves the value at the first Start (data/app_settings.json); from
+    then on that's Martial Arts' own setting, adjusted by hand, and the Arena no
+    longer moves it."""
+    mine = last_my_power()
+    return float(mine[0]) if mine else 1.0
+
+
 def _px(pos: tuple[int, int]) -> Rel:
     return Rel(pos[0] / 642, pos[1] / 951)
 
@@ -274,8 +284,9 @@ class MartialArtsTournament(Task):
     pick_failed = False          # _pick hit a problem: stop rather than refresh
     TICKETS_PER_BUY = 1          # tickets a purchase buys (the popup opens at 1)
     PARAMS = [
-        Param("my_cp", "float", local_default("martial_cp", 1.0), "Your CP (T)", min=0.01, max=10000,
-              help="your power in trillions; opponents are compared against it"),
+        Param("my_cp", "float", cp_seed(), "Your CP (T)", min=0.01, max=10000,
+              help="your power in trillions; opponents are compared against it. "
+                   "Starts from your power as the Arena read it; yours to change"),
         Param("ratio", "float", 1.1, "Power ratio", min=0.5, max=5,
               help="fight only opponents below this x your CP (+0.1 per refresh)"),
         Param("sniping", "bool", False, "Sniping mode",

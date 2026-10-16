@@ -47,8 +47,8 @@ takes a minute. You can also double-click `launch.command` in Finder.
 
 Personal settings live in `config.local.yaml`, which git ignores. Copy
 `config.local.example.yaml` to it and fill in your own values: your friend's
-in-game name (the default Friend for Auto Gulu and hard mode joining), your CP,
-your Holy Grail War team power, your hard mode chapter and multiple, and your
+in-game name (the default Friend for Auto Gulu and hard mode joining), your Holy
+Grail War team power, your hard mode chapter and multiple, and your
 Gulu difficulty. Without it, the app starts from neutral values (1T, chapter 1,
 1x, difficulty 1, no friend).
 
@@ -445,7 +445,7 @@ Schedule (the Qualifiers) itself.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Your CP (T) | from `config.local.yaml` (else 1) | Your power in trillions; opponents are compared against it |
+| Your CP (T) | your power from the Arena (else 1) | Your power in trillions; opponents are compared against it. The first time, it starts from your power as the Arena chore last read it; after your first Start it's Martial Arts' own setting, and you change it by hand |
 | Power ratio | 1.1 | Fight only opponents below this x your CP |
 | Sniping mode | off | Wait for 6:50 AM Pacific and use every attack then |
 | Attacks (0 = until tickets run out) | 0 | 0 uses every ticket and stops. A number: always do that many, buying tickets if needed |
