@@ -8,6 +8,7 @@ controller turns into a graceful loop exit.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -40,6 +41,42 @@ from capygo.task import get_task_class
 from .icons import task_icon_pixmap
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Each automation's settings from its last Start, so they don't need typing again
+# (user, 2026-10-15). In data/, which git ignores: per install. Not the chore
+# switches (they start all on, every time) or hidden settings.
+SAVED_SETTINGS = os.path.join(ROOT, "data", "app_settings.json")
+
+
+def _remembered(p) -> bool:
+    return not p.section and not p.hidden
+
+
+def load_saved(task: str) -> dict:
+    """The settings saved at `task`'s last Start ({} if none or unreadable)."""
+    try:
+        with open(SAVED_SETTINGS, encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get(task, {}) if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(task: str, values: dict) -> None:
+    """Remember `task`'s settings (the other automations' stay). Never raises."""
+    try:
+        with open(SAVED_SETTINGS, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            data = {}
+    except (OSError, ValueError):
+        data = {}
+    data[task] = values
+    try:
+        os.makedirs(os.path.dirname(SAVED_SETTINGS), exist_ok=True)
+        with open(SAVED_SETTINGS, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except OSError:
+        pass
 
 
 class ChoiceSpinBox(QSpinBox):
@@ -93,6 +130,7 @@ class TaskScreen(QWidget):
         self.name = name
         self.on_back = on_back
         self.cls = get_task_class(name)
+        self._saved = load_saved(name)  # last Start's settings, over the defaults
         self.proc: QProcess | None = None
         self.controls: dict[str, tuple] = {}
         self._param_rows: list = []  # container widgets, disabled while running
@@ -185,7 +223,7 @@ class TaskScreen(QWidget):
                 self.controls[p.key] = (p, switch)
                 self._param_rows.append(switch)
                 continue
-            row_widget, value_widget = self._make_control(p)
+            row_widget, value_widget = self._make_control(p, self._initial(p))
             value_widget.setToolTip(p.help)
             self.controls[p.key] = (p, value_widget)
             self._param_rows.append(row_widget)
@@ -283,17 +321,27 @@ class TaskScreen(QWidget):
         outer.addWidget(self.page_scroll)
 
     # --- form controls ----------------------------------------------------
-    def _make_control(self, p):
+    def _initial(self, p):
+        """A setting's starting value: the one saved at the last Start, else the
+        default (config.local.yaml's, else the code's)."""
+        if _remembered(p) and p.key in self._saved:
+            try:
+                return p.coerce(self._saved[p.key])
+            except (TypeError, ValueError):
+                pass
+        return p.default
+
+    def _make_control(self, p, value):
         """Return (row_widget, value_widget). row_widget goes in the form;
         value_widget is what _value() reads and what gets disabled."""
         if p.type == "bool":
             w = QCheckBox()
-            w.setChecked(bool(p.default))
+            w.setChecked(bool(value))
             return w, w
 
         if p.type == "str":
             w = QLineEdit()
-            w.setText(str(p.default))
+            w.setText(str(value))
             w.setObjectName("ValueField")
             w.setFixedWidth(180)
             if p.help:
@@ -310,7 +358,7 @@ class TaskScreen(QWidget):
             )
         if getattr(p, "suffix", ""):
             spin.setSuffix(p.suffix)
-        spin.setValue(p.default)
+        spin.setValue(value)
         spin.setObjectName("ValueField")
         spin.setButtonSymbols(QAbstractSpinBox.NoButtons)  # hide built-in arrows
         spin.setFixedWidth(90)
@@ -452,6 +500,8 @@ class TaskScreen(QWidget):
     # --- run lifecycle ----------------------------------------------------
     def start(self):
         values = {key: self._value(p, w) for key, (p, w) in self.controls.items()}
+        save_settings(self.name, {k: v for k, v in values.items()
+                                  if _remembered(self.controls[k][0])})
         extra: list[str] = []
         done = self.cls.already_done_today(values)
         if done:  # once-a-day work that already ran this game day: ask first

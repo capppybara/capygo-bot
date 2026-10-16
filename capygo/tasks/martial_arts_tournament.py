@@ -49,6 +49,7 @@ from decimal import Decimal
 import cv2
 
 from ..geometry import Rel, RelRect
+from ..local import local_default
 from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
 from .daily import (_crop, find_sprite, go_home, save_snapshot, tap, tap_to_close_up,
@@ -273,7 +274,7 @@ class MartialArtsTournament(Task):
     pick_failed = False          # _pick hit a problem: stop rather than refresh
     TICKETS_PER_BUY = 1          # tickets a purchase buys (the popup opens at 1)
     PARAMS = [
-        Param("my_cp", "float", 4.7, "Your CP (T)", min=0.01, max=10000,
+        Param("my_cp", "float", local_default("martial_cp", 1.0), "Your CP (T)", min=0.01, max=10000,
               help="your power in trillions; opponents are compared against it"),
         Param("ratio", "float", 1.1, "Power ratio", min=0.5, max=5,
               help="fight only opponents below this x your CP (+0.1 per refresh)"),

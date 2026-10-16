@@ -4,3 +4,11 @@ defaults:
   # Your friend's in-game name: the default Friend for Auto Gulu (who to invite,
   # or whose invite to accept) and hard mode joining (whose invite to accept).
   friend: ""
+  # Your numbers: the app's starting values (each automation then remembers the
+  # settings of its last Start, in data/app_settings.json). Leave one out to start
+  # from the neutral value in the code.
+  # martial_cp: 4.7         # Martial Arts: your CP, in trillions (code: 1.0)
+  # hgw_team_power: 6.4     # Holy Grail War: you + your teammate, in T (code: 1.0)
+  # hard_chapter: 180       # Hard Mode Autorun: chapter, solo (code: 1)
+  # hard_multiple: 20       # Hard Mode Autorun: energy multiple (code: 1)
+  # gulu_difficulty: 25     # Auto Gulu: difficulty when hosting (code: 1)

@@ -154,10 +154,10 @@ class HardModeAutorun(Task):
                   "anywhere; it waits for the host's invite.")
 
     PARAMS = [
-        Param("chapter", "int", 180, "Chapter (solo)", min=1, max=9999,
+        Param("chapter", "int", local_default("hard_chapter", 1), "Chapter (solo)", min=1, max=9999,
               help="hard mode chapter number to run solo; joining runs the host's "
                    "chapter"),
-        Param("energy_multiple", "int", 20, "Energy multiple", min=1, max=20,
+        Param("energy_multiple", "int", local_default("hard_multiple", 1), "Energy multiple", min=1, max=20,
               choices=VALID_MULTIPLES, suffix="x",
               help="energy multiple to run at (1, 2, 3, 5, 10, or 20)"),
         Param("runs", "int", 10, "Number of runs", min=1, max=9999,

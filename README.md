@@ -46,9 +46,16 @@ The first launch creates a virtual environment and installs dependencies, so it
 takes a minute. You can also double-click `launch.command` in Finder.
 
 Personal settings live in `config.local.yaml`, which git ignores. Copy
-`config.local.example.yaml` to it and fill in your friend's in-game name: it's
-the default Friend for Auto Gulu and hard mode joining. Without it, enter the
-name in the app each time.
+`config.local.example.yaml` to it and fill in your own values: your friend's
+in-game name (the default Friend for Auto Gulu and hard mode joining), your CP,
+your Holy Grail War team power, your hard mode chapter and multiple, and your
+Gulu difficulty. Without it, the app starts from neutral values (1T, chapter 1,
+1x, difficulty 1, no friend).
+
+The app also remembers each automation's settings: when you press Start, they're
+saved to `data/app_settings.json` (git ignores it too) and filled in the next
+time you open that automation. Auto Daily's chore switches are the exception:
+they start all on every time.
 
 ### 3. Run an automation
 
@@ -241,7 +248,7 @@ friend in it, it carries on from there.
 | Join instead of host | off | both | Off: host. On: join the friend's run. |
 | Friend | from `config.local.yaml` | both | Who to invite (hosting), or whose invite to accept (joining) |
 | Runs | 4 | both | How many runs to play |
-| Difficulty (hosting) | 25 | hosting | The Gulu Mine difficulty to host |
+| Difficulty (hosting) | from `config.local.yaml` (else 1) | hosting | The Gulu Mine difficulty to host |
 | Stay (hosting) | off | hosting | Play each run to the end instead of quitting it |
 
 ### Hosting
@@ -385,8 +392,8 @@ Start is red, not blue). Joining, anywhere: it waits for the friend's invite.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Chapter (solo) | 180 | The Hard Mode chapter to run solo. Joining runs the host's chapter |
-| Energy multiple | 20x | Energy (and reward) per run: 1x, 2x, 3x, 5x, 10x or 20x |
+| Chapter (solo) | from `config.local.yaml` (else 1) | The Hard Mode chapter to run solo. Joining runs the host's chapter |
+| Energy multiple | from `config.local.yaml` (else 1x) | Energy (and reward) per run: 1x, 2x, 3x, 5x, 10x or 20x |
 | Number of runs | 10 | How many runs before it stops |
 | Join a friend's run | off | On: join the friend's Hard Chapters runs instead of running solo |
 | Host (joining) | from `config.local.yaml` | Whose invite to accept. Change it to play with someone else |
@@ -435,7 +442,7 @@ Schedule (the Qualifiers) itself.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Your CP (T) | 5.23 | Your power in trillions; opponents are compared against it |
+| Your CP (T) | from `config.local.yaml` (else 1) | Your power in trillions; opponents are compared against it |
 | Power ratio | 1.1 | Fight only opponents below this x your CP |
 | Sniping mode | off | Wait for 6:50 AM Pacific and use every attack then |
 | Attacks (0 = until tickets run out) | 0 | 0 uses every ticket and stops. A number: always do that many, buying tickets if needed |
@@ -489,7 +496,7 @@ there's nothing to fight and it stops.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Your team power (T) | 6.41 | Your power plus your teammate's, in trillions. The list shows each team's total, so teams are compared against this |
+| Your team power (T) | from `config.local.yaml` (else 1) | Your power plus your teammate's, in trillions. The list shows each team's total, so teams are compared against this |
 | Power ratio | 1.1 | Fight only teams below this x your team power |
 | Sniping mode | off | Wait for 6:50 AM Pacific and use every fight then |
 | Fights (0 = until tickets run out) | 0 | 0 fights until fewer than 2 tickets are left. A number: always do that many, buying tickets if needed |
@@ -603,8 +610,9 @@ needs no UI changes.
 run.py                      command-line entry point (runs one task)
 run.sh                      launcher: the app with no arguments, a task with arguments
 config.yaml                 window owner name, app path, match threshold, stop key
-config.local.yaml           personal defaults (your friend's name); git-ignored,
+config.local.yaml           personal defaults (friend, CP, chapter, ...); git-ignored,
                             see config.local.example.yaml
+data/app_settings.json      each automation's settings from its last Start; git-ignored
 capygo/
   window.py                 find the game window and its position
   capture.py                capture the window as an image

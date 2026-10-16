@@ -213,7 +213,7 @@ class AutoGulu(Task):
         Param("friend", "str", local_default("friend"), "Friend",
               help="hosting: who to invite; joining: whose invite to accept"),
         Param("runs", "int", 4, "Runs", min=1, max=100),
-        Param("difficulty", "int", 25, "Difficulty (hosting)", min=1, max=999,
+        Param("difficulty", "int", local_default("gulu_difficulty", 1), "Difficulty (hosting)", min=1, max=999,
               help="Gulu Mine difficulty to host (the panel opens on your max)"),
         Param("stay", "bool", False, "Stay (hosting)",
               help="hosting: stay in the run to the end instead of quitting it"),
