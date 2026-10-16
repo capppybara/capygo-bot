@@ -445,7 +445,8 @@ Schedule (the Qualifiers) itself.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Your CP (T) | your power from the Arena (else 1) | Your power in trillions; opponents are compared against it. The first time, it starts from your power as the Arena chore last read it; after your first Start it's Martial Arts' own setting, and you change it by hand |
+| Your CP (T) | your power from the Arena (else 1) | Your power in trillions; opponents are compared against it. Used only with Follow Arena off: Martial Arts' own value, which starts from the Arena's reading the first time and is yours to change |
+| Follow Arena | on | Use your power as the Arena chore last read it (shown greyed in Your CP), at the time of the run. Off: use Your CP. The app remembers which you chose |
 | Power ratio | 1.1 | Fight only opponents below this x your CP |
 | Sniping mode | off | Wait for 6:50 AM Pacific and use every attack then |
 | Attacks (0 = until tickets run out) | 0 | 0 uses every ticket and stops. A number: always do that many, buying tickets if needed |

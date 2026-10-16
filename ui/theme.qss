@@ -125,6 +125,13 @@ QPushButton#SpinUp, QPushButton#SpinDown {
 }
 QPushButton#SpinUp:hover, QPushButton#SpinDown:hover { background: #D2E56E; }
 QPushButton#SpinUp:pressed, QPushButton#SpinDown:pressed { background: #A9C63E; }
+/* greyed out: a setting that isn't used right now (e.g. Your CP while Follow Arena
+   is on), or any setting while a task runs */
+QSpinBox#ValueField:disabled, QDoubleSpinBox#ValueField:disabled,
+QLineEdit#ValueField:disabled { background: #E3D5B8; color: #9C8B6E; border-color: #9C8B6E; }
+QPushButton#SpinUp:disabled, QPushButton#SpinDown:disabled {
+    background: #D9C9A6; color: #9C8B6E; border-color: #9C8B6E;
+}
 
 QCheckBox { spacing: 8px; color: #33261B; }
 QCheckBox::indicator {

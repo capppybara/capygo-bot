@@ -265,6 +265,13 @@ def cp_seed() -> float:
     return float(mine[0]) if mine else 1.0
 
 
+def arena_cp() -> float | None:
+    """Your power as the Arena last read it (for the app to show while Follow
+    Arena is on), or None if it never has."""
+    mine = last_my_power()
+    return float(mine[0]) if mine else None
+
+
 def _px(pos: tuple[int, int]) -> Rel:
     return Rel(pos[0] / 642, pos[1] / 951)
 
@@ -275,7 +282,8 @@ class MartialArtsTournament(Task):
     ICON = "🥋"
     DESCRIPTION = ("Qualifiers: fight the opponent with the most points below your "
                    "power limit until the tickets run out, now or at 6:50 AM (sniping).")
-    START_HINT = "Start anywhere in the game. Set your CP (power) first."
+    START_HINT = ("Start anywhere in the game. Your CP follows the Arena's reading of "
+                  "your power; turn Follow Arena off to set your own.")
     TAG = "martial"              # log prefix
     LAYOUT = MARTIAL             # the Qualifiers list
     MY_POINTS = MY_POINTS        # your points under the list
@@ -287,6 +295,10 @@ class MartialArtsTournament(Task):
         Param("my_cp", "float", cp_seed(), "Your CP (T)", min=0.01, max=10000,
               help="your power in trillions; opponents are compared against it. "
                    "Starts from your power as the Arena read it; yours to change"),
+        Param("follow_arena", "bool", True, "Follow Arena", beside="my_cp",
+              locks="my_cp", lock_value=arena_cp(),
+              help="use your power as the Arena chore last read it (shown greyed in "
+                   "Your CP), at run time; off: the CP set here"),
         Param("ratio", "float", 1.1, "Power ratio", min=0.5, max=5,
               help="fight only opponents below this x your CP (+0.1 per refresh)"),
         Param("sniping", "bool", False, "Sniping mode",
@@ -305,7 +317,6 @@ class MartialArtsTournament(Task):
         n = pvp.season(self.TAG)
         self._log.info("season %s", n if n is not None else "- none this week")
         p = self.params
-        cp = Decimal(str(p["my_cp"]))
         deadline = None
         if p["sniping"]:
             at = next_snipe(p["snipe_utc"])
@@ -316,12 +327,29 @@ class MartialArtsTournament(Task):
             if not self._fresh_start(ctx, at):
                 return
             deadline = at + WINDOW - timedelta(seconds=CUTOFF_MARGIN)
+        cp = self._my_cp()  # after a snipe's wait: the Arena may have run since
         started = time.time()
         if not self._open_qualifiers(ctx):
             return
         done = self._attacks(ctx, cp, Decimal(str(p["ratio"])), p["max_attacks"], deadline)
         self._log.info("%d attack(s) in %.0fs", done, time.time() - started)
         go_home(ctx)
+
+    def _my_cp(self) -> Decimal:
+        """Your CP for this run: with Follow Arena on (user, 2026-10-16: the
+        default), your power as the Arena chore last read it; off, or never read,
+        the CP set here (Martial Arts' own, remembered by the app)."""
+        if self.params.get("follow_arena"):
+            mine = last_my_power()
+            if mine is not None:
+                self._log.info("your CP %sT, as the Arena read it (%s UTC)", mine[0],
+                               mine[1][:16].replace("T", " "))
+                return mine[0]
+            self._log.info("Follow Arena: the Arena hasn't read your power yet -> the "
+                           "CP set here")
+        cp = Decimal(str(self.params["my_cp"]))
+        self._log.info("your CP %sT (set here)", cp)
+        return cp
 
     # --- getting there -----------------------------------------------------------
     def _fresh_start(self, ctx: Context, at: datetime) -> bool:

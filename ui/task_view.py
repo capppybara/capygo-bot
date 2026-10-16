@@ -134,6 +134,9 @@ class TaskScreen(QWidget):
         self.proc: QProcess | None = None
         self.controls: dict[str, tuple] = {}
         self._param_rows: list = []  # container widgets, disabled while running
+        self._rows: dict = {}        # key -> its row widget (a `beside` box joins it)
+        self._own: dict = {}         # a locked setting's own value, while it shows
+                                     # its lock_value instead
         self._pending_on_finish = None  # callback(exit_code) after a launched run
         self.collection_box: QGroupBox | None = None
 
@@ -223,11 +226,24 @@ class TaskScreen(QWidget):
                 self.controls[p.key] = (p, switch)
                 self._param_rows.append(switch)
                 continue
+            if p.beside and p.type == "bool" and p.beside in self._rows:
+                # a checkbox in another setting's row (Follow Arena by Your CP)
+                check = QCheckBox(p.label)
+                check.setChecked(bool(self._initial(p)))
+                check.setToolTip(p.help)
+                row = self._rows[p.beside].layout()
+                row.insertWidget(row.count() - 1, check)  # before the row's stretch
+                self.controls[p.key] = (p, check)
+                if p.locks:
+                    check.toggled.connect(lambda _=False: self._apply_locks())
+                continue
             row_widget, value_widget = self._make_control(p, self._initial(p))
             value_widget.setToolTip(p.help)
             self.controls[p.key] = (p, value_widget)
+            self._rows[p.key] = row_widget
             self._param_rows.append(row_widget)
             form.addRow(p.label, row_widget)
+        self._apply_locks()
 
         # Title row; chore switches get Select all / Select none right beside it.
         # Every chore starts on.
@@ -389,6 +405,39 @@ class TaskScreen(QWidget):
         container.setLayout(row)
         return container, spin
 
+    def _apply_locks(self) -> None:
+        """Grey out a setting while the checkbox that `locks` it is on (it isn't
+        used then) - its own widgets only, not the checkbox sharing its row - and
+        show the checkbox's lock_value in it (Your CP: the Arena's reading). Its
+        own value is kept aside and comes back when the checkbox goes off."""
+        for p, check in self.controls.values():
+            if not p.locks or p.locks not in self._rows:
+                continue
+            locked = check.isChecked()
+            q, field = self.controls[p.locks]
+            if locked and p.lock_value is not None and p.locks not in self._own:
+                self._own[p.locks] = self._value(q, field)
+                self._set_value(q, field, p.lock_value)
+            elif not locked and p.locks in self._own:
+                self._set_value(q, field, self._own.pop(p.locks))
+            for w in self._rows[p.locks].findChildren(QWidget):
+                if w is not check:
+                    w.setEnabled(not locked)
+
+    @staticmethod
+    def _set_value(p, w, value) -> None:
+        if p.type == "bool":
+            w.setChecked(bool(value))
+        elif p.type == "str":
+            w.setText(str(value))
+        else:
+            w.setValue(value)
+
+    def _values(self) -> dict:
+        """Every setting's value; a locked one's own value (not what it shows)."""
+        return {key: self._own.get(key, self._value(p, w))
+                for key, (p, w) in self.controls.items()}
+
     def _set_switches(self, on: bool) -> None:
         for key in self._switch_keys:
             self.controls[key][1].setChecked(on)
@@ -499,7 +548,7 @@ class TaskScreen(QWidget):
 
     # --- run lifecycle ----------------------------------------------------
     def start(self):
-        values = {key: self._value(p, w) for key, (p, w) in self.controls.items()}
+        values = self._values()
         save_settings(self.name, {k: v for k, v in values.items()
                                   if _remembered(self.controls[k][0])})
         extra: list[str] = []
@@ -589,6 +638,8 @@ class TaskScreen(QWidget):
         self.stop_btn.setEnabled(running)
         for row in self._param_rows:
             row.setEnabled(not running)
+        if not running:
+            self._apply_locks()
         self.dry.setEnabled(not running)
         if self.collection_box is not None:
             self.plot_btn.setEnabled(not running)

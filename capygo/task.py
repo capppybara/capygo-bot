@@ -42,6 +42,9 @@ class Param:
     suffix: str = ""  # display-only unit shown after the value in the UI (e.g. "x")
     hidden: bool = False  # not shown in the app's form (set by the app, or -p on CLI)
     section: str = ""     # app form heading this switch sits under (e.g. "Events")
+    beside: str = ""      # a bool shown as a checkbox in this other setting's row
+    locks: str = ""       # a bool that, while on, greys out this other setting (unused)
+    lock_value: Any = None  # ... showing this in it meanwhile (the value used instead)
 
     def coerce(self, value: Any) -> Any:
         if self.type == "int":
