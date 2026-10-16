@@ -20,8 +20,8 @@ opponent you can beat. Each attack:
   4. The result ("Victory"/"Defeat", points +/-) has an OK button; OK goes back to
      the leaderboard, which reloads (empty for a moment). Repeat.
 
-Out of tickets, x1 Challenge opens a "Purchase" popup (Arena Tickets, 10 purple
-cubes) instead of a fight: that means done (user). It closes the popup and the list
+Out of tickets, x1 Challenge opens a "Purchase" popup (Arena Tickets, 10 gems)
+instead of a fight: that means done (user). It closes the popup and the list
 and finishes; it never taps Purchase.
 
 Every screen change is waited out: poll until the next screen shows, then let it

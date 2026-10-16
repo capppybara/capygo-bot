@@ -3,7 +3,7 @@
 Starts with the menu drawer open: Black Market (4th) -> a shop of cards in 3
 columns under a fixed banner; the list scrolls. Each card: title, an optional red
 "NN% Value" tag at its top-right, an icon (tapping it only opens an info tooltip),
-"Purchase limit: 1/1", and a price button (purple cubes). Tapping the price opens
+"Purchase limit: 1/1", and a price button (gems). Tapping the price opens
 "Tips: Confirm Purchase?" (Cancel / OK); OK buys it and raises a "Rewards / Tap to
 close" popup. A bought card shows "Purchase limit: 0/1" and a green tick instead
 of the price. At the very bottom, a "Gold" section: "Some Gold" (left) says Free

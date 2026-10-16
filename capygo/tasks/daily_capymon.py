@@ -6,11 +6,11 @@ middle bar) -> the Capymon screen. Then:
   Card Table tab (leftmost bottom tab):
     1. The "Capymon gift pack" button (right side) -> "Gift Pack": claim the free
        welfare package (AD button; instant with the ad privilege) and buy the Gem
-       Work Gift Pack (500 purple cubes; buys on the first tap, NO confirm, so
+       Work Gift Pack (500 gems; buys on the first tap, NO confirm, so
        it's tapped only while its row says "Limit: 1/1"). Never the Top-up banner
-       or the gem-priced packs. Close (X).
+       or the jade-priced packs (jade: the green currency; gems are the purple). Close (X).
     2. "Draw 10 times" until you can't (user: "includes spending gems"): tickets
-       first, then purple cubes (3000 per 10-draw, 20 cube draws a day: "Remaining
+       first, then gems (3000 per 10-draw, 20 gem draws a day: "Remaining
        Diamond Draws"). Each draw: Skip (top right), then close the 10 results.
        When none are left the button opens an "Item Acquisition" panel instead:
        close it and stop.
@@ -52,7 +52,7 @@ GIFT_TITLE_TAP = Rel(0.5, 0.179)                 # "Gift Pack" title (above the 
 GIFT_HEADER = RelRect(0.25, 0.155, 0.50, 0.05)   # "Gift Pack"
 GIFT_LIST = (95, 545, 335, 790)                  # the pack rows, px x0, x1, y0, y1
 # Packs are found by their row TITLE: sold-out packs move to the bottom when the
-# popup reopens, so the top rows can be the gem-priced packs. A pack's button sits
+# popup reopens, so the top rows can be the jade-priced packs. A pack's button sits
 # 65px below its title, at x 463; its limit text is in the row (title-10..+110).
 GIFT_PACKS = [("free welfare package", "ad"), ("gem work gift pack", "500")]
 GIFT_BTN_X, GIFT_BTN_DY = 463, 65
@@ -64,7 +64,7 @@ DRAW_SKIP = Rel(0.843, 0.059)
 SKIP_LABEL = RelRect(0.75, 0.037, 0.19, 0.047)
 DIAMOND_DRAWS = RelRect(0.23, 0.857, 0.55, 0.032)  # "Remaining Diamond Draws: N"
 ACQ_TITLE = RelRect(0.25, 0.17, 0.50, 0.05)      # "Item Acquisition" = no draws left
-MAX_DRAWS = 6                                    # 15 tickets + 2 cube draws = 3 today
+MAX_DRAWS = 6                                    # 15 tickets + 2 gem draws = 3 today
 CHEST_X = [226, 296, 365, 435, 504]              # points-bar chests 20..100, px
 CHEST_Y = 168
 # Capymon / Grand Voyage
@@ -124,8 +124,8 @@ class Capymon(DailyTask):
     TITLE = "Capymon"
     LABEL = "Capymon"
     ICON = "🃏"
-    DESCRIPTION = ("Equip -> Capymon: Card Table gift packs (free + 500 cubes), 10-draws "
-                   "until none are left (cubes too), points chests; Grand Voyage travel: "
+    DESCRIPTION = ("Equip -> Capymon: Card Table gift packs (free + 500 gems), 10-draws "
+                   "until none are left (gems too), points chests; Grand Voyage travel: "
                    "collect, then send for 20 hours (24 before 2 AM UTC). Then home.")
     START_HINT = "Start on the main Adventure screen."
 
@@ -207,7 +207,7 @@ class Capymon(DailyTask):
         return Rel(GIFT_BTN_X / 642, (ty + GIFT_BTN_DY) / 951)
 
     def _draws(self, ctx: Context) -> bool:
-        """10-draws until the game won't (tickets, then the day's cube draws)."""
+        """10-draws until the game won't (tickets, then the day's gem draws)."""
         done = 0
         while done < MAX_DRAWS:
             frame = ctx.frame()

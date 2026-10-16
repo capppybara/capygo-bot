@@ -3,7 +3,7 @@
 Starts on the guild screen: Guild Hall -> the "Guild Info" panel -> Donate -> the
 "Guild Donation" popup ("Chances Left Today: 5"). User: tap the donate button 5
 times; the game stops you after 5. The first donation of the day is free; the
-others cost 25 purple cubes each (user-approved). Each one raises a "Rewards"
+others cost 25 gems each (user-approved). Each one raises a "Rewards"
 popup; after the 5th the game closes the donation popup itself and greys out
 Guild Info's Donate button (no more "!"). Then back to the guild screen (X).
 
@@ -30,7 +30,7 @@ INFO_TITLE = RelRect(0.30, 0.075, 0.40, 0.05)       # "Guild Info" (reads under 
 DONATE_BTN = Rel(0.500, 0.833)                       # Guild Info's Donate (bottom middle)
 DONATE_COLOR = RelRect(0.41, 0.815, 0.18, 0.04)      # inside it: blue = open, grey = done
 DONATION_TITLE = RelRect(0.25, 0.350, 0.50, 0.045)  # "Guild Donation"
-GIVE_BTN = Rel(0.498, 0.665)                         # "Free" / "25" (purple cubes)
+GIVE_BTN = Rel(0.498, 0.665)                         # "Free" / "25" (gems)
 CHANCES = RelRect(0.30, 0.700, 0.40, 0.04)           # "Chances Left Today: N"
 REWARD_DISMISS = Rel(0.5, 0.600)                     # just below the reward's dark band
 
@@ -55,7 +55,7 @@ class GuildHall(GuildTask):
     LABEL = "Guild hall donations"
     ICON = "🏰"
     DESCRIPTION = ("Guild -> Guild Hall -> Donate: donate 5 times (the first is free, "
-                   "then 25 purple cubes each), then go back.")
+                   "then 25 gems each), then go back.")
     START_HINT = "Start on the main Adventure screen."
 
     def run_daily(self, ctx: Context) -> bool:

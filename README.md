@@ -163,10 +163,10 @@ The log ends with a summary:
 **Capymon** does three things on the Card Table, then one in the Grand Voyage:
 
 1. **Gift packs:** claims the free welfare package (AD) and buys the Gem Work
-   Gift Pack (500 purple cubes). It finds each pack by its row title, because
+   Gift Pack (500 gems). It finds each pack by its row title, because
    sold-out packs move down the list.
 2. **Draws:** taps Draw 10 times until the game refuses, first with tickets,
-   then with the day's purple-cube draws. It skips each draw animation.
+   then with the day's gem draws. It skips each draw animation.
 3. **Points chests:** claims every points-bar chest with a red "!".
 4. **Travel:** in Capy Grand Voyage → Travel, it collects a finished travel and
    sends the team out again for 20 hours, or for 24 hours before 2 AM UTC
@@ -201,7 +201,7 @@ tickets.
 
 | Chore | What it does |
 |---|---|
-| Guild hall donations | Guild Hall → Donate. Donates until "Chances Left Today" reaches 0: 5 a day, the first free, then 25 purple cubes each. |
+| Guild hall donations | Guild Hall → Donate. Donates until "Chances Left Today" reaches 0: 5 a day, the first free, then 25 gems each. |
 | Guild trade plunder | Guild Trade → Others' Trades. Plunders boats until "Looted today" reaches 4/4 (see below). |
 
 **Guild trade plunder** looks at the gilded boats (gold barge with a crown) and
