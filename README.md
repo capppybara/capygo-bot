@@ -331,8 +331,8 @@ For each present the bot:
    above its dark band.
 
 It repeats until the big present no longer opens (the game won't open it once
-they're used up), and logs each present's rarity. If another screen doesn't come
-up, it saves a screenshot and stops.
+they're used up). It doesn't read the rarity or the reward. If another screen
+doesn't come up, it saves a screenshot and stops.
 
 ## Get Guild Member List
 

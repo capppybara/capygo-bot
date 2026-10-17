@@ -34,14 +34,13 @@ from .daily import _crop, save_snapshot, tap, tap_to_close_up, wait
 PRESENT_DX, PRESENT_DY = 168, 27     # px: the present, from the "Extra Rewards" title
 BOX = Rel(300 / 642, 470 / 951)      # the big present: tap to upgrade, then to claim
 BOX_TEXT = RelRect(0.15, 0.745, 0.70, 0.045)  # "Tap to upgrade rarity" / "Click to claim"
-RARITY = RelRect(0.20, 0.150, 0.60, 0.060)    # "Common" (above the box)
 ABOVE_BAND = Rel(0.5, 250 / 951)     # closes the Rewards popup (user)
 UPGRADE_TAPS = 4                     # user: tap the box 4 times
 EXTRA_TAPS = 2                       # more if "upgrade rarity" still shows (a lost tap)
 TAP_WAIT = 3.0                       # user: wait 3s before each box tap (the game lags)
 OPEN_TIMEOUT = 6.0
 MAX_PRESENTS = 30                    # safety: never loop forever
-NONE_LEFT = "none left"
+NONE_LEFT, OPENED = "none left", "opened"
 POLL = 0.4
 
 
@@ -95,13 +94,13 @@ class ExtraRewardCollector(Task):
                              "-> done, %d opened", opened)
                 return
             opened += 1
-            ctx.log.info("extra-rewards: present %d: %s", opened, result)
+            ctx.log.info("extra-rewards: present %d opened", opened)
         ctx.log.info("extra-rewards: %d present(s) opened", opened)
 
     # --- one present ---------------------------------------------------------
     def _open(self, ctx: Context, present: tuple[int, int]) -> str | None:
-        """Tap the present, upgrade it 4 times, claim, close. Its rarity for the
-        log; NONE_LEFT if the big box didn't show up (they're used up -
+        """Tap the present, upgrade it 4 times, claim, close. OPENED (neither the
+        rarity nor the reward is read - user: save compute); NONE_LEFT if the big box didn't show up (they're used up -
         user); None if it went wrong (logged, screen saved) or a stop."""
         if not self._tap(ctx, Rel(present[0] / 642, present[1] / 951), "the present"):
             return None
@@ -118,7 +117,6 @@ class ExtraRewardCollector(Task):
         if not self._until(ctx, lambda: box_up(ctx.frame()) == "claim", TAP_WAIT + 3):
             self._problem(ctx, "the box never showed Click to claim reward")
             return None
-        rarity = _words(ctx.frame(), RARITY).strip() or "?"
         if not self._tap(ctx, BOX, "the box (claim)"):
             return None
         if not self._until(ctx, lambda: tap_to_close_up(ctx.frame())):
@@ -126,7 +124,7 @@ class ExtraRewardCollector(Task):
             return None
         if not self._tap(ctx, ABOVE_BAND, "above the reward band (close)"):
             return None
-        return rarity  # the reward isn't read (user: save compute)
+        return OPENED
 
     # --- helpers -------------------------------------------------------------
     def _fund(self, ctx: Context):
