@@ -15,7 +15,8 @@ a progress bar and, at its right, a present (a badge counts the presents to open
      ignored, and "Tap to close" sits over the fund's "Go to Event".
   Back on the fund, repeat. Once they're used up the game won't open the
   present (user): the big box not showing up after the tap is the end - no badge
-  check.
+  check. That last tap opens a tooltip of the possible rewards ("Obtain one of
+  the rewards."); it's left open, the run ends there (user, 2026-10-17).
 
 The present is found from the "Extra Rewards" title (its spot can differ between
 versions; the present sits at a fixed offset from the title in the one seen).
