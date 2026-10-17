@@ -319,8 +319,7 @@ Extra Reward Collector opens every present waiting in an event fund's Extra
 Rewards section (for example Goblin Pachinko's Marble Fund; other funds work the
 same way).
 
-**Start on:** the fund's screen, with the Extra Rewards section showing. The red
-badge on the present counts the presents waiting.
+**Start on:** the fund's screen, with the Extra Rewards section showing.
 
 For each present the bot:
 
@@ -331,8 +330,9 @@ For each present the bot:
 3. Taps the box once more to claim, then closes the Rewards popup with a tap
    above its dark band.
 
-It repeats until the present has no badge, and logs each present's rarity and
-reward. If a screen doesn't come up, it saves a screenshot and stops.
+It repeats until the big present no longer opens (the game won't open it once
+they're used up), and logs each present's rarity. If another screen doesn't come
+up, it saves a screenshot and stops.
 
 ## Get Guild Member List
 

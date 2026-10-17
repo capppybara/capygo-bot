@@ -2,8 +2,8 @@
 
 Starts on an event fund popup with an "Extra Rewards" section (e.g. Goblin
 Pachinko's "Marble Fund"; there are other versions, all working the same - user):
-a progress bar and, at its right, a present with a pink-red badge counting the
-presents to open, "(n/10)" under it. Per present (walked through 2026-10-17):
+a progress bar and, at its right, a present (a badge counts the presents to open,
+"(n/10)" under it). Per present (walked through 2026-10-17):
   1. Tap the present -> a big present box, "Common" above it, "Tap to upgrade
      rarity" and four "?" marks below.
   2. Tap the box 4 times, waiting 3s before each (user: the game lags between
@@ -12,18 +12,18 @@ presents to open, "(n/10)" under it. Per present (walked through 2026-10-17):
   3. Tap the box again: a "Rewards" popup (e.g. x60 gems) with "Tap to close".
   4. Close it with a tap ABOVE its dark band (user) - taps on the band are
      ignored, and "Tap to close" sits over the fund's "Go to Event".
-  Back on the fund, the badge is one lower. Repeat until it's gone.
+  Back on the fund, repeat. Once they're used up the game won't open the
+  present (user): the big box not showing up after the tap is the end - no badge
+  check.
 
 The present is found from the "Extra Rewards" title (its spot can differ between
-versions; the present sits at a fixed offset from the title in the one seen). The
-badge is found by its colour, not read: its digit doesn't OCR. "Extra Rewards"
-still reads through the box and reward screens' dim overlay, so the badge is only
-checked once neither is up.
+versions; the present sits at a fixed offset from the title in the one seen).
+"Extra Rewards" still reads through the box and reward screens' dim overlay, so
+the fund counts as back only once neither is up.
 """
 
 from __future__ import annotations
 
-import re
 import time
 
 from ..geometry import Rel, RelRect
@@ -32,20 +32,16 @@ from ..task import Context, Task, register
 from .daily import _crop, save_snapshot, tap, tap_to_close_up, wait
 
 PRESENT_DX, PRESENT_DY = 168, 27     # px: the present, from the "Extra Rewards" title
-BADGE_DX, BADGE_DY = 29, -21         # px: its count badge, from the present
-BADGE_BOX = 12                       # px: half the badge check's square
-BADGE_SHARE = 0.15                   # pink share in it: badge 0.35, none 0.00
 BOX = Rel(300 / 642, 470 / 951)      # the big present: tap to upgrade, then to claim
 BOX_TEXT = RelRect(0.15, 0.745, 0.70, 0.045)  # "Tap to upgrade rarity" / "Click to claim"
 RARITY = RelRect(0.20, 0.150, 0.60, 0.060)    # "Common" (above the box)
-REWARD_ITEMS = RelRect(0.10, 0.345, 0.80, 0.230)  # "Rewards" + its band's "x60"s (the title
-                                                  # in the crop: alone, "x60" read upside down)
 ABOVE_BAND = Rel(0.5, 250 / 951)     # closes the Rewards popup (user)
 UPGRADE_TAPS = 4                     # user: tap the box 4 times
 EXTRA_TAPS = 2                       # more if "upgrade rarity" still shows (a lost tap)
 TAP_WAIT = 3.0                       # user: wait 3s before each box tap (the game lags)
 OPEN_TIMEOUT = 6.0
 MAX_PRESENTS = 30                    # safety: never loop forever
+NONE_LEFT = "none left"
 POLL = 0.4
 
 
@@ -66,20 +62,6 @@ def box_up(frame) -> str:
     """The box screen's line: "upgrade" / "claim", or "" if it isn't up."""
     text = _words(frame, BOX_TEXT)
     return "upgrade" if "upgrade" in text else "claim" if "claim" in text else ""
-
-
-def badge_up(frame, present: tuple[int, int]) -> bool:
-    """The present's pink-red count badge is showing (presents left)."""
-    h, w = frame.shape[:2]
-    kx, ky = w / 642, h / 951
-    x, y = present[0] + BADGE_DX, present[1] + BADGE_DY
-    c = frame[int((y - BADGE_BOX) * ky):int((y + BADGE_BOX) * ky),
-              int((x - BADGE_BOX) * kx):int((x + BADGE_BOX) * kx)].astype(int)
-    if c.size == 0:
-        return False
-    b, g, r = c[..., 0], c[..., 1], c[..., 2]
-    pink = (r > 205) & (g > 55) & (g < 135) & (b > 90) & (b < 170) & (r - b > 60)
-    return float(pink.mean()) >= BADGE_SHARE
 
 
 @register("extra-reward-collector")
@@ -105,12 +87,12 @@ class ExtraRewardCollector(Task):
                 return
             extra = find_extra(frame)
             present = (extra[0] + PRESENT_DX, extra[1] + PRESENT_DY)
-            if not badge_up(frame, present):
-                ctx.log.info("extra-rewards: no presents left (no badge) -> done, %d "
-                             "opened", opened)
-                return
             result = self._open(ctx, present)
             if result is None:
+                return
+            if result == NONE_LEFT:
+                ctx.log.info("extra-rewards: the present didn't open - all collected "
+                             "-> done, %d opened", opened)
                 return
             opened += 1
             ctx.log.info("extra-rewards: present %d: %s", opened, result)
@@ -118,13 +100,13 @@ class ExtraRewardCollector(Task):
 
     # --- one present ---------------------------------------------------------
     def _open(self, ctx: Context, present: tuple[int, int]) -> str | None:
-        """Tap the present, upgrade it 4 times, claim, close. "<rarity>, <reward>"
-        for the log, or None if it went wrong (logged, screen saved) or a stop."""
+        """Tap the present, upgrade it 4 times, claim, close. Its rarity for the
+        log; NONE_LEFT if the big box didn't show up (they're used up -
+        user); None if it went wrong (logged, screen saved) or a stop."""
         if not self._tap(ctx, Rel(present[0] / 642, present[1] / 951), "the present"):
             return None
         if not self._until(ctx, lambda: box_up(ctx.frame()) != ""):
-            self._problem(ctx, "the present didn't open")
-            return None
+            return None if ctx.should_stop() else NONE_LEFT
         for n in range(1, UPGRADE_TAPS + EXTRA_TAPS + 1):
             if box_up(ctx.frame()) == "claim":
                 break
@@ -142,11 +124,9 @@ class ExtraRewardCollector(Task):
         if not self._until(ctx, lambda: tap_to_close_up(ctx.frame())):
             self._problem(ctx, "no Rewards popup after claiming")
             return None
-        reward = ", ".join(re.findall(r"x\s*[\d.,]+[kmb]?", _words(ctx.frame(),
-                                                                   REWARD_ITEMS))) or "?"
         if not self._tap(ctx, ABOVE_BAND, "above the reward band (close)"):
             return None
-        return f"{rarity}, {reward}"
+        return rarity  # the reward isn't read (user: save compute)
 
     # --- helpers -------------------------------------------------------------
     def _fund(self, ctx: Context):
