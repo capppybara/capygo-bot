@@ -324,7 +324,7 @@ same way).
 For each present the bot:
 
 1. Taps the present. A big present box opens with "Tap to upgrade rarity".
-2. Taps the box 4 times, waiting 3 seconds before each tap, since the game lags.
+2. Taps the box 4 times, waiting 4 seconds before each tap, since the game lags.
    Each tap can upgrade the present's rarity. If the box still asks for upgrades
    after 4 taps (a tap got lost), it taps again, up to 2 more times.
 3. Taps the box once more to claim, then closes the Rewards popup with a tap

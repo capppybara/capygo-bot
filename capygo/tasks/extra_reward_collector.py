@@ -6,8 +6,9 @@ a progress bar and, at its right, a present (a badge counts the presents to open
 "(n/10)" under it). Per present (walked through 2026-10-17):
   1. Tap the present -> a big present box, "Common" above it, "Tap to upgrade
      rarity" and four "?" marks below.
-  2. Tap the box 4 times, waiting 3s before each (user: the game lags between
-     taps). Each tap may upgrade the rarity (a mark turns ✓ or ✗); after the 4th
+  2. Tap the box 4 times, waiting 4s before each (user: the game lags between
+     taps; 3s settled the failed upgrades seen, 4s leaves room for a successful
+     one's longer animation). Each tap may upgrade the rarity (a mark turns ✓ or ✗); after the 4th
      the line reads "Click to claim reward".
   3. Tap the box again: a "Rewards" popup (e.g. x60 gems) with "Tap to close".
   4. Close it with a tap ABOVE its dark band (user) - taps on the band are
@@ -37,7 +38,8 @@ BOX_TEXT = RelRect(0.15, 0.745, 0.70, 0.045)  # "Tap to upgrade rarity" / "Click
 ABOVE_BAND = Rel(0.5, 250 / 951)     # closes the Rewards popup (user)
 UPGRADE_TAPS = 4                     # user: tap the box 4 times
 EXTRA_TAPS = 2                       # more if "upgrade rarity" still shows (a lost tap)
-TAP_WAIT = 3.0                       # user: wait 3s before each box tap (the game lags)
+TAP_WAIT = 4.0                       # user: wait before each box tap (the game lags; 3s
+                                     # settled the failed upgrades seen - 4s for the rest)
 OPEN_TIMEOUT = 6.0
 MAX_PRESENTS = 30                    # safety: never loop forever
 NONE_LEFT, OPENED = "none left", "opened"
