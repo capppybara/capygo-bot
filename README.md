@@ -14,6 +14,7 @@ automation in a desktop app, set a few options, and press Start.
 - [Automations](#automations)
 - [Auto Daily](#auto-daily)
 - [Auto Gulu](#auto-gulu)
+- [Extra Reward Collector](#extra-reward-collector)
 - [Get Guild Member List](#get-guild-member-list)
 - [Goblin Miner](#goblin-miner)
 - [Hard Mode Autorun](#hard-mode-autorun)
@@ -89,6 +90,7 @@ Any of these stops a run within a second:
 |---|---|---|
 | [Auto Daily](#auto-daily) | Runs your daily chores, events, guild and menu chores in one go | The main Adventure screen |
 | [Auto Gulu](#auto-gulu) | Plays Gulu Mine with a friend, hosting or joining | Anywhere |
+| [Extra Reward Collector](#extra-reward-collector) | Opens every Extra Rewards present on an event fund, upgrading each one | An event fund's screen with Extra Rewards |
 | [Get Guild Member List](#get-guild-member-list) | Exports a guild's members (UID and power) to a CSV, or collects top powers to compare guilds | A guild's Guild Info screen |
 | [Goblin Miner](#goblin-miner) | Mines Goblin Miner floors for the Capy King statue | The Goblin Miner grid |
 | [Hard Mode Autorun](#hard-mode-autorun) | Runs a Hard Mode chapter over and over | The Hard Mode screen |
@@ -310,6 +312,27 @@ Gulu Mine, it closes the popup without rejecting anything.
 Where the result screen leaves you tells the bot whether the host stayed. Back
 on the Gulu team screen means the host stayed, so it waits for the next start.
 Back home means the host left, so it looks for the next invite.
+
+## Extra Reward Collector
+
+Extra Reward Collector opens every present waiting in an event fund's Extra
+Rewards section (for example Goblin Pachinko's Marble Fund; other funds work the
+same way).
+
+**Start on:** the fund's screen, with the Extra Rewards section showing. The red
+badge on the present counts the presents waiting.
+
+For each present the bot:
+
+1. Taps the present. A big present box opens with "Tap to upgrade rarity".
+2. Taps the box 4 times, waiting 3 seconds before each tap, since the game lags.
+   Each tap can upgrade the present's rarity. If the box still asks for upgrades
+   after 4 taps (a tap got lost), it taps again, up to 2 more times.
+3. Taps the box once more to claim, then closes the Rewards popup with a tap
+   above its dark band.
+
+It repeats until the present has no badge, and logs each present's rarity and
+reward. If a screen doesn't come up, it saves a screenshot and stops.
 
 ## Get Guild Member List
 
@@ -642,6 +665,7 @@ capygo/
     auto_gulu.py            Auto Gulu
     get_guild_member_list.py, compare_guild_power.py
     goblin_miner.py, hard_mode_autorun.py, pet_armament_chest.py, pet_synthesis.py
+    extra_reward_collector.py
     martial_arts_tournament.py
     holy_grail_war_fights.py  Holy Grail War: the martial task with its own layout
 templates/<task-name>/      reference images matched at runtime
@@ -667,6 +691,7 @@ setting, `-n` is a dry run, and `--list` shows every task and its settings.
 ./run.sh auto-gulu -p join=true -p runs=4
 ./run.sh get-guild-member-list -p hedgemony=true -p top_n=25
 ./run.sh compare-guild-power               # graph the hedgemony collection
+./run.sh extra-reward-collector             # on an event fund's Extra Rewards
 ./run.sh goblin-miner -p min_picks=0
 ./run.sh hard-mode-autorun -p chapter=180 -p energy_multiple=20 -p runs=10
 ./run.sh martial-arts-tournament -p my_cp=5.23 -p ratio=1.1

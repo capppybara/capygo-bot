@@ -21,6 +21,7 @@ from . import event_goblin_miner  # noqa: F401
 from . import event_holy_grail_war  # noqa: F401
 from . import event_martial_arts  # noqa: F401
 from . import event_tower_challenge  # noqa: F401
+from . import extra_reward_collector  # noqa: F401
 from . import get_guild_member_list  # noqa: F401
 from . import goblin_miner  # noqa: F401
 from . import holy_grail_war_fights  # noqa: F401
