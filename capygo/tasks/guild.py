@@ -18,6 +18,8 @@ still works - user.)
 
 from __future__ import annotations
 
+import time
+
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context
@@ -30,6 +32,7 @@ POPUP_TEXT = RelRect(0.20, 0.80, 0.60, 0.17)      # a popup's "Tap to close" (y 
 MAX_POPUPS = 3
 
 # Where each place sits on the guild map (from a screenshot; not tapped yet).
+PLACE_TIMEOUT = 5.0   # a place's screen shows by then (else it's tapped again)
 PLACES = {"guild hall": Rel(0.498, 0.200),
           "guild expedition": Rel(0.285, 0.336),
           "armament cache": Rel(0.720, 0.331),
@@ -77,12 +80,33 @@ class GuildTask(ScreenTask):
                 return False
         return True
 
-    def open_place(self, ctx: Context, place: str) -> bool:
+    def open_place(self, ctx: Context, place: str, opened=None,
+                   timeout: float = PLACE_TIMEOUT) -> bool:
         """Tap one of the guild map's places (a PLACES key), after closing any
-        popup over the map."""
+        popup over the map. With `opened` (a check on a frame): True once it
+        shows; if the map is still there after `timeout`, the place is tapped
+        once more (2026-10-16: the Guild Hall tap, 1.4s after arriving on the
+        map, didn't take, and the donations were skipped)."""
         if not self.clear_map(ctx):
             return False
         if not ctx.dry_run and not on_guild(ctx.frame()):
             ctx.log.warning("%s: not on the guild screen", self.name)
             return False
-        return self.tap(ctx, PLACES[place], place.title())
+        for attempt in (1, 2):
+            if not self.tap(ctx, PLACES[place], place.title()):
+                return False
+            if ctx.dry_run or opened is None:
+                return True
+            end = time.time() + timeout
+            while time.time() < end:
+                if opened(ctx.frame()):
+                    return True
+                if self.wait(ctx, 0.5):
+                    return False
+            if attempt == 1 and on_guild(ctx.frame()):
+                ctx.log.info("%s: %s didn't open -> tapping it again", self.name,
+                             place.title())
+                continue
+            break
+        ctx.log.warning("%s: %s didn't open", self.name, place.title())
+        return False

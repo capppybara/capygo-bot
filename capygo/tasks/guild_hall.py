@@ -22,6 +22,7 @@ import re
 import time
 
 from ..geometry import Rel, RelRect
+from ..perception import ocr_lines
 from ..task import Context, register
 from .daily import _crop, tap_to_close_up
 from .guild import GuildTask, go_guild
@@ -59,14 +60,11 @@ class GuildHall(GuildTask):
     START_HINT = "Start on the main Adventure screen."
 
     def run_daily(self, ctx: Context) -> bool:
-        if not self.open_place(ctx, "guild hall"):
-            return False
+        if not self.open_place(ctx, "guild hall", opened=lambda f: "guild info" in " ".join(
+                t for t, _, _ in ocr_lines(_crop(f, INFO_TITLE))).lower()):
+            return False  # logged (tapped twice if the map stayed)
         if ctx.dry_run:
             return go_guild(ctx)
-        if not self._wait(ctx, lambda: "guild info" in self.text_in(ctx, INFO_TITLE),
-                          OPEN_TIMEOUT):
-            ctx.log.warning("%s: Guild Info did not open", self.name)
-            return False
         if not donate_open(ctx.frame()):
             ctx.log.info("%s: Donate is greyed out - today's donations are done",
                          self.name)

@@ -240,8 +240,9 @@ class GuildTrade(GuildTask):
             ctx.log.info("%s: plunder below %sT (your %sT, read by the Arena %s, x %s)",
                          self.name, self.cap, mine[0], mine[1][:16].replace("T", " "),
                          MAX_POWER_RATIO)
-        if not self.open_place(ctx, "guild trade"):
-            return False
+        if not self.open_place(ctx, "guild trade",
+                               opened=lambda f: "guild trade" in _words(f, TITLE).lower()):
+            return False  # logged (tapped twice if the map stayed)
         if ctx.dry_run:
             return go_guild(ctx)
         if not self._wait_for(ctx, "Guild Trade",
