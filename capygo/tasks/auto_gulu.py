@@ -106,8 +106,7 @@ QUIT_TAPS = [  # (what, position, wait after) - user's timings
 START_WAIT = 2.0          # user: 2s after Start, then look for the skill screen
 HOST_SKILL_TIMEOUT = 30.0  # each skill screen must come up by then
 BATTLE_TIMEOUT = 30.0     # after the 2nd Select: the skill screen closes by then
-BATTLE_READY = 5.0        # ... and the battle's Skills button shows by then (past a
-                          # loading screen when both players finish picking at once)
+LOADING_MEAN = 12         # a frame this dark (mean grey) is the loading screen
 QUIT_TRIES = 3            # Skills -> home again while no exit confirmation shows:
                           # a Skills tap 0.3s after the last skill screen closed
                           # didn't register (2026-10-10 run 2). No settle before the
@@ -182,6 +181,11 @@ def result_title(frame) -> str:
     """ "victory" / "defeat" while a run's result screen is up, else ""."""
     text = _words(frame, RESULT_TITLE)
     return next((r for r in ("victory", "defeat") if r in text), "")
+
+
+def _loading(frame) -> bool:
+    """The all-black loading screen (before a fight, after both players' picks)."""
+    return float(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).mean()) < LOADING_MEAN
 
 
 def _dialog_ok(frame) -> Rel | None:
@@ -480,11 +484,13 @@ class AutoGulu(Task):
 
     def _ask_quit(self, ctx: Context) -> bool:
         """Skills (in battle) -> home, until the "Exiting will immediately settle
-        rewards" confirmation shows: True. Up to QUIT_TRIES, RETRY_WAIT apart:
-        the battle's Skills button still showing (the panel never opened) ->
-        Skills -> home again; the Skills panel open ("Resume": the home tap didn't
-        take - 2026-10-18, under the "First move!" banner) -> home again only (a
-        Skills tap would hit Resume). False if it never came, or on a stop."""
+        rewards" confirmation shows: True. Taps can be lost to the brief loading
+        screen before the fight (when both players finish picking at once - user,
+        2026-10-18), so up to QUIT_TRIES, RETRY_WAIT apart: the battle's Skills
+        button still showing (the panel never opened) or the loading screen (all
+        black; 2026-10-15's failure) -> Skills -> home again; the Skills panel
+        open ("Resume": the home tap didn't take - 2026-10-18) -> home again only
+        (a Skills tap would hit Resume). Anything else: False, as on a stop."""
         taps = QUIT_TAPS
         for attempt in range(1, QUIT_TRIES + 1):
             if attempt > 1 and wait(ctx, RETRY_WAIT):
@@ -501,6 +507,11 @@ class AutoGulu(Task):
                 ctx.log.info("auto-gulu: the Skills panel is open but home didn't take "
                              "(try %d/%d) -> home again", attempt, QUIT_TRIES)
                 taps = QUIT_TAPS[-1:]
+                continue
+            if _loading(frame):
+                ctx.log.info("auto-gulu: the loading screen - the taps were lost (try "
+                             "%d/%d) -> again", attempt, QUIT_TRIES)
+                taps = QUIT_TAPS
                 continue
             if "skills" not in _words(frame, SKILLS_LABEL):
                 ctx.log.warning("auto-gulu: no exit confirmation, and not the battle "
@@ -545,22 +556,12 @@ class AutoGulu(Task):
         return False
 
     def _battle_on(self, ctx: Context) -> bool:
-        """The last skill screen has closed and the battle is on screen: its Skills
-        button reads. When both players finish picking at once, a brief loading
-        screen comes before the fight, and a Skills tap on it doesn't register
-        (user, 2026-10-18) - so wait for the button, up to BATTLE_READY, instead
-        of a fixed settle; then go on regardless (a missed tap is retried)."""
+        """The last skill screen has closed (the battle is on). No settle after it:
+        the Skills button shows as soon as the picking is done (user); a tap lost
+        to the loading screen that can come first is retried (_ask_quit)."""
         end = time.time() + BATTLE_TIMEOUT
         while "choose skill" in _words(ctx.frame(), CHOOSE_TITLE):
             if time.time() >= end or wait(ctx, 0.5):
-                return False
-        end = time.time() + BATTLE_READY
-        while "skills" not in _words(ctx.frame(), SKILLS_LABEL):
-            if time.time() >= end:
-                ctx.log.info("auto-gulu: the battle's Skills button didn't show in "
-                             "%.0fs -> tapping anyway", BATTLE_READY)
-                return True
-            if wait(ctx, 0.3):
                 return False
         return True
 
