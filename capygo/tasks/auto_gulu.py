@@ -106,6 +106,8 @@ QUIT_TAPS = [  # (what, position, wait after) - user's timings
 START_WAIT = 2.0          # user: 2s after Start, then look for the skill screen
 HOST_SKILL_TIMEOUT = 30.0  # each skill screen must come up by then
 BATTLE_TIMEOUT = 30.0     # after the 2nd Select: the skill screen closes by then
+BATTLE_READY = 5.0        # ... and the battle's Skills button shows by then (past a
+                          # loading screen when both players finish picking at once)
 QUIT_TRIES = 3            # Skills -> home again while no exit confirmation shows:
                           # a Skills tap 0.3s after the last skill screen closed
                           # didn't register (2026-10-10 run 2). No settle before the
@@ -543,11 +545,22 @@ class AutoGulu(Task):
         return False
 
     def _battle_on(self, ctx: Context) -> bool:
-        """The last skill screen has closed (the battle is on). No settle after it:
-        the Skills panel must go in quickly (a missed Skills tap is retried)."""
+        """The last skill screen has closed and the battle is on screen: its Skills
+        button reads. When both players finish picking at once, a brief loading
+        screen comes before the fight, and a Skills tap on it doesn't register
+        (user, 2026-10-18) - so wait for the button, up to BATTLE_READY, instead
+        of a fixed settle; then go on regardless (a missed tap is retried)."""
         end = time.time() + BATTLE_TIMEOUT
         while "choose skill" in _words(ctx.frame(), CHOOSE_TITLE):
             if time.time() >= end or wait(ctx, 0.5):
+                return False
+        end = time.time() + BATTLE_READY
+        while "skills" not in _words(ctx.frame(), SKILLS_LABEL):
+            if time.time() >= end:
+                ctx.log.info("auto-gulu: the battle's Skills button didn't show in "
+                             "%.0fs -> tapping anyway", BATTLE_READY)
+                return True
+            if wait(ctx, 0.3):
                 return False
         return True
 
