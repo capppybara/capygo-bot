@@ -112,6 +112,8 @@ QUIT_TRIES = 3            # Skills -> home again while no exit confirmation show
                           # first try; 0.5s before each retry (user)
 RETRY_WAIT = 0.5
 SKILLS_LABEL = RelRect(0.52, 0.84, 0.16, 0.04)     # the battle's "Skills" button text
+RESUME_LABEL = RelRect(0.30, 0.860, 0.40, 0.050)   # the Skills panel's "Resume" (it sits
+                                                   # where the battle's Skills button was)
 HOME_TIMEOUT = 15.0
 # Stay mode (hosting)
 START_LABEL = RelRect(0.20, 0.735, 0.28, 0.040)    # "Start Challenge" / "Random Match"
@@ -476,13 +478,16 @@ class AutoGulu(Task):
 
     def _ask_quit(self, ctx: Context) -> bool:
         """Skills (in battle) -> home, until the "Exiting will immediately settle
-        rewards" confirmation shows: True. If it doesn't and the battle's Skills
-        button still shows (the panel never opened), again, up to QUIT_TRIES.
-        False if it never came, or on a stop."""
+        rewards" confirmation shows: True. Up to QUIT_TRIES, RETRY_WAIT apart:
+        the battle's Skills button still showing (the panel never opened) ->
+        Skills -> home again; the Skills panel open ("Resume": the home tap didn't
+        take - 2026-10-18, under the "First move!" banner) -> home again only (a
+        Skills tap would hit Resume). False if it never came, or on a stop."""
+        taps = QUIT_TAPS
         for attempt in range(1, QUIT_TRIES + 1):
             if attempt > 1 and wait(ctx, RETRY_WAIT):
                 return False
-            for what, pos, after in QUIT_TAPS:
+            for what, pos, after in taps:
                 if not self._tap(ctx, Rel(*_rel(pos)), what, after):
                     return False
             if ctx.dry_run:
@@ -490,12 +495,18 @@ class AutoGulu(Task):
             frame = ctx.frame()
             if "exiting" in _words(frame, TIPS_TEXT):
                 return True
+            if "resume" in _words(frame, RESUME_LABEL):
+                ctx.log.info("auto-gulu: the Skills panel is open but home didn't take "
+                             "(try %d/%d) -> home again", attempt, QUIT_TRIES)
+                taps = QUIT_TAPS[-1:]
+                continue
             if "skills" not in _words(frame, SKILLS_LABEL):
                 ctx.log.warning("auto-gulu: no exit confirmation, and not the battle "
                                 "either")
                 return False
             ctx.log.info("auto-gulu: no exit confirmation - the Skills panel didn't "
                          "open (try %d/%d)", attempt, QUIT_TRIES)
+            taps = QUIT_TAPS
         return False
 
     def _host_skill_screen(self, ctx: Context, n: int) -> bool:
