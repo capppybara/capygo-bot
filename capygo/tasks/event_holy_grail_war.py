@@ -1,6 +1,6 @@
 """Event: holy-grail-war.
 
-Events -> Arena tab -> Holy Grail War (4th card) -> the "Hero Plaza". Likes both
+Events -> Arena tab -> Holy Grail War (its card, found by title) -> the "Hero Plaza". Likes both
 champions on the Supreme division it opens to, then switches with the top-left
 button to the middle option (Dauntless) and the top option (Rising Star), liking
 both each time, then backs out to the Events screen. The flow is shared with
@@ -23,7 +23,8 @@ class HolyGrailWar(PlazaLikes):
                    "Supreme, Dauntless and Rising Star divisions, then go back.")
     START_HINT = "Start on the main Adventure screen."
 
-    CARD = Rel(0.35, 0.64)
+    CARD = Rel(0.35, 0.475)        # 3rd card since Seal Battle left (found by title)
+    CARD_WORDS = "holy grail"
     TITLE_WORD = "hero plaza"
     THUMBS = [("left", Rel(0.319, 0.611)), ("right", Rel(0.685, 0.611))]
     PICKER_BTN = Rel(0.171, 0.195)

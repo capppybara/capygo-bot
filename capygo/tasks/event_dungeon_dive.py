@@ -16,10 +16,9 @@ from __future__ import annotations
 
 from ..geometry import Rel, RelRect
 from ..task import Context, register
-from .event import EventTask, go_events
+from .event import EventTask, card_at, go_events
 
 DUNGEON_CARD = Rel(0.35, 0.33)                    # 2nd card on the Challenge tab
-CARD_NAME = RelRect(0.12, 0.265, 0.50, 0.05)      # "Dungeon Dive"
 FLOOR_TITLE = RelRect(0.25, 0.205, 0.50, 0.05)    # "Dungeon Floor <n>"
 TICKET_PLUS = Rel(0.137, 0.054)                   # ticket "+" at the top-left corner
 POPUP_TITLE = RelRect(0.30, 0.31, 0.40, 0.045)    # "Purchase"
@@ -39,10 +38,11 @@ class DungeonDive(EventTask):
     def run_daily(self, ctx: Context) -> bool:
         if not self.open_tab(ctx, "challenge"):
             return False
-        if not ctx.dry_run and "dungeon dive" not in self.text_in(ctx, CARD_NAME):
+        card = card_at(ctx, "dungeon dive", DUNGEON_CARD)
+        if card is None:
             ctx.log.warning("%s: no Dungeon Dive card on the Challenge tab", self.name)
             return False
-        if not self.tap(ctx, DUNGEON_CARD, "Dungeon Dive"):
+        if not self.tap(ctx, card, "Dungeon Dive"):
             return False
         if not ctx.dry_run and "dungeon floor" not in self.text_in(ctx, FLOOR_TITLE):
             ctx.log.warning("%s: the Dungeon Floor screen did not open", self.name)

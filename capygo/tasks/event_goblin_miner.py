@@ -15,12 +15,11 @@ from __future__ import annotations
 import os
 import time
 
-from ..geometry import Rel, RelRect
+from ..geometry import Rel
 from ..task import Context, register
-from .event import EventTask, go_events
+from .event import EventTask, card_at, go_events
 from .goblin_miner import GoblinMiner
 
-THIRD_CARD = RelRect(0.12, 0.430, 0.50, 0.05)    # "Goblin Miner" on the Challenge tab
 GOBLIN_CARD = Rel(0.35, 0.47)
 OPEN_TIMEOUT = 8.0
 
@@ -37,10 +36,11 @@ class GoblinMinerEvent(EventTask):
     def run_daily(self, ctx: Context) -> bool:
         if not self.open_tab(ctx, "challenge"):
             return False
-        if not ctx.dry_run and "goblin miner" not in self.text_in(ctx, THIRD_CARD):
+        card = card_at(ctx, "goblin miner", GOBLIN_CARD)
+        if card is None:
             ctx.log.warning("%s: no Goblin Miner card on the Challenge tab", self.name)
             return False
-        if not self.tap(ctx, GOBLIN_CARD, "Goblin Miner"):
+        if not self.tap(ctx, card, "Goblin Miner"):
             return False
 
         miner = GoblinMiner()

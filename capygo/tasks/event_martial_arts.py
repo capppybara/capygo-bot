@@ -1,6 +1,6 @@
 """Event: martial-arts.
 
-Events -> Arena tab -> Martial Arts Tournament (3rd card) -> the "Martial Arts
+Events -> Arena tab -> Martial Arts Tournament (its card, found by title) -> the "Martial Arts
 Hall". Same flow as holy-grail-war (event_plaza.py) but with three champions per
 zone: likes all three on the Supreme zone it opens to, then switches with the
 top-left button to the middle option (Valiant) and the top option (Novice), liking
@@ -23,7 +23,8 @@ class MartialArts(PlazaLikes):
                    "champions in the Supreme, Valiant and Novice zones, then go back.")
     START_HINT = "Start on the main Adventure screen."
 
-    CARD = Rel(0.35, 0.475)
+    CARD = Rel(0.35, 0.31)         # 2nd card since Seal Battle left (found by title)
+    CARD_WORDS = "martial arts"
     TITLE_WORD = "martial arts hall"
     THUMBS = [("center", Rel(0.502, 0.519)), ("left", Rel(0.251, 0.641)),
               ("right", Rel(0.749, 0.641))]

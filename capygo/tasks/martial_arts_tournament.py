@@ -53,7 +53,7 @@ from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
 from .daily import (_crop, find_sprite, go_home, save_snapshot, tap, tap_to_close_up,
                     wait)
-from .event import TABS, go_events
+from .event import TABS, card_at, go_events
 from .event_arena import (OK_BTN, OK_LABEL, RESULT_TITLE, SKIP_BTN, _power, fight_up,
                           last_my_power)
 from . import pvp
@@ -400,8 +400,13 @@ class MartialArtsTournament(Task):
         if not go_events(ctx):
             self._log.warning("couldn't get to the Events screen")
             return False
-        if not (self._tap(ctx, TABS["arena"], "Arena tab")
-                and self._tap(ctx, MartialArts.CARD, "Martial Arts Tournament")):
+        if not self._tap(ctx, TABS["arena"], "Arena tab"):
+            return False
+        card = card_at(ctx, "martial arts", MartialArts.CARD)
+        if card is None:
+            self._log.warning("no Martial Arts Tournament card on the Arena tab")
+            return False
+        if not self._tap(ctx, card, "Martial Arts Tournament"):
             return False
         if not ctx.dry_run and not self._until(
                 ctx, lambda: "martial" in _words(ctx.frame(), HALL_TITLE)):

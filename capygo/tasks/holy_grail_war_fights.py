@@ -51,7 +51,7 @@ from ..local import local_default
 from ..perception import NAME_LANGUAGES, ocr_lines, read_int
 from ..task import Context, Param, register
 from .daily import _crop, find_sprite
-from .event import TABS, go_events
+from .event import TABS, card_at, go_events
 from .event_holy_grail_war import HolyGrailWar
 from .event_plaza import SELECT_TITLE, TITLE_REGION
 from .invites import same_name
@@ -139,8 +139,13 @@ class HolyGrailWarFights(MartialArtsTournament):
         if not go_events(ctx):
             self._log.warning("couldn't get to the Events screen")
             return False
-        if not (self._tap(ctx, TABS["arena"], "Arena tab")
-                and self._tap(ctx, HolyGrailWar.CARD, "Holy Grail War")):
+        if not self._tap(ctx, TABS["arena"], "Arena tab"):
+            return False
+        card = card_at(ctx, "holy grail", HolyGrailWar.CARD)
+        if card is None:
+            self._log.warning("no Holy Grail War card on the Arena tab")
+            return False
+        if not self._tap(ctx, card, "Holy Grail War"):
             return False
         if not ctx.dry_run:
             def opened() -> bool:

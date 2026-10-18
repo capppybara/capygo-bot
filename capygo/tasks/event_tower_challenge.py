@@ -22,9 +22,8 @@ import time
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context, register
-from .event import EventTask, go_events
+from .event import EventTask, card_at, go_events
 
-FIRST_CARD = RelRect(0.12, 0.10, 0.50, 0.05)     # "Tower Challenge" (1st card)
 TOWER_CARD = Rel(0.35, 0.165)
 TOWER_TITLE = RelRect(0.25, 0.135, 0.50, 0.045)  # "Tower of Infinity <n>"
 CHALLENGE_BTN = Rel(0.498, 0.943)
@@ -61,10 +60,11 @@ class TowerChallenge(EventTask):
     def _open_tower(self, ctx: Context) -> bool:
         if not self.open_tab(ctx, "challenge"):
             return False
-        if not self._has(ctx, FIRST_CARD, "tower challenge"):
-            ctx.log.warning("%s: the Challenge tab did not open", self.name)
+        card = card_at(ctx, "tower challenge", TOWER_CARD)
+        if card is None:
+            ctx.log.warning("%s: no Tower Challenge card on the Challenge tab", self.name)
             return False
-        if not self.tap(ctx, TOWER_CARD, "Tower Challenge"):
+        if not self.tap(ctx, card, "Tower Challenge"):
             return False
         return self._wait_tower(ctx)
 

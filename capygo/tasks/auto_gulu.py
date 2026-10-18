@@ -71,12 +71,11 @@ from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
 from .daily import (HOME, _crop, find_sprite, go_home, home_state, save_snapshot, tap,
                     wait)
-from .event import TABS, go_events
+from .event import TABS, card_at, go_events
 from . import invites, skills
 from .invites import same_name
 from .skills import CHOOSE_TITLE, RESELECT_AFTER, SKILL_SETTLE
 
-CARD_NAME = RelRect(0.12, 0.595, 0.50, 0.05)       # Challenge tab, 4th: "Gulu Mine"
 GULU_CARD = Rel(0.35, 0.64)
 PANEL_TITLE = RelRect(0.30, 0.125, 0.40, 0.05)     # "Gulu Mine"
 LEVEL = RelRect(0.343, 0.421, 0.311, 0.095)        # "28 Torment"
@@ -578,10 +577,11 @@ class AutoGulu(Task):
             return False
         if not self._tap(ctx, TABS["challenge"], "Challenge tab"):
             return False
-        if not ctx.dry_run and "gulu" not in _words(ctx.frame(), CARD_NAME):
+        card = card_at(ctx, "gulu", GULU_CARD)
+        if card is None:
             ctx.log.warning("auto-gulu: no Gulu Mine card on the Challenge tab")
             return False
-        if not self._tap(ctx, GULU_CARD, "Gulu Mine"):
+        if not self._tap(ctx, card, "Gulu Mine"):
             return False
         if ctx.dry_run:
             return self._tap(ctx, GO_TO_TEAM, "Go to Team")

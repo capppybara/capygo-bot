@@ -45,12 +45,11 @@ from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context, register
 from .daily import _crop, find_sprite, save_snapshot, tap_to_close_up
-from .event import EventTask, go_events
+from .event import EventTask, card_at, go_events
 from . import pvp
 from .profile import close_profile, is_open as profile_open, to_trillions
 
 ARENA_CARD = Rel(0.35, 0.165)                    # 1st card on the Arena tab
-CARD_NAME = RelRect(0.12, 0.095, 0.50, 0.05)     # "Arena"
 ARENA_TITLE = RelRect(0.20, 0.075, 0.42, 0.05)   # "Diamond Battle" (league name)
 MY_POWER = RelRect(0.43, 0.79, 0.19, 0.04)       # your banner: "4.72T" under your name
 MY_POINTS = RelRect(0.73, 0.765, 0.19, 0.05)     # your banner: "1394" at the right
@@ -220,10 +219,11 @@ class AutoArena(EventTask):
     def run_daily(self, ctx: Context) -> bool:
         if not self.open_tab(ctx, "arena"):
             return False
-        if not ctx.dry_run and "arena" not in self.text_in(ctx, CARD_NAME):
+        card = card_at(ctx, "arena", ARENA_CARD)
+        if card is None:
             ctx.log.warning("%s: no Arena card on the Arena tab", self.name)
             return False
-        if not self.tap(ctx, ARENA_CARD, "Arena"):
+        if not self.tap(ctx, card, "Arena"):
             return False
         if ctx.dry_run:
             return go_events(ctx)

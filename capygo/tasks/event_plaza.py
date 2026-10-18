@@ -28,7 +28,7 @@ import numpy as np
 from ..geometry import Rel, RelRect
 from ..perception import load_template
 from ..task import Context
-from .event import EventTask, go_events
+from .event import EventTask, card_at, go_events
 
 TITLE_REGION = RelRect(0.30, 0.070, 0.40, 0.050)  # "Hero Plaza" / "Martial Arts Hall"
 # 2026-10-09: Holy Grail War opened on "Select Division" (Rising Star / Dauntless /
@@ -46,7 +46,8 @@ OPEN_TIMEOUT = 6.0
 class PlazaLikes(EventTask):
     """Set these in a subclass."""
     TAB = "arena"                      # Events tab the card is on
-    CARD: Rel                          # the event's card on that tab
+    CARD: Rel                          # the event's card on that tab (dry run only)
+    CARD_WORDS: str                    # its title, lower case (event.card_at finds it)
     TITLE_WORD: str                    # plaza title, lower case
     THUMBS: list[tuple[str, Rel]]      # (label, position) of each thumbs-up
     PICKER_BTN: Rel                    # top-left division button
@@ -86,7 +87,12 @@ class PlazaLikes(EventTask):
     def run_daily(self, ctx: Context) -> bool:
         if not self.open_tab(ctx, self.TAB):
             return False
-        if not self.tap(ctx, self.CARD, self.TITLE):
+        card = card_at(ctx, self.CARD_WORDS, self.CARD)
+        if card is None:
+            ctx.log.warning("%s: no %s card on the %s tab", self.name, self.TITLE,
+                            self.TAB.title())
+            return False
+        if not self.tap(ctx, card, self.TITLE):
             return False
         if not ctx.dry_run:
             end = time.time() + OPEN_TIMEOUT
