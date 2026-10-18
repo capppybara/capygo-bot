@@ -107,6 +107,7 @@ START_WAIT = 2.0          # user: 2s after Start, then look for the skill screen
 HOST_SKILL_TIMEOUT = 30.0  # each skill screen must come up by then
 BATTLE_TIMEOUT = 30.0     # after the 2nd Select: the skill screen closes by then
 LOADING_MEAN = 12         # a frame this dark (mean grey) is the loading screen
+LOADING_PASS = 3.0        # it passes in an instant (user): look again for this long
 QUIT_TRIES = 3            # Skills -> home again while no exit confirmation shows:
                           # a Skills tap 0.3s after the last skill screen closed
                           # didn't register (2026-10-10 run 2). No settle before the
@@ -487,8 +488,10 @@ class AutoGulu(Task):
         rewards" confirmation shows: True. Taps can be lost to the brief loading
         screen before the fight (when both players finish picking at once - user,
         2026-10-18), so up to QUIT_TRIES, RETRY_WAIT apart: the battle's Skills
-        button still showing (the panel never opened) or the loading screen (all
-        black; 2026-10-15's failure) -> Skills -> home again; the Skills panel
+        button still showing (the panel never opened) -> Skills -> home again. A
+        check that catches the loading screen itself (all black; an unlucky
+        capture on 2026-10-15) looks again once it has passed - still black after
+        LOADING_PASS -> Skills -> home again; the Skills panel
         open ("Resume": the home tap didn't take - 2026-10-18) -> home again only
         (a Skills tap would hit Resume). Anything else: False, as on a stop."""
         taps = QUIT_TAPS
@@ -501,6 +504,14 @@ class AutoGulu(Task):
             if ctx.dry_run:
                 return True
             frame = ctx.frame()
+            # caught the instant loading screen (2026-10-15's black screenshot: an
+            # unlucky capture - user): look again once it has passed, before
+            # deciding anything (a tap now could land on the exit confirmation)
+            end = time.time() + LOADING_PASS
+            while _loading(frame) and time.time() < end:
+                if wait(ctx, 0.3):
+                    return False
+                frame = ctx.frame()
             if "exiting" in _words(frame, TIPS_TEXT):
                 return True
             if "resume" in _words(frame, RESUME_LABEL):
@@ -508,9 +519,9 @@ class AutoGulu(Task):
                              "(try %d/%d) -> home again", attempt, QUIT_TRIES)
                 taps = QUIT_TAPS[-1:]
                 continue
-            if _loading(frame):
-                ctx.log.info("auto-gulu: the loading screen - the taps were lost (try "
-                             "%d/%d) -> again", attempt, QUIT_TRIES)
+            if _loading(frame):  # still black after LOADING_PASS: the taps were lost
+                ctx.log.info("auto-gulu: still the loading screen - the taps were lost "
+                             "(try %d/%d) -> again", attempt, QUIT_TRIES)
                 taps = QUIT_TAPS
                 continue
             if "skills" not in _words(frame, SKILLS_LABEL):
