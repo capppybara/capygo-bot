@@ -290,15 +290,45 @@ def read_power(frame, lay: Layout | None = None) -> Decimal | None:
 
 
 def read_name(frame, lay: Layout | None = None) -> str:
-    """The info box's Name value (OCR; a stylized or non-Latin name may read
-    poorly)."""
+    """The info box's Name value. A Japanese / Chinese or Korean name gets a read
+    with those languages on (2026-10-19: English alone read "⁉ 小白猫" as "8 08",
+    "残高77円" as "2-77H"); a Latin one keeps the plain English read, which reads
+    those best. Names drawn with symbols the game shows as boxes don't read well
+    either way."""
     lay = lay or layout(frame)
-    text = " ".join(t for t, _, _ in sorted(ocr_lines(_px(
-        frame, *VALUE_X, lay.name_y - ROW_H, lay.name_y + ROW_H)), key=lambda l: l[1])).strip()
+    cell = _px(frame, *VALUE_X, lay.name_y - ROW_H, lay.name_y + ROW_H)
+    text = _cjk_name(cell) or " ".join(t for t, _, _ in sorted(
+        ocr_lines(cell), key=lambda l: l[1])).strip()
     for tag in ROLE_TAGS:  # a guild-mate's role tag sits right after the name
         if text.lower().endswith(" " + tag):
             return text[:-len(tag) - 1].strip()
     return text
+
+
+_KANA_HAN = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]")
+_HANGUL = re.compile(r"[\uac00-\ud7a3\u1100-\u11ff\u3130-\u318f]")
+CJK_ORDERS = ((["ja-JP", "zh-Hans", "ko-KR", "en-US"], _KANA_HAN),   # Japanese / Chinese
+              (["ko-KR", "ja-JP", "zh-Hans", "en-US"], _HANGUL))     # Korean
+CJK_SHARE = 0.5   # the read's characters in that script, at least (Latin names: ~0)
+
+
+def _cjk_name(cell) -> str:
+    """The name in the cell if it's mostly Japanese / Chinese or Korean: each
+    language order's accurate read (3x), kept if at least CJK_SHARE of its
+    characters are that script; the one with the most of them. "" otherwise.
+    (Japanese-first got "小白猫" where Korean-first got nothing - the order
+    matters.)"""
+    big = cv2.resize(cell, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    big = cv2.copyMakeBorder(big, 20, 20, 20, 20, cv2.BORDER_REPLICATE)
+    best, most = "", 0
+    for langs, script in CJK_ORDERS:
+        text = " ".join(t for t, _, _ in sorted(ocr_lines(big, "accurate", langs),
+                                                key=lambda l: l[1])).strip()
+        chars = [c for c in text if not c.isspace()]
+        n = len(script.findall(text))
+        if chars and n / len(chars) >= CJK_SHARE and n > most:
+            best, most = text, n
+    return best
 
 
 def read_stats(frame, lay: Layout | None = None
