@@ -54,7 +54,9 @@ OPEN_TIMEOUT = 6.0
 TIPS_TIMEOUT = 3.0        # Synthesize -> the Tips confirm
 REWARD_TIMEOUT = 6.0      # OK -> the Rewards popup
 REWARD_SETTLE = 1.5       # the new pets animate in before the popup takes a tap
-MAX_SYNTHESES = 50        # never loop forever on a misread
+MAX_SYNTHESES = 1000      # a backstop only (~2h): each synthesis needs the game's
+                          # Tips and Rewards, so the run ends by itself when they stop
+                          # (it was 50, which cut a real run short - 2026-10-19)
 POLL = 0.3
 
 
@@ -204,6 +206,9 @@ class PetSynthesis(Task):
             ctx.log.info("pet-synthesis: synthesis %d done", made)
             if not self._close_rewards(ctx):
                 break
+        if made >= MAX_SYNTHESES:
+            ctx.log.warning("pet-synthesis: stopped at the %d-synthesis backstop; run it "
+                            "again for the rest", MAX_SYNTHESES)
         return made
 
     def _close_rewards(self, ctx: Context) -> bool:
