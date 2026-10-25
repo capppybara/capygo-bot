@@ -278,19 +278,32 @@ class AutoArena(EventTask):
             ctx.log.warning("%s: the opponent list didn't open after %d tries",
                             self.name, CHALLENGE_TRIES)
             return None
-        pick = self._choose(ctx, my_power, my_points)
-        if pick is None:
-            self.flag(ctx, f"stopped at attack {n}/{RUNS} - no opponent below "
-                           f"{MAX_POWER_RATIO}x your power ({my_power * MAX_POWER_RATIO:.2f}T"
-                           f"; you: {my_power}T, {my_points} points), even after a "
-                           f"refresh. Handle the rest by hand.")
-            return None
-        ctx.log.info("%s: pick row %d (%d points, %sT)", self.name, pick.row + 1,
-                     pick.points, pick.power)
-        # The fight log (user, 2026-10-09): look at the opponent's profile first.
-        opponent = pvp.scout(ctx, OPPONENT_PICS[pick.row], "arena")
-        if not ctx.dry_run and not self._back_on_list(ctx):
-            return None
+        # Pick; look at the pick's profile (the fight log - user, 2026-10-09); a
+        # player you rarely beat (pvp.rarely_beaten: 5+ fights, arena and martial
+        # together, under 40% won - user, 2026-10-24) is skipped for the next best.
+        skipped: set = set()  # (power, points) of the players skipped this attack
+        while True:
+            pick = self._choose(ctx, my_power, my_points, skipped)
+            if pick is None:
+                self.flag(ctx, f"stopped at attack {n}/{RUNS} - no opponent below "
+                               f"{MAX_POWER_RATIO}x your power ({my_power * MAX_POWER_RATIO:.2f}T"
+                               f"; you: {my_power}T, {my_points} points), even after a "
+                               f"refresh" + (f", besides {len(skipped)} you rarely beat"
+                                             if skipped else "") + ". Handle the rest by hand.")
+                return None
+            ctx.log.info("%s: pick row %d (%d points, %sT)", self.name, pick.row + 1,
+                         pick.points, pick.power)
+            opponent = pvp.scout(ctx, OPPONENT_PICS[pick.row], "arena")
+            if not ctx.dry_run and not self._back_on_list(ctx):
+                return None
+            uid = opponent.uid if opponent else None
+            bad = pvp.rarely_beaten(uid)
+            if bad is None:
+                break
+            ctx.log.info("%s: skip uid %s (row %d): won %d of %d against them (%.0f%%)",
+                         self.name, uid, pick.row + 1, bad[0], bad[1],
+                         100 * bad[0] / bad[1])
+            skipped.add((pick.power, pick.points))
         if not self.tap(ctx, OPPONENT_BTNS[pick.row], f"x1 Challenge (row {pick.row + 1})"):
             return None
         if not self._wait_for(ctx, "the fight screen",
@@ -401,14 +414,15 @@ class AutoArena(EventTask):
             if self.wait(ctx, POLL):
                 return False
 
-    def _choose(self, ctx: Context, my_power: Decimal,
-                my_points: int | None) -> Opponent | None:
+    def _choose(self, ctx: Context, my_power: Decimal, my_points: int | None,
+                skipped: set = frozenset()) -> Opponent | None:
         """Pick from the open Challenge list (user, 2026-10-04): the most points
         among opponents below 1.2x my power that have more than 10 points over
         mine. None of those -> use the Free Refresh once (only while it says
         "Free", so no gems) and look again. Still none -> the most points below
-        1.2x my power. None only if nobody is below 1.2x."""
-        opponents = self._read_list(ctx)
+        1.2x my power. None only if nobody is below 1.2x. `skipped`: (power,
+        points) of players passed over this attack (rarely beaten)."""
+        opponents = [o for o in self._read_list(ctx) if (o.power, o.points) not in skipped]
         if my_points is None:  # can't tell who's above me: take the best beatable
             ctx.log.warning("%s: your points didn't read; picking the best opponent "
                             "below %sx your power", self.name, MAX_POWER_RATIO)
@@ -424,7 +438,8 @@ class AutoArena(EventTask):
                 return None
             if not self._wait_for(ctx, "the refreshed list", list_open, LOAD_TIMEOUT):
                 return None
-            opponents = self._read_list(ctx)
+            opponents = [o for o in self._read_list(ctx)
+                         if (o.power, o.points) not in skipped]
             pick = pick_opponent(opponents, my_power, floor)
             if pick is not None:
                 return pick

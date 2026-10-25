@@ -92,8 +92,6 @@ FIGHT_TIMEOUT = 15.0
 PURCHASE_TEXT = RelRect(0.10, 0.20, 0.80, 0.35)    # out of tickets: "Purchase ..." popup
 PURCHASE_CLOSE = Rel(0.5, 0.714)                   # its X, if the sprite isn't found
 NO_TICKETS, STUCK = "no tickets", "stuck"
-SKIP_MIN_FIGHTS = 5       # user: skip a player only after this many fights with them
-SKIP_BELOW = 0.40         # ... and a win rate below this
 RESTARTS = 1              # restart the game at most this often per run (a stuck
                           # fight; the restart before a snipe doesn't count)
 RESTART_LEAD = 60         # sniping: restart the game this long before the snipe (user)
@@ -588,14 +586,14 @@ class MartialArtsTournament(Task):
               before) -> Foe | None:
         """The opponent to fight among `foes` (read off `frame`; `before`: the list
         before the scroll): the most points below the power cap, skipping a player
-        fought SKIP_MIN_FIGHTS+ times and beaten under SKIP_BELOW of them (user,
+        fought pvp.SKIP_MIN_FIGHTS+ times and beaten under pvp.SKIP_BELOW (user,
         2026-10-13). Their UID comes from their profile: candidates are scouted
         best first, until one passes - only when someone in the log has enough
         fights to be skipped (else no extra profiles). The returned foe's y is
         where it is on screen now. None: nobody (refresh); self.pick_failed: stop."""
         records = pvp.player_records()
         if ctx.dry_run or not self.params.get("scout", True) or not any(
-                n >= SKIP_MIN_FIGHTS for _, n in records.values()):
+                n >= pvp.SKIP_MIN_FIGHTS for _, n in records.values()):
             return best(foes, cap)
         current = foes
         for cand in sorted((f for f in foes if f.power < cap),
@@ -611,7 +609,7 @@ class MartialArtsTournament(Task):
                 return None
             uid = self.opponent.uid if self.opponent else None
             wins, n = records.get(uid, (0, 0)) if uid else (0, 0)
-            if n >= SKIP_MIN_FIGHTS and wins / n < SKIP_BELOW:
+            if pvp.rarely_beaten(uid, records):
                 self._log.info("skip uid %s (%sT, %d points): won %d of %d against "
                                "them (%.0f%%)", uid, foe.power, foe.points, wins, n,
                                100 * wins / n)

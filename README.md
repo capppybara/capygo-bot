@@ -195,6 +195,12 @@ The log ends with a summary:
 4. If there is still none, it fights the one below 1.2x with the most points.
 5. If nobody is below 1.2x, it stops and flags it for you.
 
+Before each fight it opens the pick's profile for the fight log. A player you've
+fought 5 or more times and beaten less than 40% of the time is skipped, and the
+next pick by the rules above is checked instead. The record counts Arena and
+Martial Arts fights together, by UID, including this run's (Martial Arts uses
+the same rule).
+
 It skips each fight and taps OK on the result. When you are out of tickets, the
 game offers to sell one. The bot closes that offer and finishes. It never buys
 tickets.

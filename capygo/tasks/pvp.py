@@ -240,6 +240,24 @@ def summarize(ctx: Context, quiet: bool = False) -> None:
         ctx.log.warning("pvp: couldn't write the player summary: %s", e)
 
 
+# Skip a player you rarely beat (user, 2026-10-13 for martial, 2026-10-24 for the
+# arena too): fought this many times or more, arena and martial together...
+SKIP_MIN_FIGHTS = 5
+SKIP_BELOW = 0.40     # ... and beaten less than this share of them
+
+
+def rarely_beaten(uid: str | None,
+                  records: dict[str, tuple[int, int]] | None = None
+                  ) -> tuple[int, int] | None:
+    """(wins, fights) if `uid` is a player to skip - SKIP_MIN_FIGHTS+ fights with a
+    known result (arena and martial together, all time) and a win rate below
+    SKIP_BELOW - else None. `records`: player_records(), read here if not given."""
+    if not uid:
+        return None
+    wins, n = (player_records() if records is None else records).get(uid, (0, 0))
+    return (wins, n) if n >= SKIP_MIN_FIGHTS and wins / n < SKIP_BELOW else None
+
+
 def player_records() -> dict[str, tuple[int, int]]:
     """Your record against each opponent, all time, arena and martial together
     (user, 2026-10-13: same players, same 1v1 fights): uid -> (wins, fights with a
