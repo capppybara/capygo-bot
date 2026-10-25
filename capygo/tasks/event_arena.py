@@ -284,12 +284,11 @@ class AutoArena(EventTask):
         skipped: set = set()  # (power, points) of the players skipped this attack
         while True:
             pick = self._choose(ctx, my_power, my_points, skipped)
-            if pick is None:
-                self.flag(ctx, f"stopped at attack {n}/{RUNS} - no opponent below "
-                               f"{MAX_POWER_RATIO}x your power ({my_power * MAX_POWER_RATIO:.2f}T"
-                               f"; you: {my_power}T, {my_points} points), even after a "
-                               f"refresh" + (f", besides {len(skipped)} you rarely beat"
-                                             if skipped else "") + ". Handle the rest by hand.")
+            if pick is None:  # everyone left is a player you rarely beat
+                self.flag(ctx, f"stopped at attack {n}/{RUNS} - every opponent on the "
+                               f"list is one you rarely beat ({len(skipped)} skipped; "
+                               f"you: {my_power}T, {my_points} points). Handle the rest "
+                               f"by hand.")
                 return None
             ctx.log.info("%s: pick row %d (%d points, %sT)", self.name, pick.row + 1,
                          pick.points, pick.power)
@@ -420,13 +419,14 @@ class AutoArena(EventTask):
         among opponents below 1.2x my power that have more than 10 points over
         mine. None of those -> use the Free Refresh once (only while it says
         "Free", so no gems) and look again. Still none -> the most points below
-        1.2x my power. None only if nobody is below 1.2x. `skipped`: (power,
-        points) of players passed over this attack (rarely beaten)."""
+        1.2x my power. Nobody below 1.2x -> the most points of all (user,
+        2026-10-24). `skipped`: (power, points) of players passed over this
+        attack (rarely beaten); None only if everyone is."""
         opponents = [o for o in self._read_list(ctx) if (o.power, o.points) not in skipped]
         if my_points is None:  # can't tell who's above me: take the best beatable
             ctx.log.warning("%s: your points didn't read; picking the best opponent "
                             "below %sx your power", self.name, MAX_POWER_RATIO)
-            return pick_opponent(opponents, my_power)
+            return pick_opponent(opponents, my_power) or self._most_points(ctx, opponents)
         floor = my_points + MIN_POINT_GAP
         pick = pick_opponent(opponents, my_power, floor)
         if pick is not None:
@@ -450,6 +450,17 @@ class AutoArena(EventTask):
             ctx.log.info("%s: nobody with more than %d points below %sx your power; "
                          "taking the best one below %sx", self.name, floor,
                          MAX_POWER_RATIO, MAX_POWER_RATIO)
+            return pick
+        return self._most_points(ctx, opponents)
+
+    def _most_points(self, ctx: Context, opponents: list[Opponent]) -> Opponent | None:
+        """Nobody below MAX_POWER_RATIO x your power: fight the one with the most
+        points anyway (user, 2026-10-24; ties: the weaker one). None only if no one
+        is left (all skipped as rarely beaten)."""
+        pick = max(opponents, key=lambda o: (o.points, -o.power), default=None)
+        if pick is not None:
+            ctx.log.info("%s: nobody below %sx your power -> the most points: row %d",
+                         self.name, MAX_POWER_RATIO, pick.row + 1)
         return pick
 
     def _read_list(self, ctx: Context) -> list[Opponent]:
