@@ -281,15 +281,19 @@ class AutoArena(EventTask):
         # Pick; look at the pick's profile (the fight log - user, 2026-10-09); a
         # player you rarely beat (pvp.rarely_beaten: 5+ fights, arena and martial
         # together, under 40% won - user, 2026-10-24) is skipped for the next best.
-        skipped: set = set()  # (power, points) of the players skipped this attack
+        skipped: dict = {}  # (power, points) -> the profile, of the players skipped
         while True:
-            pick = self._choose(ctx, my_power, my_points, skipped)
-            if pick is None:  # everyone left is a player you rarely beat
-                self.flag(ctx, f"stopped at attack {n}/{RUNS} - every opponent on the "
-                               f"list is one you rarely beat ({len(skipped)} skipped; "
-                               f"you: {my_power}T, {my_points} points). Handle the rest "
-                               f"by hand.")
-                return None
+            pick = self._choose(ctx, my_power, my_points, set(skipped))
+            if pick is None:  # everyone is a player you rarely beat: the most points
+                pick = self._most_points(ctx, self._read_list(ctx))   # anyway (user)
+                if pick is None:
+                    self.flag(ctx, f"stopped at attack {n}/{RUNS} - no opponent read on "
+                                   f"the list. Check the arena.")
+                    return None
+                opponent = skipped.get((pick.power, pick.points))
+                ctx.log.info("%s: everyone on the list is one you rarely beat -> row %d, "
+                             "the most points", self.name, pick.row + 1)
+                break
             ctx.log.info("%s: pick row %d (%d points, %sT)", self.name, pick.row + 1,
                          pick.points, pick.power)
             opponent = pvp.scout(ctx, OPPONENT_PICS[pick.row], "arena")
@@ -302,7 +306,7 @@ class AutoArena(EventTask):
             ctx.log.info("%s: skip uid %s (row %d): won %d of %d against them (%.0f%%)",
                          self.name, uid, pick.row + 1, bad[0], bad[1],
                          100 * bad[0] / bad[1])
-            skipped.add((pick.power, pick.points))
+            skipped[(pick.power, pick.points)] = opponent
         if not self.tap(ctx, OPPONENT_BTNS[pick.row], f"x1 Challenge (row {pick.row + 1})"):
             return None
         if not self._wait_for(ctx, "the fight screen",
@@ -421,7 +425,8 @@ class AutoArena(EventTask):
         "Free", so no gems) and look again. Still none -> the most points below
         1.2x my power. Nobody below 1.2x -> the most points of all (user,
         2026-10-24). `skipped`: (power, points) of players passed over this
-        attack (rarely beaten); None only if everyone is."""
+        attack (rarely beaten); None if everyone is (the caller then takes the
+        most points of all)."""
         opponents = [o for o in self._read_list(ctx) if (o.power, o.points) not in skipped]
         if my_points is None:  # can't tell who's above me: take the best beatable
             ctx.log.warning("%s: your points didn't read; picking the best opponent "
@@ -451,17 +456,16 @@ class AutoArena(EventTask):
                          "taking the best one below %sx", self.name, floor,
                          MAX_POWER_RATIO, MAX_POWER_RATIO)
             return pick
-        return self._most_points(ctx, opponents)
-
-    def _most_points(self, ctx: Context, opponents: list[Opponent]) -> Opponent | None:
-        """Nobody below MAX_POWER_RATIO x your power: fight the one with the most
-        points anyway (user, 2026-10-24; ties: the weaker one). None only if no one
-        is left (all skipped as rarely beaten)."""
-        pick = max(opponents, key=lambda o: (o.points, -o.power), default=None)
+        pick = self._most_points(ctx, opponents)
         if pick is not None:
             ctx.log.info("%s: nobody below %sx your power -> the most points: row %d",
                          self.name, MAX_POWER_RATIO, pick.row + 1)
         return pick
+
+    def _most_points(self, ctx: Context, opponents: list[Opponent]) -> Opponent | None:
+        """No suitable opponent: fight the one with the most points anyway (user,
+        2026-10-24; ties: the weaker one). None only if `opponents` is empty."""
+        return max(opponents, key=lambda o: (o.points, -o.power), default=None)
 
     def _read_list(self, ctx: Context) -> list[Opponent]:
         """Read the open Challenge list, re-reading while a row is missing."""
