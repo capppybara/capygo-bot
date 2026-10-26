@@ -202,6 +202,10 @@ Martial Arts fights together, by UID, including this run's (Martial Arts uses
 the same rule). If every opponent on the list is one you rarely beat, it fights
 the one with the most points anyway.
 
+After the weekly season change, the Arena opens on a "Congratulations on
+entering … Battle" popup, sometimes followed by season rewards. The bot closes
+them before the first attack.
+
 It skips each fight and taps OK on the result. When you are out of tickets, the
 game offers to sell one. The bot closes that offer and finishes. It never buys
 tickets.

@@ -85,6 +85,13 @@ RUNS = 5
 POLL = 0.5             # how often a wait checks the screen
 SETTLE = 1.0           # pause once a screen shows, before tapping in it
 LOAD_TIMEOUT = 10.0    # leaderboard (re)load, opponent list
+# The weekly season change: "Congratulations on entering <league> Battle" over the
+# leaderboard on the first visit (2026-10-25), closed with a tap on the hint line
+# under your banner ("Maintain current ranking ..."), which is inert without it.
+SEASON_BANNER = RelRect(0.15, 0.150, 0.70, 0.050)
+SEASON_DISMISS = Rel(0.5, 0.871)
+SEASON_TIMEOUT = 15.0
+SEASON_TAPS = 5        # popups closed at most (the banner, then any rewards)
 FIGHT_TIMEOUT = 15.0   # black loading screen -> fight screen
 FIGHT_SETTLE = 2.0     # user: give the fight screen a couple of seconds before Skip
 SKIP_RETRY = 6.0       # no result this long after Skip -> tap Skip again
@@ -227,6 +234,8 @@ class AutoArena(EventTask):
             return False
         if ctx.dry_run:
             return go_events(ctx)
+        if not self._season_popups(ctx):
+            return False
 
         results: list[str] = []
         start_points = None
@@ -329,6 +338,33 @@ class AutoArena(EventTask):
                    my_points=my_points, list_power=pick.power,
                    list_points=pick.points, opponent=opponent)
         return result
+
+    def _season_popups(self, ctx: Context) -> bool:
+        """The first visit after the weekly season change opens on "Congratulations
+        on entering <league> Battle" over the leaderboard (2026-10-25: the arena
+        waited 10s for the board, then gave up); season rewards may follow with
+        "Tap to close". Until the board shows (up to SEASON_TIMEOUT): close each
+        with a tap on the hint line under your banner (inert once the popups are
+        gone - never a leaderboard row). Checked every visit: it costs nothing
+        when there's none, and doesn't depend on the exact reset time. False only
+        on a stop; a board that still doesn't show is left to the usual wait."""
+        end = time.time() + SEASON_TIMEOUT
+        taps = 0
+        while time.time() < end:
+            frame = ctx.frame()
+            if board_ready(frame):
+                return True
+            if (("congratulations" in _words(frame, SEASON_BANNER)
+                 or tap_to_close_up(frame)) and taps < SEASON_TAPS):
+                taps += 1
+                ctx.log.info("%s: a season popup (%s) -> close it", self.name,
+                             _words(frame, SEASON_BANNER) or "tap to close")
+                if not self.tap(ctx, SEASON_DISMISS, "close the season popup"):
+                    return False
+                continue
+            if self.wait(ctx, POLL):
+                return False
+        return True
 
     def _back_on_list(self, ctx: Context) -> bool:
         """After the profile look: the opponent list must be showing again before a
