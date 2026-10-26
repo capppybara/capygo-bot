@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context, register
-from .daily import DailyTask, _crop, find_sprite, go_home, tap_to_close_up
+from .daily import DailyTask, _crop, find_sprite, go_home, save_snapshot, tap_to_close_up
 
 EQUIP_BTN = Rel(0.304, 0.943)                    # helmet, 2nd in the bottom bar
 CAPYMON_BTN = Rel(0.813, 0.512)                  # rightmost of Equip's middle bar
@@ -200,7 +200,19 @@ class Capymon(DailyTask):
         if not re.search(r"1\s*/\s*1", limit) or "sold" in label:
             ctx.log.info("%s: %s already taken today (%r)", self.name, title, limit)
             return None
-        if button not in label:
+        if button == "ad":
+            # the free pack: its button read "AD" until 2026-10-22, then nothing
+            # (10-23..25: skipped, claimed by hand - user). Any label without a
+            # price will do: no digits, no currency, no "top up".
+            if re.search(r"\d|\$|¥|€|£|top", label):
+                ctx.log.warning("%s: %s button reads %r - looks like a price -> skip",
+                                self.name, title, label)
+                return None
+            if "ad" not in label and "free" not in label:
+                shot = save_snapshot(ctx, "capymon-free-pack")
+                ctx.log.info("%s: %s button reads %r (no price) -> claiming%s", self.name,
+                             title, label, f"; screen saved: {shot}" if shot else "")
+        elif button not in label:
             ctx.log.warning("%s: %s button reads %r, not %r -> skip", self.name, title,
                             label, button)
             return None
