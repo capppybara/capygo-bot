@@ -241,7 +241,10 @@ class GuildTrade(GuildTask):
                          self.name, self.cap, mine[0], mine[1][:16].replace("T", " "),
                          MAX_POWER_RATIO)
         if not self.open_place(ctx, "guild trade",
-                               opened=lambda f: "guild trade" in _words(f, TITLE).lower()):
+                               opened=lambda f: "guild trade" in _words(f, TITLE).lower()
+                               or self._popup(ctx, f) is not None):
+            # (a popup over it - 2026-10-26: Rewards on a "Bountiful Return" letter -
+            # means it opened; _wait_for below closes it)
             return False  # logged (tapped twice if the map stayed)
         if ctx.dry_run:
             return go_guild(ctx)
