@@ -480,6 +480,17 @@ def _weapon_slot(ctx: Context, frame, lay: Layout):
     return np.min(np.stack(slots), axis=0).astype(np.uint8)
 
 
+def read_uid_power(ctx: Context) -> tuple[str | None, Decimal | None]:
+    """(UID, power) of the open Character Info screen, in read_profile's order:
+    a settled frame first, its power, then the UID copy last (the copy's "copied"
+    notice covers the middle of the screen; 2026-10-27 the member list copied
+    first and read no power at all). OCR for the UID if the copy fails."""
+    frame = _settled(ctx)
+    lay = layout(frame)
+    power = read_power(frame, lay)
+    return read_uid(ctx, lay) or read_uid_text(frame, lay), power
+
+
 def read_profile(ctx: Context, save_to: str | None = None) -> Profile:
     """Read the open Character Info screen. `save_to`: also save the screenshot
     there (a .png path)."""

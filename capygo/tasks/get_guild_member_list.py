@@ -59,7 +59,7 @@ from ..geometry import Rel, RelRect
 from ..paths import output_path
 from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
-from .profile import close_profile, fmt_trillions, open_profile, read_power, read_uid
+from .profile import close_profile, fmt_trillions, open_profile, read_uid_power
 
 # --- header (fixed while the member list scrolls) -------------------------
 GUILD_NAME_REGION = RelRect(0.52, 0.181, 0.34, 0.035)   # value cell -> guild name
@@ -188,8 +188,7 @@ class GetGuildMemberList(Task):
         list wasn't disturbed and the close button must NOT be pressed)."""
         if not open_profile(ctx, Rel(PROFILE_X, y_rel)):
             return None
-        uid = read_uid(ctx)
-        power = read_power(ctx.frame())
+        uid, power = read_uid_power(ctx)  # power first, from a settled frame
         close_profile(ctx)
         return uid, None if power is None else fmt_trillions(power)
 
