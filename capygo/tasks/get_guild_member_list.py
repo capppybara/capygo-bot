@@ -26,8 +26,9 @@ Per member:
 The member list is the scrollable bottom half of the panel; the header (guild
 name, member count) stays fixed while it scrolls. Members are processed a page at
 a time: every fully-visible card is opened, then the list is dragged up ~1.5 cards
-and the next page is read. Cards are located by OCR of the numeric value under each
-name (present on every card), which fixes the click position. Members are
+and the next page is read. Cards are located by the flame on their activity pill
+(level with the card's center; the profile picture is a fixed step left of it),
+with OCR of the value under each name as a backup. Members are
 de-duplicated by the exact UID, so the ~1 card of overlap between pages costs a
 little time but never skips anyone - which matters because the scroll distance
 varies and the on-card values aren't reliable enough to skip repeats by. It stops
@@ -55,11 +56,12 @@ import re
 import time
 from decimal import Decimal, InvalidOperation
 
+import cv2
 import numpy as np
 
 from ..geometry import Rel, RelRect
 from ..paths import output_path
-from ..perception import ocr_lines
+from ..perception import load_template, ocr_lines
 from ..task import Context, Param, Task, register
 from .profile import close_profile, fmt_trillions, open_profile, read_uid_power
 
@@ -70,9 +72,18 @@ MEMBER_COUNT_REGION = RelRect(0.555, 0.328, 0.11, 0.028)  # "47/48"
 
 # --- member list layout (642x951) -----------------------------------------
 PROFILE_X = 0.223         # xrel of every card's profile picture
-# Cards are located by their coin value (the gold number under the name): it is
-# present and numeric on every card, unlike the right-side pill, which reads "0"
-# for low-activity members and then isn't recognized as text at all.
+# Cards are found by the flame at the left end of their activity pill (user,
+# 2026-10-27): the same picture on every card, its center level with the card's
+# (within ~3px). Seen: 0.92-1.00 on whole flames, 0.76-0.80 on ones the list's
+# edge cuts off, nothing else in the column above 0.5.
+FLAME = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "templates", "get-guild-member-list", "flame.png")
+FLAME_X = (0.60, 0.72)    # xrel band the flame sits in
+FLAME_MATCH = 0.85
+CARD_GAP = 40             # px: flame matches closer than this are the same card
+# Backup: the coin value (the gold number under the name), in case a card draws
+# its flame differently (a member with 0 activity hasn't been seen yet). The
+# pill's number itself reads "0" for those and isn't recognized as text at all.
 COIN_X = (0.33, 0.46)     # xrel band of the coin value
 # The value, with up to 2 stray characters in front: the sword icon left of it
 # sometimes reads as part of it - as a digit ("3766.65B") or not ("/766.65B");
@@ -200,28 +211,40 @@ class GetGuildMemberList(Task):
         return uid, None if power is None else fmt_trillions(power)
 
     # --- list scanning ----------------------------------------------------
-    def _visible_cards(self, frame) -> list[tuple[float, str]]:
-        """(center_yrel, coin_value) for every fully-visible card, top to bottom.
-        Each card is located by the numeric value under its name; the card center is
-        just above that. The value is only used to place the click (the second tuple
-        field is kept for logging/debugging); de-dup is by UID after opening."""
-        h, w = frame.shape[:2]
-        items = []
-        for text, cx, cy in ocr_lines(frame):
-            if not COIN_X[0] <= cx / w <= COIN_X[1]:
-                continue
-            m = COIN_VALUE.match(text)
-            if not m:
-                continue
-            center = cy / h - COIN_TO_CENTER
-            if FULL_TOP <= center <= FULL_BOTTOM:
-                items.append((center, m.group(1).replace(" ", "").upper()))
-        items.sort(key=lambda t: t[0])
-        merged: list[tuple[float, str]] = []
-        for c, coin in items:  # collapse an OCR split of one value into two lines
-            if not merged or abs(c - merged[-1][0]) > 0.03:
-                merged.append((c, coin))
+    def _visible_cards(self, frame) -> list[float]:
+        """The center y (rel) of every fully-visible card, top to bottom: each
+        flame, plus any card found only by its coin value. It only places the
+        click; de-dup is by UID after opening."""
+        centers = sorted(c for c in self._flames(frame) + self._coin_rows(frame)
+                         if FULL_TOP <= c <= FULL_BOTTOM)
+        merged: list[float] = []
+        for c in centers:  # a card found both ways, or an OCR split into two lines
+            if not merged or c - merged[-1] > 0.03:
+                merged.append(c)
         return merged
+
+    @staticmethod
+    def _flames(frame) -> list[float]:
+        """The center y (rel) of every flame in its column."""
+        h, w = frame.shape[:2]
+        tpl = load_template(FLAME)
+        x0, x1 = int(FLAME_X[0] * w), int(FLAME_X[1] * w)
+        best = cv2.matchTemplate(frame[:, x0:x1], tpl, cv2.TM_CCOEFF_NORMED).max(axis=1)
+        tops: list[int] = []
+        for y in np.argsort(-best):
+            if best[y] < FLAME_MATCH:
+                break
+            if all(abs(int(y) - t) > CARD_GAP for t in tops):
+                tops.append(int(y))
+        return [(t + tpl.shape[0] / 2) / h for t in tops]
+
+    @staticmethod
+    def _coin_rows(frame) -> list[float]:
+        """The center y (rel) of every card whose coin value reads; the card's
+        center is just above it."""
+        h, w = frame.shape[:2]
+        return [cy / h - COIN_TO_CENTER for text, cx, cy in ocr_lines(frame)
+                if COIN_X[0] <= cx / w <= COIN_X[1] and COIN_VALUE.match(text)]
 
     def _list_unchanged(self, a, b) -> bool:
         h, w = a.shape[:2]
@@ -400,7 +423,7 @@ class GetGuildMemberList(Task):
         while not ctx.should_stop() and page < MAX_PAGES:
             page += 1
             here: set[str] = set()
-            for center, _coin in self._visible_cards(ctx.frame()):
+            for center in self._visible_cards(ctx.frame()):
                 if ctx.should_stop():
                     break
                 res = self._read_member(ctx, center)
