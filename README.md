@@ -361,7 +361,9 @@ CSV.
 For each member it opens their character screen, copies the UID with the
 in-game copy button, reads the power under the character, and closes the screen.
 It scrolls the list itself and skips repeats by UID, so everyone appears exactly
-once.
+once. If the walk ends with fewer members than the guild's count, it goes back
+to the top and walks the list once more, stopping as soon as the missing UIDs
+are found.
 
 If the guild name is not in the English alphabet, the file uses the guild's
 numeric ID instead.

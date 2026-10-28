@@ -32,7 +32,9 @@ de-duplicated by the exact UID, so the ~1 card of overlap between pages costs a
 little time but never skips anyone - which matters because the scroll distance
 varies and the on-card values aren't reliable enough to skip repeats by. It stops
 when the list can't scroll further (bottom reached) or every member (from the
-"N/M" count) has been seen.
+"N/M" count) has been seen. If the pass comes up short of the count, it goes back
+to the top and walks the list once more, matching by UID, until the missing ones
+are found (user, 2026-10-27).
 
 Output: ~/Downloads/capy-bot/capygo_<guild>_member_list.csv with columns
 (guild_name, member_uid, power). Power is stored as a plain number in trillions
@@ -88,6 +90,7 @@ SCROLL_FROM = Rel(0.5, 0.70)
 SCROLL_TO = Rel(0.5, 0.60)
 
 MAX_PAGES = 80                 # safety cap (a full guild is ~48 members)
+MAX_PASSES = 2                 # a short first pass gets one more walk (user)
 
 
 @register("get-guild-member-list")
@@ -359,8 +362,23 @@ class GetGuildMemberList(Task):
                      guild, count, names)
         ctx.log.info("run compare-guild-power to graph them side by side")
 
-    # --- one top-to-bottom pass -------------------------------------------
+    # --- top-to-bottom passes ---------------------------------------------
     def _sweep(self, ctx: Context, members: dict, target) -> None:
+        """Walk the list; if that comes up short of the "N/M" count, go back to the
+        top and walk it again, matching by UID, until the missing ones are found
+        (user, 2026-10-27: a pass missed the 4th member - its card's read came back
+        as someone already read; the list itself only re-sorts on reopen - user).
+        Without the count it's one pass."""
+        for n in range(1, MAX_PASSES + 1):
+            self._pass(ctx, members, target)
+            if ctx.should_stop() or not target or len(members) >= target:
+                return
+            if n < MAX_PASSES:
+                ctx.log.info("read %d of %d members -> back to the top to find the "
+                             "%d missing by UID", len(members), target,
+                             target - len(members))
+
+    def _pass(self, ctx: Context, members: dict, target) -> None:
         """Walk the list top to bottom, open every fully-visible card, and de-dup by
         the exact in-game UID.
 
@@ -370,13 +388,15 @@ class GetGuildMemberList(Task):
         sword icon fuses onto the number, "9800.48B" vs "800.48B"), so any content
         based skip occasionally drops a member. A repeat is cheap to reject (its UID
         is already in `members`), and the small scroll step keeps repeats to ~1 per
-        page, so opening them costs a little time but can never skip anyone."""
+        page, so opening them costs a little time. A repeat whose power wasn't read
+        before gets this read's."""
         self._scroll_to_top(ctx)
         page = 0
         stale = 0
+        last: set[str] = set()
         while not ctx.should_stop() and page < MAX_PAGES:
             page += 1
-            new_here = 0
+            here: set[str] = set()
             for center, _coin in self._visible_cards(ctx.frame()):
                 if ctx.should_stop():
                     break
@@ -388,10 +408,13 @@ class GetGuildMemberList(Task):
                 if not uid:
                     ctx.log.info("read a member but could not copy its UID; skipping")
                     continue
+                here.add(uid)
                 if uid in members:
+                    if power and not members[uid]:
+                        members[uid] = power
+                        ctx.log.info("uid=%s power=%s (read this time)", uid, power)
                     continue
                 members[uid] = power
-                new_here += 1
                 ctx.log.info("[%d%s] uid=%s power=%s",
                              len(members), f"/{target}" if target else "",
                              uid, power or "?")
@@ -404,11 +427,13 @@ class GetGuildMemberList(Task):
             if not self._scroll_down(ctx):
                 ctx.log.info("reached the bottom of the member list")
                 return
-            # A whole page with nothing new means the scroll isn't advancing (stuck),
-            # not the bottom (which _scroll_down catches above); bail after a few.
-            stale = stale + 1 if new_here == 0 else 0
+            # A page with only members the page before had means the scroll isn't
+            # advancing (stuck), not the bottom (which _scroll_down catches above);
+            # bail after a few. (Pages of only repeats are normal on the second pass.)
+            stale = stale + 1 if here <= last else 0
+            last = here
             if stale >= 3:
-                ctx.log.info("no new members over 3 pages -> stopping (stuck?)")
+                ctx.log.info("the same members over 3 pages -> stopping (stuck?)")
                 return
 
     # --- main loop --------------------------------------------------------
