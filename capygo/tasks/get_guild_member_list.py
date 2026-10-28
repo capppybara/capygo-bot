@@ -74,6 +74,10 @@ PROFILE_X = 0.223         # xrel of every card's profile picture
 # present and numeric on every card, unlike the right-side pill, which reads "0"
 # for low-activity members and then isn't recognized as text at all.
 COIN_X = (0.33, 0.46)     # xrel band of the coin value
+# The value, with up to 2 stray characters in front: the sword icon left of it
+# sometimes reads as part of it - as a digit ("3766.65B") or not ("/766.65B");
+# requiring a leading digit skipped that card on every pass (2026-10-27).
+COIN_VALUE = re.compile(r"^\s*[^\d\s]{0,2}\s*(\d[\d.,]*\s*[KMBTkmbt]?)\s*$")
 COIN_TO_CENTER = 0.019    # the coin value sits ~18px below the card's vertical center
 FULL_TOP = 0.575          # a card is fully visible (safe to open) when its center
 FULL_BOTTOM = 0.825       #   y is within [FULL_TOP, FULL_BOTTOM]
@@ -204,15 +208,14 @@ class GetGuildMemberList(Task):
         h, w = frame.shape[:2]
         items = []
         for text, cx, cy in ocr_lines(frame):
-            xr = cx / w
-            if not (COIN_X[0] <= xr <= COIN_X[1] and re.match(r"^\s*\d", text)):
+            if not COIN_X[0] <= cx / w <= COIN_X[1]:
                 continue
-            m = re.search(r"\d[\d.,]*\s*[KMBTkmbt]?", text)
+            m = COIN_VALUE.match(text)
             if not m:
                 continue
             center = cy / h - COIN_TO_CENTER
             if FULL_TOP <= center <= FULL_BOTTOM:
-                items.append((center, m.group(0).replace(" ", "").upper()))
+                items.append((center, m.group(1).replace(" ", "").upper()))
         items.sort(key=lambda t: t[0])
         merged: list[tuple[float, str]] = []
         for c, coin in items:  # collapse an OCR split of one value into two lines
