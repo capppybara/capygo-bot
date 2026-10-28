@@ -81,8 +81,10 @@ FLAME = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
 FLAME_X = (0.60, 0.72)    # xrel band the flame sits in
 FLAME_MATCH = 0.85
 CARD_GAP = 40             # px: flame matches closer than this are the same card
-# Backup: the coin value (the gold number under the name), in case a card draws
-# its flame differently (a member with 0 activity hasn't been seen yet). The
+PITCH = 80 / 951          # card to card
+# Backup, read only when the flames leave a gap (user, 2026-10-27; the flames take
+# ~3ms, this OCR ~150ms): the coin value (the gold number under the name), in case a card
+# draws its flame differently (a member with 0 activity hasn't been seen yet). The
 # pill's number itself reads "0" for those and isn't recognized as text at all.
 COIN_X = (0.33, 0.46)     # xrel band of the coin value
 # The value, with up to 2 stray characters in front: the sword icon left of it
@@ -213,10 +215,12 @@ class GetGuildMemberList(Task):
     # --- list scanning ----------------------------------------------------
     def _visible_cards(self, frame) -> list[float]:
         """The center y (rel) of every fully-visible card, top to bottom: each
-        flame, plus any card found only by its coin value. It only places the
-        click; de-dup is by UID after opening."""
-        centers = sorted(c for c in self._flames(frame) + self._coin_rows(frame)
-                         if FULL_TOP <= c <= FULL_BOTTOM)
+        flame, plus - only if the flames leave a gap - any card found by its coin
+        value. It only places the click; de-dup is by UID after opening."""
+        found = sorted(self._flames(frame))
+        if self._gap(found):
+            found += self._coin_rows(frame)
+        centers = sorted(c for c in found if FULL_TOP <= c <= FULL_BOTTOM)
         merged: list[float] = []
         for c in centers:  # a card found both ways, or an OCR split into two lines
             if not merged or c - merged[-1] > 0.03:
@@ -237,6 +241,19 @@ class GetGuildMemberList(Task):
             if all(abs(int(y) - t) > CARD_GAP for t in tops):
                 tops.append(int(y))
         return [(t + tpl.shape[0] / 2) / h for t in tops]
+
+    @staticmethod
+    def _gap(flames: list[float]) -> bool:
+        """True if the flames (sorted) leave room for a card they missed: none in
+        the band, two more than a card apart, or more than a card of the band
+        empty above the first or below the last (also true at the list's end,
+        where it costs one extra read)."""
+        inside = [c for c in flames if FULL_TOP <= c <= FULL_BOTTOM]
+        if not inside:
+            return True
+        if any(b - a > 1.5 * PITCH for a, b in zip(flames, flames[1:])):
+            return True
+        return inside[0] - FULL_TOP > PITCH or FULL_BOTTOM - inside[-1] > PITCH
 
     @staticmethod
     def _coin_rows(frame) -> list[float]:
