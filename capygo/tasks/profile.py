@@ -332,6 +332,13 @@ def _cjk_name(cell) -> str:
     return best
 
 
+def name_in(cell) -> str:
+    """The name in a cell cut from any screen (a board or Challenge list row)."""
+    big = cv2.resize(cell, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    return _cjk_name(cell) or " ".join(t for t, _, _ in sorted(
+        ocr_lines(big), key=lambda l: l[1])).strip()
+
+
 def read_stats(frame, lay: Layout | None = None
                ) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
     """HP, ATK, DEF under the power, in trillions (None where unread)."""

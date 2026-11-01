@@ -28,9 +28,12 @@ and your record with them say if you can beat them, before any refresh is spent.
 Then the Challenge list is refreshed until they show, up to "Refreshes per fight" (20
 gems each after the free one). A row with their points (plain digits, so they read
 well; user) gets its profile opened and its UID compared; other rows cost no time, so
-a refresh takes ~2s instead of the ~14s of opening all four. Points move, so every
-LOOK_BACK_AFTER refreshes it goes back to the board for a fresh look. Out of refreshes,
-or nobody in the top 3 beatable: the most points below the ratio on the list.
+a refresh takes ~2s. After POINTS_REFRESHES refreshes with no match their points may
+have changed (user), so rows with their name get the same check, and if none match,
+every row does (~4s each). Rows passed over aren't opened again this fight. About every
+LOOK_BACK_SECS it goes back to the board for a fresh look at your place and theirs. Out
+of refreshes, or nobody in the top 3 beatable: the most points below the ratio on the
+list.
 
 Out of tickets, x1 Challenge opens the Purchase popup: it buys TICKETS_PER_BUY at once
 (user: for speed) and taps x1 Challenge again. Never anything that looks like real
@@ -45,6 +48,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from difflib import SequenceMatcher
 
 import cv2
 
@@ -60,7 +64,7 @@ from .event_arena import (ARENA_CARD, FIGHT_SETTLE, FIGHT_TIMEOUT, FREE_REFRESH,
                           PURCHASE_CLOSE, board_points, board_ready, fight_up, list_open,
                           purchase_up, read_me, read_opponents)
 from .martial_arts_tournament import CUTOFF_MARGIN, MartialArtsTournament, _Tagged, _words
-from .profile import Profile, close_profile, open_profile, read_uid_power
+from .profile import Profile, close_profile, name_in, open_profile, read_uid_power
 from .restart import restart_game
 
 SNIPE_UTC = "15:45"        # user: 8:45 AM Pacific, summer time
@@ -73,11 +77,18 @@ MAX_LOOKS = 4              # reads of the list while a row is missing
 LOOK_GAP = 0.4
 BOARD_LOOKS = 10           # reads of the board: the rows slide in ~0.5s after your banner
 BOARD_GAP = 0.15
-LOOK_BACK_AFTER = 10       # refreshes before a fresh look at the board (~25s)
+LOOK_BACK_SECS = 25.0      # hunting this long: a fresh look at the board
+POINTS_REFRESHES = 2       # user: refreshes with no match by points before names, then UIDs
+NAME_MATCH = 0.7           # names this alike: worth a UID check (a misread letter)
 POWER_SLACK = Decimal("0.03")  # your own power, on a profile vs your banner (no my_uid)
 
 PLACE_Y = (168, 245, 321)  # px: the middle of the board's 1st, 2nd and 3rd rows
 PLACE_PIC_X = 180          # px: a row's picture (opens their profile)
+PLACE_NAME_X = (205, 405)  # px: a row's name, and its height from the row's middle
+PLACE_NAME_DY = -17
+LIST_NAME_X = (180, 400)   # px: a Challenge list row's name, and its height
+LIST_NAME_Y = (419, 500, 582, 663)
+NAME_H = 14
 FIRST_BADGE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "templates", "arena-sniping", "first_badge.png")
 BADGE_BOX = (75, 145, 715, 785)  # px: x0, x1, y0, y1, where your banner shows your place
@@ -100,9 +111,11 @@ class Place:
 
 @dataclass
 class Who:
-    """A place's player, from their profile. uid None if it didn't open."""
+    """A place's player: their row's name, and from their profile, their UID and power
+    (None if it didn't open)."""
     rank: int
     points: int
+    name: str
     uid: str | None
     power: Decimal | None
 
@@ -114,6 +127,27 @@ class Who:
 def read_board(frame) -> list[Place]:
     """The points of the 1st, 2nd and 3rd rows of the leaderboard."""
     return [Place(rank, board_points(frame, y)) for rank, y in enumerate(PLACE_Y, 1)]
+
+
+def _name_at(frame, x: tuple[int, int], y: int) -> str:
+    h, w = frame.shape[:2]
+    return name_in(frame[int((y - NAME_H) * h / 951):int((y + NAME_H) * h / 951),
+                         int(x[0] * w / 642):int(x[1] * w / 642)])
+
+
+def place_name(frame, rank: int) -> str:
+    """The name on the board's row for this place."""
+    return _name_at(frame, PLACE_NAME_X, PLACE_Y[rank - 1] + PLACE_NAME_DY)
+
+
+def list_name(frame, row: int) -> str:
+    """The name on this row of the Challenge list."""
+    return _name_at(frame, LIST_NAME_X, LIST_NAME_Y[row])
+
+
+def same_name(a: str, b: str) -> bool:
+    a, b = a.strip().lower(), b.strip().lower()
+    return bool(a and b) and SequenceMatcher(None, a, b).ratio() >= NAME_MATCH
 
 
 def first_badge(frame) -> bool:
@@ -233,6 +267,9 @@ class ArenaSniping(MartialArtsTournament):
         self._restarts = 0
         self._refreshes = self._gems = 0
         self._searched = 0               # refreshes towards this fight
+        self._passed: set = set()        # list rows that aren't the target: (power, points)
+        self._rejected: set = set()      # ... and those you can't beat, for the fallback
+        self._hunting = None             # who they were passed over for (Who.key)
         self._enter_secs = ENTER_GUESS
         self._my_uid = str(local_default("my_uid", "") or "")
 
@@ -391,16 +428,17 @@ class ArenaSniping(MartialArtsTournament):
         if who is not None:
             return who
         uid = power = None
+        name = place_name(ctx.frame(), s.rank)
         if open_profile(ctx, Rel(PLACE_PIC_X / 642, PLACE_Y[s.rank - 1] / 951)):
             uid, power = read_uid_power(ctx)
             close_profile(ctx)
         else:
             self._log.warning("place %d's profile didn't open -> matching by points alone",
                               s.rank)
-        who = Who(s.rank, s.points, uid, power)
+        who = Who(s.rank, s.points, name, uid, power)
         self._known[(s.rank, s.points)] = who
-        self._log.info("place %d: uid %s, %sT, %d points", who.rank, uid or "?", power or "?",
-                       who.points)
+        self._log.info("place %d: %s, uid %s, %sT, %d points", who.rank, name or "?", uid or "?",
+                       power or "?", who.points)
         return who
 
     def _cant_beat(self, who: Who, cap: Decimal) -> str:
@@ -431,8 +469,8 @@ class ArenaSniping(MartialArtsTournament):
     # --- one fight ---------------------------------------------------------------
     def _look_at_row(self, ctx: Context, o: Opponent
                      ) -> tuple[bool, str | None, Profile | None]:
-        """Open a list row's profile: (back on the list, their UID, the whole profile
-        if Log opponents is on). UID None if it didn't open."""
+        """Open a row likely to be the target: (back on the list, their UID, the whole
+        profile if Log opponents is on). UID None if it didn't open."""
         uid = profile = None
         if self.params.get("scout", True):
             profile = pvp.scout(ctx, OPPONENT_PICS[o.row], "arena")
@@ -441,6 +479,55 @@ class ArenaSniping(MartialArtsTournament):
             uid = read_uid_power(ctx)[0]
             close_profile(ctx)
         return self._arena._back_on_list(ctx), uid, profile
+
+    def _row_uid(self, ctx: Context, o: Opponent) -> tuple[bool, str | None]:
+        """Only a row's UID, quicker than _look_at_row: (back on the list, their UID)."""
+        uid = None
+        if open_profile(ctx, OPPONENT_PICS[o.row]):
+            uid = read_uid_power(ctx)[0]
+            close_profile(ctx)
+        return self._arena._back_on_list(ctx), uid
+
+    def _find_target(self, ctx: Context, rows: list[Opponent], target: Who
+                     ) -> tuple[Opponent | None, str | None, Profile | None] | None:
+        """The target on this list: (row, UID, profile), all None if they aren't on it;
+        None if the list didn't come back. The rows with their points; after
+        POINTS_REFRESHES refreshes with no match (user), the rows with their name, then
+        every row by UID. Those passed over stay in self._passed."""
+        def fresh() -> list[Opponent]:
+            return [o for o in rows if (o.power, o.points) not in self._passed]
+        likely = [o for o in fresh() if o.points == target.points]
+        wide = not likely and self._searched >= POINTS_REFRESHES
+        if wide:
+            frame = ctx.frame()
+            likely = [o for o in fresh() if same_name(target.name, list_name(frame, o.row))]
+            self._log.info("nobody on %d points after %d refreshes -> %s", target.points,
+                           self._searched, "their name is on the list" if likely
+                           else "no name match either, checking UIDs")
+        for o in likely:
+            back, uid, profile = self._look_at_row(ctx, o)
+            if not back:
+                return None
+            if target.uid and uid and uid != target.uid:
+                self._log.info("%sT on %d points is someone else (uid %s)", o.power, o.points,
+                               uid)
+                self._passed.add((o.power, o.points))
+                continue
+            return o, target.uid or uid, profile
+        if wide and target.uid:
+            for o in fresh():
+                back, uid = self._row_uid(ctx, o)
+                if not back:
+                    return None
+                if uid != target.uid:
+                    self._passed.add((o.power, o.points))
+                    continue
+                self._log.info("found them by UID: %sT on %d points", o.power, o.points)
+                if not self.params.get("scout", True):
+                    return o, uid, None
+                back, _, profile = self._look_at_row(ctx, o)  # the whole profile, for the log
+                return (o, uid, profile) if back else None
+        return None, None, None
 
     def _attack(self, ctx: Context, power: Decimal | None, points: int | None,
                 first: bool, places: list[Place], deadline: datetime) -> str:
@@ -456,9 +543,12 @@ class ArenaSniping(MartialArtsTournament):
             return BLOCKED
         self._log.info("hunting %s", f"place {target.rank} (uid {target.uid or '?'}, "
                        f"{target.points} points)" if target else "nobody in the top 3")
+        if target and target.key != self._hunting:
+            self._passed.clear()  # passed over for someone else
+        self._hunting = target.key if target else None
         limit = self.params["max_refreshes"]
+        started = time.time()
         round_refreshes = 0
-        passed: set = set()  # rows looked at this fight and passed over: (power, points)
         while True:
             rows = self._list_rows(ctx)
             if not rows:  # something's over the list: don't tap Refresh on it
@@ -466,27 +556,20 @@ class ArenaSniping(MartialArtsTournament):
                 self._snapshot(ctx, "list")
                 return BLOCKED
             pick = uid = profile = None
-            for o in rows if target else []:
-                if o.points != target.points or (o.power, o.points) in passed:
-                    continue
-                back, uid, profile = self._look_at_row(ctx, o)
-                if not back:
+            if target:
+                found = self._find_target(ctx, rows, target)
+                if found is None:
                     return BLOCKED
-                if target.uid and uid and uid != target.uid:
-                    self._log.info("%sT on %d points is someone else (uid %s)", o.power,
-                                   o.points, uid)
-                    passed.add((o.power, o.points))
-                    continue
-                pick, uid = o, target.uid or uid
-                break
+                pick, uid, profile = found
             if pick is not None and pick.power >= cap:  # their profile's power didn't read
                 self._log.info("place %d is %sT: can't beat them", target.rank, pick.power)
                 self._avoid.add(target.key)
+                self._passed.add((pick.power, pick.points))
                 self._tap(ctx, POPUP_CLOSE, "close the list")
                 return LOOK_AGAIN
             if pick is None and (target is None or self._searched >= limit):
                 for o in sorted((o for o in rows if o.power < cap
-                                 and (o.power, o.points) not in passed),
+                                 and (o.power, o.points) not in self._rejected),
                                 key=lambda o: (-o.points, o.power)):
                     uid = profile = None
                     if self.params.get("scout", True):
@@ -496,7 +579,7 @@ class ArenaSniping(MartialArtsTournament):
                     if uid in self._avoid or pvp.rarely_beaten(uid):
                         self._log.info("%sT on %d points: can't beat them (uid %s)", o.power,
                                        o.points, uid)
-                        passed.add((o.power, o.points))
+                        self._rejected.add((o.power, o.points))
                         continue
                     self._log.info("taking the most points below the ratio: %sT, %d points",
                                    o.power, o.points)
@@ -506,10 +589,13 @@ class ArenaSniping(MartialArtsTournament):
                 if self._searched >= limit or datetime.now(timezone.utc) >= deadline:
                     self._log.info("nobody to fight after %d refreshes", self._searched)
                     self._searched = 0
+                    self._passed.clear()
+                    self._rejected.clear()
                     self._tap(ctx, POPUP_CLOSE, "close the list")
                     return NO_TARGET
-                if round_refreshes >= LOOK_BACK_AFTER:
-                    self._log.info("%d refreshes -> a fresh look at the board", self._searched)
+                if round_refreshes and time.time() - started >= LOOK_BACK_SECS:
+                    self._log.info("%d refreshes so far -> a fresh look at the board",
+                                   self._searched)
                     self._tap(ctx, POPUP_CLOSE, "close the list")
                     return LOOK_AGAIN
                 if not self._refresh(ctx):
@@ -521,6 +607,8 @@ class ArenaSniping(MartialArtsTournament):
             if result in (None, CANT_BUY):
                 return result or BLOCKED
             self._searched = 0
+            self._passed.clear()
+            self._rejected.clear()
             pvp.record(ctx, "arena", result, my_power=power, my_points=points,
                        list_power=pick.power, list_points=pick.points, opponent=profile)
             if result == "defeat" and uid:  # the plainest "can't beat them" there is
