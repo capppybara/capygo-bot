@@ -52,7 +52,10 @@ from .profile import close_profile, is_open as profile_open, to_trillions
 ARENA_CARD = Rel(0.35, 0.165)                    # 1st card on the Arena tab
 ARENA_TITLE = RelRect(0.20, 0.075, 0.42, 0.05)   # "Diamond Battle" (league name)
 MY_POWER = RelRect(0.43, 0.79, 0.19, 0.04)       # your banner: "4.72T" under your name
-MY_POINTS = RelRect(0.73, 0.765, 0.19, 0.05)     # your banner: "1394" at the right
+MY_POINTS_Y = 750                                # px: your banner's points, at the right
+BOARD_ROW_X = (70, 575)                          # px: a board row, rank to points
+BOARD_POINTS_CX = (480, 560)                     # px: where its points are centred
+BOARD_ROW_H = 36                                 # px: half a row's height
 CHALLENGE_BTN = Rel(0.498, 0.932)                # orange Challenge, tickets "0/1" under it
 POPUP_TITLE = RelRect(0.30, 0.29, 0.40, 0.05)    # "Challenge"
 FREE_REFRESH = Rel(0.718, 0.379)                 # green Free Refresh (new opponents)
@@ -117,14 +120,33 @@ def _words(frame, region: RelRect) -> str:
 
 def _power(text: str) -> Decimal | None:
     """'2.81T' / '905.85B' -> trillions. None without a unit: a dropped unit would
-    make a strong opponent look weak."""
+    make a strong opponent look weak. A comma before 1-2 digits is a misread decimal
+    point: "14,88T" is 14.88T (2026-11-01: with the comma dropped it was 1488T)."""
     m = POWER_TEXT.search(text or "")
-    return to_trillions(m.group(0)) if m else None
+    return to_trillions(re.sub(r",(\d{1,2})(?!\d)", r".\1", m.group(0))) if m else None
 
 
 def _points(text: str) -> int | None:
-    digits = (text or "").replace(",", "").strip()
+    digits = re.sub(r"[\s,.]", "", text or "")
     return int(digits) if digits.isdigit() else None
+
+
+def board_points(frame, y: int) -> int | None:
+    """The points on a leaderboard row or your banner, y px its middle. Reads the whole
+    row: a big number on its own can come back upside down ("1000" as "DOOL", and on
+    2026-10-31 four of five reads of your own points were empty), and the row's text
+    tells the OCR which way is up."""
+    h, w = frame.shape[:2]
+    kx, ky = w / 642, h / 951
+    x0 = int(BOARD_ROW_X[0] * kx)
+    crop = frame[int((y - BOARD_ROW_H) * ky):int((y + BOARD_ROW_H) * ky),
+                 x0:int(BOARD_ROW_X[1] * kx)]
+    for text, cx, _ in ocr_lines(crop):
+        if BOARD_POINTS_CX[0] * kx <= cx + x0 <= BOARD_POINTS_CX[1] * kx:
+            points = _points(text)
+            if points is not None:
+                return points
+    return None
 
 
 def save_my_power(power: Decimal) -> None:
@@ -152,12 +174,10 @@ def last_my_power() -> tuple[Decimal, str] | None:
 
 def read_me(frame) -> tuple[Decimal | None, int | None]:
     """Your power (trillions) and points from the banner above Challenge."""
-    power = points = None
+    power = None
     for text, _, _ in ocr_lines(_crop(frame, MY_POWER)):
         power = power or _power(text)
-    for text, _, _ in ocr_lines(_crop(frame, MY_POINTS)):
-        points = points or _points(text)
-    return power, points
+    return power, board_points(frame, MY_POINTS_Y)
 
 
 def _cell(frame, xs: tuple[float, float], y: float) -> str:
@@ -272,20 +292,7 @@ class AutoArena(EventTask):
         """One attack from the loaded leaderboard: pick, fight, Skip, OK. The result
         ("victory"/"defeat"/"unknown"), NO_TICKETS (back on the leaderboard), or
         None if it went wrong (logged)."""
-        for attempt in range(1, CHALLENGE_TRIES + 1):
-            if not self.tap(ctx, CHALLENGE_BTN, "Challenge"):
-                return None
-            if self._wait_for(ctx, None, list_open, LIST_TIMEOUT):
-                break
-            if ctx.should_stop():
-                return None
-            ctx.log.info("%s: the opponent list didn't open (try %d/%d); clearing the "
-                         "screen and trying again", self.name, attempt, CHALLENGE_TRIES)
-            if not self._clear_to_board(ctx):
-                return None
-        else:
-            ctx.log.warning("%s: the opponent list didn't open after %d tries",
-                            self.name, CHALLENGE_TRIES)
+        if not self._open_list(ctx):
             return None
         # Pick; look at the pick's profile (the fight log - user, 2026-10-09); a
         # player you rarely beat (pvp.rarely_beaten: 5+ fights, arena and martial
@@ -338,6 +345,23 @@ class AutoArena(EventTask):
                    my_points=my_points, list_power=pick.power,
                    list_points=pick.points, opponent=opponent)
         return result
+
+    def _open_list(self, ctx: Context) -> bool:
+        """From the loaded leaderboard: tap Challenge until the opponent list is open."""
+        for attempt in range(1, CHALLENGE_TRIES + 1):
+            if not self.tap(ctx, CHALLENGE_BTN, "Challenge"):
+                return False
+            if self._wait_for(ctx, None, list_open, LIST_TIMEOUT):
+                return True
+            if ctx.should_stop():
+                return False
+            ctx.log.info("%s: the opponent list didn't open (try %d/%d); clearing the "
+                         "screen and trying again", self.name, attempt, CHALLENGE_TRIES)
+            if not self._clear_to_board(ctx):
+                return False
+        ctx.log.warning("%s: the opponent list didn't open after %d tries",
+                        self.name, CHALLENGE_TRIES)
+        return False
 
     def _season_popups(self, ctx: Context) -> bool:
         """The first visit after the weekly season change opens on "Congratulations

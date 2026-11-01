@@ -49,7 +49,7 @@ from decimal import Decimal
 import cv2
 
 from ..geometry import Rel, RelRect
-from ..perception import ocr_lines
+from ..perception import ocr_lines, read_int
 from ..task import Context, Param, Task, register
 from .daily import (_crop, find_sprite, go_home, save_snapshot, tap, tap_to_close_up,
                     wait)
@@ -91,6 +91,8 @@ CUTOFF_MARGIN = 20        # don't start a fight this close to the cutoff
 FIGHT_TIMEOUT = 15.0
 PURCHASE_TEXT = RelRect(0.10, 0.20, 0.80, 0.35)    # out of tickets: "Purchase ..." popup
 PURCHASE_CLOSE = Rel(0.5, 0.714)                   # its X, if the sprite isn't found
+QTY = RelRect(0.436, 0.478, 0.125, 0.042)          # its quantity ("1")
+QTY_PLUS, QTY_MINUS = (392, 472), (251, 472)       # its + and -
 NO_TICKETS, STUCK = "no tickets", "stuck"
 RESTARTS = 1              # restart the game at most this often per run (a stuck
                           # fight; the restart before a snipe doesn't count)
@@ -738,9 +740,27 @@ class MartialArtsTournament(Task):
         return True
 
     def _set_quantity(self, ctx: Context) -> int | None:
-        """The Purchase popup's quantity, set before buying: TICKETS_PER_BUY.
-        Martial buys 1, as the popup opens. None on a stop."""
-        return 1
+        """The Purchase popup's quantity, set before buying: TICKETS_PER_BUY, with
+        its + (or -, should a tap have gone one too far). Martial buys 1, as the
+        popup opens. Returns what it reads at the end (what gets bought), None on a
+        stop."""
+        want = self.TICKETS_PER_BUY
+        if want == 1:
+            return 1
+        for _ in range(want + 2):
+            n = read_int(_crop(ctx.frame(), QTY))
+            if n is None or n == want:
+                break
+            up = n < want
+            if not self._tap(ctx, _px(QTY_PLUS if up else QTY_MINUS),
+                             f"{'+' if up else '-'} (ticket quantity {n} -> {want})", 0.6):
+                return None
+        else:
+            n = read_int(_crop(ctx.frame(), QTY))
+        if n != want:
+            self._log.warning("the ticket quantity reads %s, not %d -> buying that",
+                              n if n is not None else "?", want)
+        return n or 1
 
     def _close_purchase(self, ctx: Context) -> None:
         """Close the ticket Purchase popup. Never buys."""

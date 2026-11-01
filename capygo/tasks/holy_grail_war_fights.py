@@ -48,9 +48,9 @@ import cv2
 
 from ..geometry import Rel, RelRect
 from ..local import local_default
-from ..perception import NAME_LANGUAGES, ocr_lines, read_int
+from ..perception import NAME_LANGUAGES, ocr_lines
 from ..task import Context, Param, register
-from .daily import _crop, find_sprite
+from .daily import find_sprite
 from .event import TABS, card_at, go_events
 from .event_holy_grail_war import HolyGrailWar
 from .event_plaza import SELECT_TITLE, TITLE_REGION
@@ -68,8 +68,6 @@ NAME_READS = (3, 4, 2)                              # upscales: read the name at
 NAME_PAD = 20                                       # px of border: a crop edge cut "H"
 TEAM_TITLE = RelRect(0.25, 0.255, 0.50, 0.050)      # "Team Details" (row tapped)
 TEAM_CLOSE = (320, 762)                             # its X, if the sprite isn't found
-QTY = RelRect(0.436, 0.478, 0.125, 0.042)           # the Purchase popup's quantity ("1")
-QTY_PLUS, QTY_MINUS = (392, 472), (251, 472)        # its + and -
 
 
 def read_team_name(frame, points_y: float) -> tuple[str, bool]:
@@ -217,26 +215,6 @@ class HolyGrailWarFights(MartialArtsTournament):
         pvp.record_team(ctx, result, my_power=cp, my_points=my_points,
                         team=self.team, power=foe.power, points=foe.points,
                         note=self.team_note)
-
-    def _set_quantity(self, ctx: Context) -> int | None:
-        """Set the Purchase popup's quantity to TICKETS_PER_BUY with its + (or -,
-        should a tap have gone one too far). Returns what it reads at the end
-        (what gets bought), None on a stop."""
-        want = self.TICKETS_PER_BUY
-        for _ in range(4):
-            n = read_int(_crop(ctx.frame(), QTY))
-            if n is None or n == want:
-                break
-            up = n < want
-            if not self._tap(ctx, _px(QTY_PLUS if up else QTY_MINUS),
-                             f"{'+' if up else '-'} (ticket quantity {n} -> {want})", 0.6):
-                return None
-        else:
-            n = read_int(_crop(ctx.frame(), QTY))
-        if n != want:
-            self._log.warning("the ticket quantity reads %s, not %d -> buying that",
-                              n if n is not None else "?", want)
-        return n or 1
 
     def _wrong_screen(self, frame) -> bool:
         """Team Details: the Challenge tap landed on the row instead."""

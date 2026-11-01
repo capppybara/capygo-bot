@@ -12,6 +12,7 @@ automation in a desktop app, set a few options, and press Start.
 
 - [Getting started](#getting-started)
 - [Automations](#automations)
+- [Arena Sniping](#arena-sniping)
 - [Auto Daily](#auto-daily)
 - [Auto Gulu](#auto-gulu)
 - [Extra Reward Collector](#extra-reward-collector)
@@ -88,6 +89,7 @@ Any of these stops a run within a second:
 
 | Automation | What it does | Start on |
 |---|---|---|
+| [Arena Sniping](#arena-sniping) | Holds first place near the end of the Arena's day, or fights a set number of times | Anywhere |
 | [Auto Daily](#auto-daily) | Runs your daily chores, events, guild and menu chores in one go | The main Adventure screen |
 | [Auto Gulu](#auto-gulu) | Plays Gulu Mine with a friend, hosting or joining | Anywhere |
 | [Extra Reward Collector](#extra-reward-collector) | Opens every Extra Rewards present on an event fund, upgrading each one | An event fund's screen with Extra Rewards |
@@ -98,6 +100,47 @@ Any of these stops a run within a second:
 | [Holy Grail War](#holy-grail-war) | Fights the Holy Grail War Qualifiers teams worth the most points that you can beat (2v2) | Anywhere |
 | [Pet Armament Chest](#pet-armament-chest) | Opens Pet Armament chests, upgrading when it is worth it | The locked chest screen |
 | [Pet Synthesis](#pet-synthesis) | Turns surplus pet fragments into new pets until none are left | Anywhere |
+
+## Arena Sniping
+
+This automation holds first place in the Arena near the end of its day, which ends
+at 16:00 UTC. It can also just fight a set number of times.
+
+**Start on:** anywhere, any time before the Start time. Leave it running. It keeps
+the Mac awake, restarts the game 1 minute before the Start time, and opens the Arena
+itself. The time is in UTC, so a clock change doesn't move it.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| Start (UTC, HH:MM) | 15:45 | When to start. 15:45 UTC is 8:45 AM Pacific in summer, 7:45 AM in winter |
+| Lead (points) | 20 | With Hold the lead on: attack when you're ahead of the next place by less than this |
+| Hold the lead | on | Check your place every 10 seconds until the end, and attack only when needed. Off: do the set number of fights |
+| Fights | 5 | With Hold the lead off: how many fights to do |
+| Power ratio | 1.2 | A player counts as beatable below this x your power |
+| Refreshes per fight | 50 | How many times to refresh the list looking for 2nd or 3rd place, per fight |
+| Log opponents | on | Open each opponent's profile before the fight, for the fight log and the rarely-beaten check (about 4s a fight) |
+
+**Holding the lead.** Every 10 seconds it taps the back arrow and enters the Arena
+again, which refreshes the leaderboard. If you are first by at least the Lead, it
+doesn't attack. If you aren't first, or the next place has caught up, it attacks
+until the lead is back. It stops starting fights 20 seconds before 16:00 UTC.
+
+**Who it fights:**
+
+1. 2nd place. If you can't beat them, 3rd place. If you are 2nd or 3rd yourself, the
+   other of the two.
+2. It finds them on the Challenge list by their points, refreshing the list until they
+   show. Refreshes cost 20 gems each after the free one. Every 10 refreshes it goes
+   back to the leaderboard for a fresh look, since points move.
+3. You can't beat someone if their power on the list is at or above the Power ratio x
+   yours, you've won under 40% of 5+ fights against them, or they beat you this run.
+4. If neither place can be beaten, or the refreshes run out, it takes the opponent with
+   the most points below the Power ratio on the list.
+
+**Tickets.** Out of tickets, it buys 5 at once from the Purchase popup and carries on.
+It never taps anything that looks like real money. Fights go in the same log as other
+Arena fights. If a fight doesn't finish or the leaderboard doesn't come back, it
+restarts the game and carries on, up to 3 times a run.
 
 ## Auto Daily
 

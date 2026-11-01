@@ -3,6 +3,7 @@
 Add a new task module here so its @register decorator runs.
 """
 
+from . import arena_sniping  # noqa: F401
 from . import auto_daily  # noqa: F401
 from . import auto_events  # noqa: F401
 from . import auto_gulu  # noqa: F401
