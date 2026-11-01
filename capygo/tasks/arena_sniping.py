@@ -28,9 +28,10 @@ and your record with them say if you can beat them, before any refresh is spent.
 Then the Challenge list is refreshed until they show, up to "Refreshes per fight" (20
 gems each after the free one). A row with their points (plain digits, so they read
 well; user) gets its profile opened and its UID compared; other rows cost no time, so
-a refresh takes ~2s. After POINTS_REFRESHES refreshes with no match their points may
-have changed (user), so rows with their name get the same check, and if none match,
-every row does (~4s each). Rows passed over aren't opened again this fight. About every
+a refresh takes ~2s. From the POINTS_REFRESHES-th refresh on, no match means their
+points may have changed (user): on that same list, before any further refresh, rows with
+their name get the same check, then every row does (~4s each). Rows passed over aren't
+opened again this fight. About every
 LOOK_BACK_SECS it goes back to the board for a fresh look at your place and theirs. Out
 of refreshes, or nobody in the top 3 beatable: the most points below the ratio on the
 list.
@@ -97,6 +98,7 @@ BACK_ARROW = Rel(123 / 642, 900 / 951)  # the board's back arrow, bottom left
 BACK_TIMEOUT = 3.0         # back arrow -> the Events screen
 
 BLOCKED, NO_TARGET, LOOK_AGAIN, CANT_BUY = "blocked", "no target", "look again", "can't buy"
+NOT_HERE = (None, None, None)  # _find_target: they aren't on this list
 
 
 @dataclass
@@ -491,43 +493,50 @@ class ArenaSniping(MartialArtsTournament):
     def _find_target(self, ctx: Context, rows: list[Opponent], target: Who
                      ) -> tuple[Opponent | None, str | None, Profile | None] | None:
         """The target on this list: (row, UID, profile), all None if they aren't on it;
-        None if the list didn't come back. The rows with their points; after
-        POINTS_REFRESHES refreshes with no match (user), the rows with their name, then
-        every row by UID. Those passed over stay in self._passed."""
+        None if the list didn't come back. The rows with their points. From the
+        POINTS_REFRESHES-th refresh on, no match there means (user) the rows with their
+        name, then every row by UID, all on this list, before any further refresh. Those
+        passed over stay in self._passed."""
         def fresh() -> list[Opponent]:
             return [o for o in rows if (o.power, o.points) not in self._passed]
-        likely = [o for o in fresh() if o.points == target.points]
-        wide = not likely and self._searched >= POINTS_REFRESHES
-        if wide:
-            frame = ctx.frame()
-            likely = [o for o in fresh() if same_name(target.name, list_name(frame, o.row))]
-            self._log.info("nobody on %d points after %d refreshes -> %s", target.points,
-                           self._searched, "their name is on the list" if likely
-                           else "no name match either, checking UIDs")
-        for o in likely:
-            back, uid, profile = self._look_at_row(ctx, o)
-            if not back:
-                return None
-            if target.uid and uid and uid != target.uid:
-                self._log.info("%sT on %d points is someone else (uid %s)", o.power, o.points,
-                               uid)
-                self._passed.add((o.power, o.points))
-                continue
-            return o, target.uid or uid, profile
-        if wide and target.uid:
-            for o in fresh():
-                back, uid = self._row_uid(ctx, o)
+
+        def check(likely: list[Opponent]):
+            for o in likely:
+                back, uid, profile = self._look_at_row(ctx, o)
                 if not back:
                     return None
-                if uid != target.uid:
+                if target.uid and uid and uid != target.uid:
+                    self._log.info("%sT on %d points is someone else (uid %s)", o.power,
+                                   o.points, uid)
                     self._passed.add((o.power, o.points))
                     continue
-                self._log.info("found them by UID: %sT on %d points", o.power, o.points)
-                if not self.params.get("scout", True):
-                    return o, uid, None
-                back, _, profile = self._look_at_row(ctx, o)  # the whole profile, for the log
-                return (o, uid, profile) if back else None
-        return None, None, None
+                return o, target.uid or uid, profile
+            return NOT_HERE
+
+        found = check([o for o in fresh() if o.points == target.points])
+        if found is not NOT_HERE or self._searched < POINTS_REFRESHES:
+            return found
+        frame = ctx.frame()
+        named = [o for o in fresh() if same_name(target.name, list_name(frame, o.row))]
+        self._log.info("no match on %d points after %d refreshes -> %s", target.points,
+                       self._searched, "their name is on the list" if named
+                       else "no name match either, checking every UID")
+        found = check(named)
+        if found is not NOT_HERE or not target.uid:
+            return found
+        for o in fresh():
+            back, uid = self._row_uid(ctx, o)
+            if not back:
+                return None
+            if uid != target.uid:
+                self._passed.add((o.power, o.points))
+                continue
+            self._log.info("found them by UID: %sT on %d points", o.power, o.points)
+            if not self.params.get("scout", True):
+                return o, uid, None
+            back, _, profile = self._look_at_row(ctx, o)  # the whole profile, for the log
+            return (o, uid, profile) if back else None
+        return NOT_HERE
 
     def _attack(self, ctx: Context, power: Decimal | None, points: int | None,
                 first: bool, places: list[Place], deadline: datetime) -> str:

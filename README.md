@@ -136,10 +136,10 @@ fights 20 seconds before 16:00 UTC.
    Power ratio x yours, under 40% won over 5+ fights, or they beat you this run.
 3. It refreshes the Challenge list until they show. Refreshes cost 20 gems each after
    the free one. A row with their points gets its profile opened and its UID compared,
-   so other rows take no time. After 2 refreshes with no match, their points may have
-   changed, so it also checks rows with their name, and if none match, it opens every
-   row to compare UIDs. Rows it has checked aren't opened again that fight. About every
-   25 seconds it goes back to the leaderboard for a fresh look.
+   so other rows take no time. From the 2nd refresh on, no match means their points may
+   have changed: on that same list, before refreshing again, it checks rows with their
+   name, then opens every row to compare UIDs. Rows it has checked aren't opened again
+   that fight. About every 25 seconds it goes back to the leaderboard for a fresh look.
 4. If nobody in the top 3 can be beaten, or the refreshes run out, it takes the opponent
    with the most points below the Power ratio on the list.
 
