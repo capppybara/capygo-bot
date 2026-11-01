@@ -13,15 +13,17 @@ its landing page is the leaderboard - and then does one of two things:
 
   Fights: that many fights, then done (or the end, if it comes first).
 
-Your place is the number at the left of your banner; if it doesn't read, you're first
-when your points equal the top row's.
+You're first when your banner shows the gold "1" badge (user: the banner says your
+place; at 1st to 3rd it's a shield, not text, so it's matched as a picture: 1.00 on the
+banner, at most 0.34 on anything else).
 
 Who to hunt (user): first yourself, 2nd place, or 3rd if you can't beat them. Not
-first, 1st place, then 2nd, then 3rd. Tapping a place's row on the board opens their
-profile: their UID says who they are (user), their power and your record with them
-say if you can beat them, before any refresh is spent. "Can't beat" = power at or
-above the ratio x yours, a player you rarely beat (pvp.rarely_beaten), or one who beat
-you this run.
+first, 1st place, then 2nd, then 3rd. The places are always the board's top 3 rows, and
+tapping a row opens that player's profile: their UID says who they are (user), and if
+it's your own (my_uid in config.local.yaml) it moves on to the next place. Their power
+and your record with them say if you can beat them, before any refresh is spent.
+"Can't beat" = power at or above the ratio x yours, a player you rarely beat
+(pvp.rarely_beaten), or one who beat you this run.
 
 Then the Challenge list is refreshed until they show, up to "Refreshes per fight" (20
 gems each after the free one). A row with their points (plain digits, so they read
@@ -38,20 +40,25 @@ board that doesn't come back, restarts the game (up to RESTARTS) and carries on.
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import cv2
+
 from ..geometry import Rel
+from ..local import local_default
+from ..perception import load_template
 from ..task import Context, Param, get_task, register
 from . import pvp
 from .daily import go_home, tap, wait
 from .event import TABS, card_at, go_events, on_events
 from .event_arena import (ARENA_CARD, FIGHT_SETTLE, FIGHT_TIMEOUT, FREE_REFRESH, LOAD_TIMEOUT,
                           OPPONENT_BTNS, OPPONENT_PICS, POPUP_CLOSE, REFRESH_LABEL, Opponent,
-                          board_points, board_ready, fight_up, list_open, my_rank, purchase_up,
-                          read_me, read_opponents)
+                          PURCHASE_CLOSE, board_points, board_ready, fight_up, list_open,
+                          purchase_up, read_me, read_opponents)
 from .martial_arts_tournament import CUTOFF_MARGIN, MartialArtsTournament, _Tagged, _words
 from .profile import Profile, close_profile, open_profile, read_uid_power
 from .restart import restart_game
@@ -59,16 +66,22 @@ from .restart import restart_game
 SNIPE_UTC = "15:45"        # user: 8:45 AM Pacific, summer time
 STOP_UTC = "16:00"         # the Arena's day ends (card "Ends" + board timer, seen 5 days)
 CHECK_EVERY = 10.0         # user: seconds between looks at your place
-ENTER_GUESS = 4.0          # back out + re-enter, until a run has timed one
+ENTER_GUESS = 2.5          # back out + re-enter, until a run has timed one (~1.8s seen)
 TICKETS_PER_BUY = 5        # user: 5 at a time, for speed
 RESTARTS = 3               # a missed check late in the window can lose first place
-MAX_LOOKS = 4              # reads of the board or the list while a row is missing
+MAX_LOOKS = 4              # reads of the list while a row is missing
 LOOK_GAP = 0.4
+BOARD_LOOKS = 10           # reads of the board: the rows slide in ~0.5s after your banner
+BOARD_GAP = 0.15
 LOOK_BACK_AFTER = 10       # refreshes before a fresh look at the board (~25s)
-POWER_SLACK = Decimal("0.03")  # your own power, on a profile vs your banner
+POWER_SLACK = Decimal("0.03")  # your own power, on a profile vs your banner (no my_uid)
 
 PLACE_Y = (168, 245, 321)  # px: the middle of the board's 1st, 2nd and 3rd rows
 PLACE_PIC_X = 180          # px: a row's picture (opens their profile)
+FIRST_BADGE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "templates", "arena-sniping", "first_badge.png")
+BADGE_BOX = (75, 145, 715, 785)  # px: x0, x1, y0, y1, where your banner shows your place
+BADGE_MATCH = 0.9
 BACK_ARROW = Rel(123 / 642, 900 / 951)  # the board's back arrow, bottom left
 BACK_TIMEOUT = 3.0         # back arrow -> the Events screen
 
@@ -103,30 +116,35 @@ def read_board(frame) -> list[Place]:
     return [Place(rank, board_points(frame, y)) for rank, y in enumerate(PLACE_Y, 1)]
 
 
-def is_first(rank: int | None, points: int | None, places: list[Place]) -> bool | None:
-    """You're first: your banner's place (user), or if that didn't read, your points
-    equal the top row's. None if neither can tell."""
-    if rank is not None:
-        return rank == 1
-    if points is None or places[0].points is None:
-        return None
-    return points == places[0].points
+def first_badge(frame) -> bool:
+    """Your banner shows the gold "1" badge: you're first (ties included)."""
+    h, w = frame.shape[:2]
+    x0, x1, y0, y1 = BADGE_BOX
+    box = frame[int(y0 * h / 951):int(y1 * h / 951), int(x0 * w / 642):int(x1 * w / 642)]
+    return cv2.minMaxLoc(cv2.matchTemplate(box, load_template(FIRST_BADGE),
+                                           cv2.TM_CCOEFF_NORMED))[1] >= BADGE_MATCH
 
 
-def lead_over_next(first: bool | None, points: int | None, places: list[Place]) -> int | None:
+def lead_over_next(first: bool, points: int | None, places: list[Place]) -> int | None:
     """Your lead over the next place, if you're first and it read."""
     if not first or points is None or places[1].points is None:
         return None
     return points - places[1].points
 
 
-def targets(places: list[Place], rank: int | None, points: int | None) -> list[Place]:
-    """The places to hunt, in order, without your own row: first yourself that leaves
-    2nd and 3rd, otherwise it's 1st, 2nd and 3rd (user). Without your place, your row
-    is the first with your points."""
-    mine = rank if rank is not None else next(
-        (s.rank for s in places if s.points == points), None)
-    return [s for s in places if s.rank != mine and s.points is not None]
+def targets(places: list[Place], first: bool) -> list[Place]:
+    """The places to hunt, in order: first yourself, 2nd and 3rd, otherwise 1st, 2nd and
+    3rd (user). If one of those is you, its UID says so (is_me)."""
+    return [s for s in places if (s.rank > 1 or not first) and s.points is not None]
+
+
+def is_me(who: Who, my_uid: str, power: Decimal, points: int | None) -> bool:
+    """This place is you: your UID (user). Without one in config.local.yaml, or if the
+    profile didn't open, your points and about your power."""
+    if my_uid and who.uid:
+        return who.uid == my_uid
+    return (who.points == points and who.power is not None
+            and abs(who.power - power) <= POWER_SLACK * power)
 
 
 def in_window(start: str, stop: str, now: datetime | None = None
@@ -216,6 +234,7 @@ class ArenaSniping(MartialArtsTournament):
         self._refreshes = self._gems = 0
         self._searched = 0               # refreshes towards this fight
         self._enter_secs = ENTER_GUESS
+        self._my_uid = str(local_default("my_uid", "") or "")
 
     # --- the loop ----------------------------------------------------------------
     def _snipe(self, ctx: Context, deadline: datetime) -> int:
@@ -239,20 +258,19 @@ class ArenaSniping(MartialArtsTournament):
                 if ctx.should_stop() or not self._recover(ctx, "the board didn't show"):
                     break
                 continue
-            power, points, rank, places = self._read_place(ctx)
-            first = is_first(rank, points, places)
+            power, points, first, places = self._read_place(ctx)
             lead = lead_over_next(first, points, places)
-            if hold and (first is None or (first and lead is None)):
-                self._log.info("your place didn't read (place %s, you %s, top 3: %s) -> no "
-                               "attack this time", rank, points, places)
+            if hold and first and lead is None:
+                self._log.info("first, but the points didn't read (you %s, top 3: %s) -> no "
+                               "attack this time", points, places)
             elif hold and first and lead >= p["lead"]:
                 self._log.info("first, ahead by %d (you %s, next %s) -> no attack", lead,
                                points, places[1].points)
             else:
                 self._log.info("%s (you %s, top 3: %s) -> attack",
-                               f"ahead by only {lead}" if lead is not None
-                               else f"in place {rank}" if rank else "not first", points, places)
-                result = self._attack(ctx, power, points, rank, places, deadline)
+                               f"ahead by only {lead}" if lead is not None else "not first",
+                               points, places)
+                result = self._attack(ctx, power, points, first, places, deadline)
                 if result == BLOCKED:
                     if ctx.should_stop() or not self._recover(ctx, "the fight didn't finish"):
                         break
@@ -277,24 +295,26 @@ class ArenaSniping(MartialArtsTournament):
         return self._arena._wait_for(ctx, "the arena leaderboard", board_ready, LOAD_TIMEOUT,
                                      settle=0.3)
 
-    def _read_place(self, ctx: Context
-                    ) -> tuple[Decimal | None, int | None, int | None, list[Place]]:
-        """Your power and points, your place, and the top 3's points, read again while
-        something is missing (a row can still be loading). Your place may not read at
-        all: it's looked for on each read, but doesn't hold anything up."""
-        power = points = rank = None
+    def _read_place(self, ctx: Context) -> tuple[Decimal | None, int | None, bool, list[Place]]:
+        """Your power and points, if you're first, and the top 3's points, once two
+        reads in a row agree and nothing's missing: an attack can cost gems, and the rows
+        are still sliding in when your banner shows (~0.5s). The last read if they never do."""
+        power = points = None
+        first = False
         places: list[Place] = []
-        for _ in range(MAX_LOOKS):
+        seen = None
+        for _ in range(BOARD_LOOKS):
             frame = ctx.frame()
             power, points = read_me(frame)
-            rank = my_rank(frame)
+            first = first_badge(frame)
             places = read_board(frame)
-            if (power is not None and points is not None
-                    and all(s.points is not None for s in places)):
+            now = (points, first, [s.points for s in places])
+            if now == seen and power is not None and points is not None and None not in now[2]:
                 break
-            if wait(ctx, LOOK_GAP):
+            seen = now
+            if wait(ctx, BOARD_GAP):
                 break
-        return power, points, rank, places
+        return power, points, first, places
 
     def _check_again(self, ctx: Context, last: float, deadline: datetime) -> bool:
         """Wait out the rest of the CHECK_EVERY since the `last` look, leaving time to
@@ -392,16 +412,16 @@ class ArenaSniping(MartialArtsTournament):
         bad = pvp.rarely_beaten(who.uid)
         return f"you've won {bad[0]} of {bad[1]} against them" if bad else ""
 
-    def _target(self, ctx: Context, power: Decimal, points: int | None, rank: int | None,
+    def _target(self, ctx: Context, power: Decimal, points: int | None, first: bool,
                 places: list[Place], cap: Decimal) -> Who | None:
         """The first place you can beat (see targets), or None."""
-        for s in targets(places, rank, points):
+        for s in targets(places, first):
             who = self._who(ctx, s)
             if ctx.should_stop():
                 return None
-            if (rank is None and who.points == points and who.power is not None
-                    and abs(who.power - power) <= POWER_SLACK * power):
-                continue  # tied, and your place didn't read: that row was yours
+            if is_me(who, self._my_uid, power, points):
+                self._log.info("place %d is you -> the next place", who.rank)
+                continue
             why = self._cant_beat(who, cap)
             if not why:
                 return who
@@ -423,7 +443,7 @@ class ArenaSniping(MartialArtsTournament):
         return self._arena._back_on_list(ctx), uid, profile
 
     def _attack(self, ctx: Context, power: Decimal | None, points: int | None,
-                rank: int | None, places: list[Place], deadline: datetime) -> str:
+                first: bool, places: list[Place], deadline: datetime) -> str:
         """Pick the target, find them on the list, fight. "victory"/"defeat"/"unknown";
         back on the board with NO_TARGET, or LOOK_AGAIN for a fresh look; CANT_BUY;
         BLOCKED if it went wrong or on a stop."""
@@ -431,7 +451,7 @@ class ArenaSniping(MartialArtsTournament):
             self._log.warning("your power didn't read")
             return NO_TARGET
         cap = power * Decimal(str(self.params["ratio"]))
-        target = self._target(ctx, power, points, rank, places, cap)
+        target = self._target(ctx, power, points, first, places, cap)
         if ctx.should_stop() or not self._arena._open_list(ctx):
             return BLOCKED
         self._log.info("hunting %s", f"place {target.rank} (uid {target.uid or '?'}, "
@@ -538,6 +558,10 @@ class ArenaSniping(MartialArtsTournament):
             return False
         return self._arena._wait_for(ctx, "the refreshed list", list_open, LOAD_TIMEOUT,
                                      settle=0.3)
+
+    def _close_purchase(self, ctx: Context) -> None:
+        """The popup's own X: the sprite search finds the list's X below it."""
+        self._tap(ctx, PURCHASE_CLOSE, "close the Purchase popup")
 
     def _fight_row(self, ctx: Context, pick: Opponent) -> str | None:
         """x1 Challenge on the row, buying tickets if the Purchase popup comes up, then

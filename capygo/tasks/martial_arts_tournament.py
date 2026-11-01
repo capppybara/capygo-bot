@@ -92,6 +92,8 @@ FIGHT_TIMEOUT = 15.0
 PURCHASE_TEXT = RelRect(0.10, 0.20, 0.80, 0.35)    # out of tickets: "Purchase ..." popup
 PURCHASE_CLOSE = Rel(0.5, 0.714)                   # its X, if the sprite isn't found
 QTY = RelRect(0.436, 0.478, 0.125, 0.042)          # its quantity ("1")
+QTY_LINE = RelRect(0.31, 0.531, 0.375, 0.028)      # its "Arena Ticketsx4": reads when
+                                                   # the box's lone digit doesn't (a "4")
 QTY_PLUS, QTY_MINUS = (392, 472), (251, 472)       # its + and -
 NO_TICKETS, STUCK = "no tickets", "stuck"
 RESTARTS = 1              # restart the game at most this often per run (a stuck
@@ -244,6 +246,12 @@ def purchase_popup(frame) -> tuple[tuple[int, int] | None, bool]:
                       if top <= cy <= bottom and 0.12 * w <= cx <= 0.88 * w)
     money = "top up" in inside or "top-up" in inside or "$" in inside
     return max(buttons, key=lambda b: b[1]), money
+
+
+def quantity(frame) -> int | None:
+    """The Purchase popup's quantity: from its "...Ticketsx4" line, else its box."""
+    m = re.search(r"[xX]\s*(\d+)\s*$", " ".join(t for t, _, _ in ocr_lines(_crop(frame, QTY_LINE))))
+    return int(m.group(1)) if m else read_int(_crop(frame, QTY))
 
 
 def next_snipe(hhmm: str = SNIPE_UTC, now: datetime | None = None) -> datetime:
@@ -748,7 +756,7 @@ class MartialArtsTournament(Task):
         if want == 1:
             return 1
         for _ in range(want + 2):
-            n = read_int(_crop(ctx.frame(), QTY))
+            n = quantity(ctx.frame())
             if n is None or n == want:
                 break
             up = n < want
@@ -756,7 +764,7 @@ class MartialArtsTournament(Task):
                              f"{'+' if up else '-'} (ticket quantity {n} -> {want})", 0.6):
                 return None
         else:
-            n = read_int(_crop(ctx.frame(), QTY))
+            n = quantity(ctx.frame())
         if n != want:
             self._log.warning("the ticket quantity reads %s, not %d -> buying that",
                               n if n is not None else "?", want)

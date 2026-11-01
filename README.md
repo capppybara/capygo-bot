@@ -121,15 +121,16 @@ itself. The time is in UTC, so a clock change doesn't move it.
 | Log opponents | on | Read the whole profile of each opponent before the fight, for the fight log (about 4s a fight) |
 
 **Holding the lead.** Every 10 seconds it taps the back arrow and enters the Arena
-again, which refreshes the leaderboard. Your place is the number on the left of your
-banner. If you are first by at least the Lead, it doesn't attack. If you aren't first,
+again, which refreshes the leaderboard. You're first when your banner shows the gold 1
+badge. If you are first by at least the Lead, it doesn't attack. If you aren't first,
 or the next place has caught up, it attacks until the lead is back. It stops starting
 fights 20 seconds before 16:00 UTC.
 
 **Who it hunts:**
 
 1. If you are first: 2nd place, then 3rd. If you aren't: 1st place, then 2nd, then 3rd.
-   It skips your own row.
+   If a place's UID is your own (`my_uid` in `config.local.yaml`), it moves on to the
+   next place.
 2. It taps the target's row on the leaderboard to open their profile, and copies their
    UID. It skips anyone you can't beat before spending a refresh: power at or above the
    Power ratio x yours, under 40% won over 5+ fights, or they beat you this run.
