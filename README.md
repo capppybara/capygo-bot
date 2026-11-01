@@ -118,24 +118,27 @@ itself. The time is in UTC, so a clock change doesn't move it.
 | Fights | 5 | With Hold the lead off: how many fights to do |
 | Power ratio | 1.2 | A player counts as beatable below this x your power |
 | Refreshes per fight | 50 | How many times to refresh the list looking for 2nd or 3rd place, per fight |
-| Log opponents | on | Open each opponent's profile before the fight, for the fight log and the rarely-beaten check (about 4s a fight) |
+| Log opponents | on | Read the whole profile of each opponent before the fight, for the fight log (about 4s a fight) |
 
 **Holding the lead.** Every 10 seconds it taps the back arrow and enters the Arena
-again, which refreshes the leaderboard. If you are first by at least the Lead, it
-doesn't attack. If you aren't first, or the next place has caught up, it attacks
-until the lead is back. It stops starting fights 20 seconds before 16:00 UTC.
+again, which refreshes the leaderboard. Your place is the number on the left of your
+banner. If you are first by at least the Lead, it doesn't attack. If you aren't first,
+or the next place has caught up, it attacks until the lead is back. It stops starting
+fights 20 seconds before 16:00 UTC.
 
-**Who it fights:**
+**Who it hunts:**
 
-1. 2nd place. If you can't beat them, 3rd place. If you are 2nd or 3rd yourself, the
-   other of the two.
-2. It finds them on the Challenge list by their points, refreshing the list until they
-   show. Refreshes cost 20 gems each after the free one. Every 10 refreshes it goes
-   back to the leaderboard for a fresh look, since points move.
-3. You can't beat someone if their power on the list is at or above the Power ratio x
-   yours, you've won under 40% of 5+ fights against them, or they beat you this run.
-4. If neither place can be beaten, or the refreshes run out, it takes the opponent with
-   the most points below the Power ratio on the list.
+1. If you are first: 2nd place, then 3rd. If you aren't: 1st place, then 2nd, then 3rd.
+   It skips your own row.
+2. It taps the target's row on the leaderboard to open their profile, and copies their
+   UID. It skips anyone you can't beat before spending a refresh: power at or above the
+   Power ratio x yours, under 40% won over 5+ fights, or they beat you this run.
+3. It refreshes the Challenge list until they show. Refreshes cost 20 gems each after
+   the free one. A row with their points gets its profile opened and its UID compared,
+   so other rows take no time. Every 10 refreshes it goes back to the leaderboard for a
+   fresh look, since points move.
+4. If nobody in the top 3 can be beaten, or the refreshes run out, it takes the opponent
+   with the most points below the Power ratio on the list.
 
 **Tickets.** Out of tickets, it buys 5 at once from the Purchase popup and carries on.
 It never taps anything that looks like real money. Fights go in the same log as other

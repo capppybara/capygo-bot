@@ -55,6 +55,7 @@ MY_POWER = RelRect(0.43, 0.79, 0.19, 0.04)       # your banner: "4.72T" under yo
 MY_POINTS_Y = 750                                # px: your banner's points, at the right
 BOARD_ROW_X = (70, 575)                          # px: a board row, rank to points
 BOARD_POINTS_CX = (480, 560)                     # px: where its points are centred
+BOARD_RANK_CX = (80, 135)                        # px: where its place is centred
 BOARD_ROW_H = 36                                 # px: half a row's height
 CHALLENGE_BTN = Rel(0.498, 0.932)                # orange Challenge, tickets "0/1" under it
 POPUP_TITLE = RelRect(0.30, 0.29, 0.40, 0.05)    # "Challenge"
@@ -120,10 +121,9 @@ def _words(frame, region: RelRect) -> str:
 
 def _power(text: str) -> Decimal | None:
     """'2.81T' / '905.85B' -> trillions. None without a unit: a dropped unit would
-    make a strong opponent look weak. A comma before 1-2 digits is a misread decimal
-    point: "14,88T" is 14.88T (2026-11-01: with the comma dropped it was 1488T)."""
+    make a strong opponent look weak."""
     m = POWER_TEXT.search(text or "")
-    return to_trillions(re.sub(r",(\d{1,2})(?!\d)", r".\1", m.group(0))) if m else None
+    return to_trillions(m.group(0)) if m else None
 
 
 def _points(text: str) -> int | None:
@@ -131,22 +131,32 @@ def _points(text: str) -> int | None:
     return int(digits) if digits.isdigit() else None
 
 
-def board_points(frame, y: int) -> int | None:
-    """The points on a leaderboard row or your banner, y px its middle. Reads the whole
-    row: a big number on its own can come back upside down ("1000" as "DOOL", and on
-    2026-10-31 four of five reads of your own points were empty), and the row's text
-    tells the OCR which way is up."""
+def _board_number(frame, y: int, band: tuple[int, int]) -> int | None:
+    """The number centred in `band` (px across) on a leaderboard row or your banner, y
+    px its middle. Reads the whole row: a big number on its own can come back upside
+    down ("1000" as "DOOL", and on 2026-10-31 four of five reads of your own points
+    were empty), and the row's text tells the OCR which way is up."""
     h, w = frame.shape[:2]
     kx, ky = w / 642, h / 951
     x0 = int(BOARD_ROW_X[0] * kx)
     crop = frame[int((y - BOARD_ROW_H) * ky):int((y + BOARD_ROW_H) * ky),
                  x0:int(BOARD_ROW_X[1] * kx)]
     for text, cx, _ in ocr_lines(crop):
-        if BOARD_POINTS_CX[0] * kx <= cx + x0 <= BOARD_POINTS_CX[1] * kx:
-            points = _points(text)
-            if points is not None:
-                return points
+        if band[0] * kx <= cx + x0 <= band[1] * kx:
+            number = _points(text)
+            if number is not None:
+                return number
     return None
+
+
+def board_points(frame, y: int) -> int | None:
+    """The points on a leaderboard row or your banner."""
+    return _board_number(frame, y, BOARD_POINTS_CX)
+
+
+def my_rank(frame) -> int | None:
+    """Your place, from the left of your banner (user), or None if it didn't read."""
+    return _board_number(frame, MY_POINTS_Y, BOARD_RANK_CX)
 
 
 def save_my_power(power: Decimal) -> None:

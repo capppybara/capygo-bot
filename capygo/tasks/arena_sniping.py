@@ -6,24 +6,29 @@ summer, 7:45 AM in winter), restarts the game a minute before, opens the Arena -
 its landing page is the leaderboard - and then does one of two things:
 
   Hold the lead (the default): check your place every 10 seconds, until 20 seconds
-  before the end. Ahead of the next place by the set lead: no attack. Not first, or
-  the next place catching up: attack until the lead is back. The board only updates
-  on entry (or after a fight), so a check is: the back arrow at the bottom left,
-  then the Arena card again.
+  before the end. First and ahead of the next place by the set lead: no attack. Not
+  first, or the next place catching up: attack until the lead is back. The board only
+  updates on entry (or after a fight), so a check is: the back arrow at the bottom
+  left, then the Arena card again.
 
   Fights: that many fights, then done (or the end, if it comes first).
 
-Who to fight (user): 2nd place; if you can't beat them, 3rd place. The board is only
-read for points; a player's power is read off the Challenge list alone (user), so
-they're found there by their points, and only then judged. "Can't beat" = power at
-or above the ratio x yours, a player you rarely beat (pvp.rarely_beaten), or one who
-beat you this run. Your own row doesn't count: placed 2nd or 3rd yourself, the other
-one is the target.
+Your place is the number at the left of your banner; if it doesn't read, you're first
+when your points equal the top row's.
 
-The list is refreshed until the target shows, up to "Refreshes per fight" (20 gems
-each after the free one). Points move, so every LOOK_BACK_AFTER refreshes it goes
-back to the board for a fresh look (your place, and the target's points). Out of
-refreshes, or neither place beatable: the most points below the ratio on the list.
+Who to hunt (user): first yourself, 2nd place, or 3rd if you can't beat them. Not
+first, 1st place, then 2nd, then 3rd. Tapping a place's row on the board opens their
+profile: their UID says who they are (user), their power and your record with them
+say if you can beat them, before any refresh is spent. "Can't beat" = power at or
+above the ratio x yours, a player you rarely beat (pvp.rarely_beaten), or one who beat
+you this run.
+
+Then the Challenge list is refreshed until they show, up to "Refreshes per fight" (20
+gems each after the free one). A row with their points (plain digits, so they read
+well; user) gets its profile opened and its UID compared; other rows cost no time, so
+a refresh takes ~2s instead of the ~14s of opening all four. Points move, so every
+LOOK_BACK_AFTER refreshes it goes back to the board for a fresh look. Out of refreshes,
+or nobody in the top 3 beatable: the most points below the ratio on the list.
 
 Out of tickets, x1 Challenge opens the Purchase popup: it buys TICKETS_PER_BUY at once
 (user: for speed) and taps x1 Challenge again. Never anything that looks like real
@@ -34,6 +39,7 @@ board that doesn't come back, restarts the game (up to RESTARTS) and carries on.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -44,9 +50,10 @@ from .daily import go_home, tap, wait
 from .event import TABS, card_at, go_events, on_events
 from .event_arena import (ARENA_CARD, FIGHT_SETTLE, FIGHT_TIMEOUT, FREE_REFRESH, LOAD_TIMEOUT,
                           OPPONENT_BTNS, OPPONENT_PICS, POPUP_CLOSE, REFRESH_LABEL, Opponent,
-                          board_points, board_ready, fight_up, list_open, purchase_up,
+                          board_points, board_ready, fight_up, list_open, my_rank, purchase_up,
                           read_me, read_opponents)
 from .martial_arts_tournament import CUTOFF_MARGIN, MartialArtsTournament, _Tagged, _words
+from .profile import Profile, close_profile, open_profile, read_uid_power
 from .restart import restart_game
 
 SNIPE_UTC = "15:45"        # user: 8:45 AM Pacific, summer time
@@ -58,24 +65,37 @@ RESTARTS = 3               # a missed check late in the window can lose first pl
 MAX_LOOKS = 4              # reads of the board or the list while a row is missing
 LOOK_GAP = 0.4
 LOOK_BACK_AFTER = 10       # refreshes before a fresh look at the board (~25s)
-TARGET_RANKS = (2, 3)      # user: 2nd place, else 3rd place
-POWER_SLACK = Decimal("0.03")  # the same player, by power: within 3% (a misread digit)
+POWER_SLACK = Decimal("0.03")  # your own power, on a profile vs your banner
 
 PLACE_Y = (168, 245, 321)  # px: the middle of the board's 1st, 2nd and 3rd rows
+PLACE_PIC_X = 180          # px: a row's picture (opens their profile)
 BACK_ARROW = Rel(123 / 642, 900 / 951)  # the board's back arrow, bottom left
 BACK_TIMEOUT = 3.0         # back arrow -> the Events screen
 
 BLOCKED, NO_TARGET, LOOK_AGAIN, CANT_BUY = "blocked", "no target", "look again", "can't buy"
 
 
+@dataclass
 class Place:
     """One leaderboard row. points is None if it didn't read."""
-
-    def __init__(self, rank: int, points: int | None):
-        self.rank, self.points = rank, points
+    rank: int
+    points: int | None
 
     def __repr__(self) -> str:
         return f"{self.rank}: {self.points}"
+
+
+@dataclass
+class Who:
+    """A place's player, from their profile. uid None if it didn't open."""
+    rank: int
+    points: int
+    uid: str | None
+    power: Decimal | None
+
+    @property
+    def key(self) -> str:
+        return self.uid or f"points {self.points}"
 
 
 def read_board(frame) -> list[Place]:
@@ -83,24 +103,30 @@ def read_board(frame) -> list[Place]:
     return [Place(rank, board_points(frame, y)) for rank, y in enumerate(PLACE_Y, 1)]
 
 
-def lead_over_next(places: list[Place], points: int | None) -> int | None:
-    """Your lead over the next place, if the top row is yours (your banner's points;
-    tied, the lead is 0 either way). None if it isn't, or the rows didn't read."""
-    if points is None or places[0].points != points or places[1].points is None:
+def is_first(rank: int | None, points: int | None, places: list[Place]) -> bool | None:
+    """You're first: your banner's place (user), or if that didn't read, your points
+    equal the top row's. None if neither can tell."""
+    if rank is not None:
+        return rank == 1
+    if points is None or places[0].points is None:
+        return None
+    return points == places[0].points
+
+
+def lead_over_next(first: bool | None, points: int | None, places: list[Place]) -> int | None:
+    """Your lead over the next place, if you're first and it read."""
+    if not first or points is None or places[1].points is None:
         return None
     return points - places[1].points
 
 
-def targets(places: list[Place], points: int | None) -> list[Place]:
-    """2nd and 3rd place, without your own row. Only one row is yours: tied with
-    someone, the other row with those points is them, and the list finds them by it."""
-    mine = next((s for s in places if s.points == points), None)
-    return [s for s in places if s.rank in TARGET_RANKS and s is not mine
-            and s.points is not None]
-
-
-def close_power(a: Decimal, b: Decimal) -> bool:
-    return abs(a - b) <= POWER_SLACK * b
+def targets(places: list[Place], rank: int | None, points: int | None) -> list[Place]:
+    """The places to hunt, in order, without your own row: first yourself that leaves
+    2nd and 3rd, otherwise it's 1st, 2nd and 3rd (user). Without your place, your row
+    is the first with your points."""
+    mine = rank if rank is not None else next(
+        (s.rank for s in places if s.points == points), None)
+    return [s for s in places if s.rank != mine and s.points is not None]
 
 
 def in_window(start: str, stop: str, now: datetime | None = None
@@ -124,8 +150,8 @@ class ArenaSniping(MartialArtsTournament):
     TITLE = "Arena Sniping"
     ICON = "🎯"
     DESCRIPTION = ("Near the end of the Arena's day: hold first place by a set lead, "
-                   "checking every 10 seconds, or fight a set number of times. Fights "
-                   "2nd place, or 3rd if you can't beat them.")
+                   "checking every 10 seconds, or fight a set number of times. Hunts "
+                   "1st place when behind, 2nd or 3rd when ahead.")
     START_HINT = ("Start any time before the Start time and leave it running: it waits, "
                   "restarts the game a minute before, and opens the Arena itself.")
     TAG = "arena-snipe"
@@ -144,11 +170,11 @@ class ArenaSniping(MartialArtsTournament):
         Param("ratio", "float", 1.2, "Power ratio", min=0.5, max=5,
               help="a place counts as beatable below this x your power"),
         Param("max_refreshes", "int", 50, "Refreshes per fight", min=0, max=500,
-              help="how many times to refresh the list looking for 2nd or 3rd place, per "
-                   "fight (20 gems each after the free one)"),
+              help="how many times to refresh the list looking for the target, per fight "
+                   "(20 gems each after the free one)"),
         Param("scout", "bool", True, "Log opponents",
-              help="open each opponent's profile before the fight: it logs them and "
-                   "skips players you rarely beat (about 4s a fight)"),
+              help="read the whole profile of each opponent before the fight, for the "
+                   "fight log (about 4s a fight)"),
         Param("stop_utc", "str", STOP_UTC, "Stop (UTC, HH:MM)", hidden=True,
               help="the end of the Arena's day; for tests: -p stop_utc=HH:MM"),
     ]
@@ -184,9 +210,8 @@ class ArenaSniping(MartialArtsTournament):
         go_home(ctx)
 
     def _reset_run(self) -> None:
-        self._avoid: list[Decimal] = []  # powers of those you can't beat, found this run
-        self._cant_beat: set[int] = set()  # their points when last seen: no need to
-                                           # refresh for them while those still hold
+        self._avoid: set[str] = set()    # who you can't beat, found out this run (Who.key)
+        self._known: dict = {}           # (rank, points) -> Who: no profile while they hold
         self._restarts = 0
         self._refreshes = self._gems = 0
         self._searched = 0               # refreshes towards this fight
@@ -214,19 +239,20 @@ class ArenaSniping(MartialArtsTournament):
                 if ctx.should_stop() or not self._recover(ctx, "the board didn't show"):
                     break
                 continue
-            power, points, places = self._read_place(ctx)
-            lead = lead_over_next(places, points)
-            if hold and lead is not None and lead >= p["lead"]:
+            power, points, rank, places = self._read_place(ctx)
+            first = is_first(rank, points, places)
+            lead = lead_over_next(first, points, places)
+            if hold and (first is None or (first and lead is None)):
+                self._log.info("your place didn't read (place %s, you %s, top 3: %s) -> no "
+                               "attack this time", rank, points, places)
+            elif hold and first and lead >= p["lead"]:
                 self._log.info("first, ahead by %d (you %s, next %s) -> no attack", lead,
                                points, places[1].points)
-            elif hold and (points is None or places[0].points is None):
-                self._log.info("your place didn't read (you %s, first %s) -> no attack "
-                               "this time", points, places[0].points)
             else:
                 self._log.info("%s (you %s, top 3: %s) -> attack",
-                               f"ahead by only {lead}" if lead is not None else "not first",
-                               points, places)
-                result = self._attack(ctx, power, points, places, deadline)
+                               f"ahead by only {lead}" if lead is not None
+                               else f"in place {rank}" if rank else "not first", points, places)
+                result = self._attack(ctx, power, points, rank, places, deadline)
                 if result == BLOCKED:
                     if ctx.should_stop() or not self._recover(ctx, "the fight didn't finish"):
                         break
@@ -251,21 +277,24 @@ class ArenaSniping(MartialArtsTournament):
         return self._arena._wait_for(ctx, "the arena leaderboard", board_ready, LOAD_TIMEOUT,
                                      settle=0.3)
 
-    def _read_place(self, ctx: Context) -> tuple[Decimal | None, int | None, list[Place]]:
-        """Your power (only your banner shows it) and points, and the top 3's points,
-        read again while something is missing (a row can still be loading)."""
-        power = points = None
+    def _read_place(self, ctx: Context
+                    ) -> tuple[Decimal | None, int | None, int | None, list[Place]]:
+        """Your power and points, your place, and the top 3's points, read again while
+        something is missing (a row can still be loading). Your place may not read at
+        all: it's looked for on each read, but doesn't hold anything up."""
+        power = points = rank = None
         places: list[Place] = []
         for _ in range(MAX_LOOKS):
             frame = ctx.frame()
             power, points = read_me(frame)
+            rank = my_rank(frame)
             places = read_board(frame)
             if (power is not None and points is not None
                     and all(s.points is not None for s in places)):
                 break
             if wait(ctx, LOOK_GAP):
                 break
-        return power, points, places
+        return power, points, rank, places
 
     def _check_again(self, ctx: Context, last: float, deadline: datetime) -> bool:
         """Wait out the rest of the CHECK_EVERY since the `last` look, leaving time to
@@ -333,41 +362,126 @@ class ArenaSniping(MartialArtsTournament):
             return False
         return ctx.dry_run or self._arena._season_popups(ctx)
 
+    # --- who to hunt -------------------------------------------------------------
+    def _who(self, ctx: Context, s: Place) -> Who:
+        """Who's in this place: the UID and power on the profile their row opens, kept
+        while the place's points hold. If it doesn't open, uid is None and they're
+        matched by points alone."""
+        who = self._known.get((s.rank, s.points))
+        if who is not None:
+            return who
+        uid = power = None
+        if open_profile(ctx, Rel(PLACE_PIC_X / 642, PLACE_Y[s.rank - 1] / 951)):
+            uid, power = read_uid_power(ctx)
+            close_profile(ctx)
+        else:
+            self._log.warning("place %d's profile didn't open -> matching by points alone",
+                              s.rank)
+        who = Who(s.rank, s.points, uid, power)
+        self._known[(s.rank, s.points)] = who
+        self._log.info("place %d: uid %s, %sT, %d points", who.rank, uid or "?", power or "?",
+                       who.points)
+        return who
+
+    def _cant_beat(self, who: Who, cap: Decimal) -> str:
+        """Why you can't beat them, or "" if you can (or it can't be told yet)."""
+        if who.key in self._avoid:
+            return "they beat you this run"
+        if who.power is not None and who.power >= cap:
+            return f"{who.power}T is at or above {cap:.2f}T"
+        bad = pvp.rarely_beaten(who.uid)
+        return f"you've won {bad[0]} of {bad[1]} against them" if bad else ""
+
+    def _target(self, ctx: Context, power: Decimal, points: int | None, rank: int | None,
+                places: list[Place], cap: Decimal) -> Who | None:
+        """The first place you can beat (see targets), or None."""
+        for s in targets(places, rank, points):
+            who = self._who(ctx, s)
+            if ctx.should_stop():
+                return None
+            if (rank is None and who.points == points and who.power is not None
+                    and abs(who.power - power) <= POWER_SLACK * power):
+                continue  # tied, and your place didn't read: that row was yours
+            why = self._cant_beat(who, cap)
+            if not why:
+                return who
+            self._log.info("place %d: can't beat them (%s)", who.rank, why)
+        return None
+
     # --- one fight ---------------------------------------------------------------
-    def _can_beat(self, o: Opponent, cap: Decimal) -> bool:
-        return o.power < cap and not any(close_power(o.power, a) for a in self._avoid)
+    def _look_at_row(self, ctx: Context, o: Opponent
+                     ) -> tuple[bool, str | None, Profile | None]:
+        """Open a list row's profile: (back on the list, their UID, the whole profile
+        if Log opponents is on). UID None if it didn't open."""
+        uid = profile = None
+        if self.params.get("scout", True):
+            profile = pvp.scout(ctx, OPPONENT_PICS[o.row], "arena")
+            uid = profile.uid if profile else None
+        elif open_profile(ctx, OPPONENT_PICS[o.row]):
+            uid = read_uid_power(ctx)[0]
+            close_profile(ctx)
+        return self._arena._back_on_list(ctx), uid, profile
 
     def _attack(self, ctx: Context, power: Decimal | None, points: int | None,
-                places: list[Place], deadline: datetime) -> str:
-        """Open the list, find the target, fight. "victory"/"defeat"/"unknown"; back on
-        the board with NO_TARGET, or LOOK_AGAIN after LOOK_BACK_AFTER refreshes;
-        CANT_BUY; BLOCKED if it went wrong or on a stop."""
+                rank: int | None, places: list[Place], deadline: datetime) -> str:
+        """Pick the target, find them on the list, fight. "victory"/"defeat"/"unknown";
+        back on the board with NO_TARGET, or LOOK_AGAIN for a fresh look; CANT_BUY;
+        BLOCKED if it went wrong or on a stop."""
         if power is None:  # needed for the ratio; board_ready has just read it
             self._log.warning("your power didn't read")
             return NO_TARGET
-        if not self._arena._open_list(ctx):
-            return BLOCKED
         cap = power * Decimal(str(self.params["ratio"]))
-        wanted = [s for s in targets(places, points) if s.points not in self._cant_beat]
-        self._log.info("target: %s (beatable below %.2fT)",
-                       ", then ".join(f"place {s.rank} on {s.points} points" for s in wanted)
-                       or "nobody in 2nd or 3rd", cap)
-        round_refreshes = 0
+        target = self._target(ctx, power, points, rank, places, cap)
+        if ctx.should_stop() or not self._arena._open_list(ctx):
+            return BLOCKED
+        self._log.info("hunting %s", f"place {target.rank} (uid {target.uid or '?'}, "
+                       f"{target.points} points)" if target else "nobody in the top 3")
         limit = self.params["max_refreshes"]
+        round_refreshes = 0
+        passed: set = set()  # rows looked at this fight and passed over: (power, points)
         while True:
             rows = self._list_rows(ctx)
             if not rows:  # something's over the list: don't tap Refresh on it
                 self._log.warning("the Challenge list didn't read")
                 self._snapshot(ctx, "list")
                 return BLOCKED
-            pick = next((o for o in rows if wanted and o.points == wanted[0].points), None)
-            if pick is not None and not self._can_beat(pick, cap):
-                self._log.info("place %d is %sT: can't beat them", wanted[0].rank, pick.power)
-                self._cant_beat.add(pick.points)
-                wanted.pop(0)
-                continue
-            if pick is None and (not wanted or self._searched >= limit):
-                pick = self._next_best(rows, wanted, cap)
+            pick = uid = profile = None
+            for o in rows if target else []:
+                if o.points != target.points or (o.power, o.points) in passed:
+                    continue
+                back, uid, profile = self._look_at_row(ctx, o)
+                if not back:
+                    return BLOCKED
+                if target.uid and uid and uid != target.uid:
+                    self._log.info("%sT on %d points is someone else (uid %s)", o.power,
+                                   o.points, uid)
+                    passed.add((o.power, o.points))
+                    continue
+                pick, uid = o, target.uid or uid
+                break
+            if pick is not None and pick.power >= cap:  # their profile's power didn't read
+                self._log.info("place %d is %sT: can't beat them", target.rank, pick.power)
+                self._avoid.add(target.key)
+                self._tap(ctx, POPUP_CLOSE, "close the list")
+                return LOOK_AGAIN
+            if pick is None and (target is None or self._searched >= limit):
+                for o in sorted((o for o in rows if o.power < cap
+                                 and (o.power, o.points) not in passed),
+                                key=lambda o: (-o.points, o.power)):
+                    uid = profile = None
+                    if self.params.get("scout", True):
+                        back, uid, profile = self._look_at_row(ctx, o)
+                        if not back:
+                            return BLOCKED
+                    if uid in self._avoid or pvp.rarely_beaten(uid):
+                        self._log.info("%sT on %d points: can't beat them (uid %s)", o.power,
+                                       o.points, uid)
+                        passed.add((o.power, o.points))
+                        continue
+                    self._log.info("taking the most points below the ratio: %sT, %d points",
+                                   o.power, o.points)
+                    pick = o
+                    break
             if pick is None:
                 if self._searched >= limit or datetime.now(timezone.utc) >= deadline:
                     self._log.info("nobody to fight after %d refreshes", self._searched)
@@ -383,45 +497,16 @@ class ArenaSniping(MartialArtsTournament):
                 self._searched += 1
                 round_refreshes += 1
                 continue
-            opponent = None
-            if self.params.get("scout", True):
-                opponent = pvp.scout(ctx, OPPONENT_PICS[pick.row], "arena")
-                if not self._arena._back_on_list(ctx):
-                    return BLOCKED
-                bad = pvp.rarely_beaten(opponent.uid if opponent else None)
-                if bad is not None:
-                    self._log.info("skip uid %s: won %d of %d against them (%.0f%%)",
-                                   opponent.uid, bad[0], bad[1], 100 * bad[0] / bad[1])
-                    self._avoid.append(pick.power)
-                    self._cant_beat.add(pick.points)
-                    wanted = [s for s in wanted if s.points not in self._cant_beat]
-                    continue
             result = self._fight_row(ctx, pick)
             if result in (None, CANT_BUY):
                 return result or BLOCKED
             self._searched = 0
             pvp.record(ctx, "arena", result, my_power=power, my_points=points,
-                       list_power=pick.power, list_points=pick.points, opponent=opponent)
-            if result == "defeat":  # the plainest "can't beat them" there is
-                self._log.info("lost to %sT -> not fighting them again this run", pick.power)
-                self._avoid.append(pick.power)
+                       list_power=pick.power, list_points=pick.points, opponent=profile)
+            if result == "defeat" and uid:  # the plainest "can't beat them" there is
+                self._log.info("lost to uid %s -> not fighting them again this run", uid)
+                self._avoid.add(uid)
             return result
-
-    def _next_best(self, rows: list[Opponent], wanted: list[Place], cap: Decimal
-                   ) -> Opponent | None:
-        """The target isn't coming: any other wanted place on the list, else the most
-        points below the cap."""
-        for s in wanted:
-            hit = next((o for o in rows if o.points == s.points and self._can_beat(o, cap)),
-                       None)
-            if hit is not None:
-                return hit
-        pick = max((o for o in rows if self._can_beat(o, cap)),
-                   key=lambda o: (o.points, -o.power), default=None)
-        if pick is not None:
-            self._log.info("taking the most points below the ratio: %sT, %d points",
-                           pick.power, pick.points)
-        return pick
 
     def _list_rows(self, ctx: Context) -> list[Opponent]:
         """The Challenge list's rows, in one log line (a run can read it hundreds of

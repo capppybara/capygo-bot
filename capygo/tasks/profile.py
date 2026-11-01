@@ -125,11 +125,12 @@ def to_trillions(raw: str) -> Decimal | None:
     the next unit at 1000, so such a value always has a 1-3 digit integer part. A
     longer one means OCR fused the sword icon onto the number as a stray leading
     digit ("9864.97B" for "864.97B" -> 9.86T instead of 0.86T); the extra leading
-    digits are dropped."""
+    digits are dropped. A comma before 1-2 final digits is a misread decimal point:
+    "14,88T" is 14.88T (2026-11-01: with the comma dropped it was 1488T)."""
     m = re.match(r"\s*([\d,]*\.?\d+)\s*([KMBTkmbt]?)", raw or "")
     if not m:
         return None
-    numstr = m.group(1).replace(",", "")
+    numstr = re.sub(r",(\d{1,2})$", r".\1", m.group(1)).replace(",", "")
     unit = m.group(2).upper()
     if unit in ("K", "M", "B"):
         intpart, _, frac = numstr.partition(".")
