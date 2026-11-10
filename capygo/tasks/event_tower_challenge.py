@@ -1,7 +1,8 @@
 """Event: tower-challenge.
 
 Starts on the Events screen (see event.py): Challenge tab -> Tower Challenge card ->
-the "Tower of Infinity" screen. Then tap Challenge 5 times; each one is a battle that
+the tower screen ("Tower of <name> <n>": Tower of Infinity 10 was followed by Tower
+of Origin 1, 2026-11-10, so only "tower of" is checked). Then tap Challenge 5 times; each one is a battle that
 ends on a "Victory" or "Defeat" screen (about 10s), checked every 10 seconds.
 Finally the back arrow returns to the Events screen for the next event. "Auto Next
 Level" stays as the player set it.
@@ -20,15 +21,22 @@ floor by itself, again and again, while the bot waited for the tower screen). Us
 on a win it auto progresses. Each floor counts as one of the RUNS fights, the ones
 the game starts too (each is assumed to cost a ticket): under RUNS, the chain runs
 on; at RUNS, OK stops it. The top floor's win has only OK.
+
+A tower has 10 floors (the bar at the left reads "n/10"). Once it reads 10/10, the
+Clear Reward chest at the top of the bar is tapped to open, the reward dismissed, and
+the game moves on to the next tower's bottom floor (user); then Challenge carries on.
+Checked whenever the tower screen shows, so a run that ended there is picked up too.
 """
 
 from __future__ import annotations
 
+import re
 import time
 
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context, register
+from .daily import tap_to_close_up
 from .event import EventTask, card_at, go_events
 
 TOWER_CARD = Rel(0.35, 0.165)
@@ -37,12 +45,15 @@ CHALLENGE_BTN = Rel(0.498, 0.943)
 RESULT_DISMISS = Rel(0.5, 0.494)                 # middle of the result screen (defeat)
 OK_BTN = Rel(0.327, 0.773)                       # a victory's OK, beside "Next (3)"
 OK_ALONE = Rel(0.502, 0.772)                     # ... the top floor's, on its own
+CLEAR_CHEST = Rel(0.148, 0.258)                  # "Clear Reward" chest, top of the bar
+PROGRESS = re.compile(r"^\s*(\d+)\s*/\s*10\s*$")  # the bar's "1/10"
 
 RUNS = 5                 # user: 5 per run, well inside the 10 daily tickets
 POLL = 10.0              # check for the result screen this often (user)
 BATTLE_TIMEOUT = 120.0
 TRANSITION_TIMEOUT = 10.0
 NEXT_TIMEOUT = 10.0      # a win's "Next (3)": the next floor's fight has begun by then
+CHEST_TIMEOUT = 15.0     # the chest tapped -> the next tower's screen
 
 
 def read_result(frame) -> tuple[str | None, bool, Rel | None]:
@@ -55,6 +66,13 @@ def read_result(frame) -> tuple[str | None, bool, Rel | None]:
     chained = any(t.startswith("next") and y > 0.7 for t, _, y in lines)
     ok = next((Rel(x, y) for t, x, y in lines if t in ("ok", "0k") and y > 0.7), None)
     return result, chained, ok
+
+
+def tower_cleared(frame) -> bool:
+    """The tower screen's bar reads 10/10: all its floors are done."""
+    h, w = frame.shape[:2]
+    return any(m and m.group(1) == "10" for m in (
+        PROGRESS.match(t) for t, cx, _ in ocr_lines(frame) if cx / w < 0.4))
 
 
 @register("tower-challenge")
@@ -98,15 +116,40 @@ class TowerChallenge(EventTask):
         A result screen still showing gets another dismiss tap."""
         end = time.time() + TRANSITION_TIMEOUT
         while time.time() < end:
-            if self._has(ctx, TOWER_TITLE, "tower of infinity"):
-                return True
+            if self._has(ctx, TOWER_TITLE, "tower of"):
+                if ctx.dry_run or not tower_cleared(ctx.frame()):
+                    return True
+                return self._claim_tower(ctx)
             if not ctx.dry_run and self._result(ctx):
                 if not self._dismiss(ctx):
                     return False
                 continue
             if self.wait(ctx, 1.0):
                 return False
-        ctx.log.warning("%s: not on the Tower of Infinity screen", self.name)
+        ctx.log.warning("%s: not on the tower screen", self.name)
+        return False
+
+    def _claim_tower(self, ctx: Context) -> bool:
+        """The tower is cleared (10/10): tap its Clear Reward chest, then tap away the
+        chest and reward screens until the next tower's screen shows (user)."""
+        ctx.log.info("%s: the tower is cleared -> its Clear Reward chest", self.name)
+        if not self.tap(ctx, CLEAR_CHEST, "the Clear Reward chest"):
+            return False
+        end = time.time() + CHEST_TIMEOUT
+        while time.time() < end:
+            frame = ctx.frame()
+            if self._has(ctx, TOWER_TITLE, "tower of") and not tower_cleared(frame):
+                ctx.log.info("%s: on to %s", self.name, self.text_in(ctx, TOWER_TITLE))
+                return True
+            text = " ".join(t for t, _, _ in ocr_lines(frame)).lower()
+            if tap_to_close_up(frame) or "tap to open" in text:
+                if not self.tap(ctx, RESULT_DISMISS, "open / close the reward"):
+                    return False
+                continue
+            if self.wait(ctx, 1.0):
+                return False
+        ctx.log.warning("%s: the next tower didn't show after the Clear Reward chest",
+                        self.name)
         return False
 
     def _battle(self, ctx: Context) -> str | None:

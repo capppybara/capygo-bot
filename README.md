@@ -227,7 +227,7 @@ The log ends with a summary:
 
 | Chore | What it does |
 |---|---|
-| Tower challenge | Challenge tab → Tower Challenge. Fights 5 times, waiting for each Victory or Defeat screen. After a win the game goes on to the next floor by itself (Auto Next Level); those floors count toward the 5, and at 5 it taps OK to stop. |
+| Tower challenge | Challenge tab → Tower Challenge. Fights 5 times, waiting for each Victory or Defeat screen. After a win the game goes on to the next floor by itself (Auto Next Level); those floors count toward the 5, and at 5 it taps OK to stop. Once a tower's 10 floors are done, it opens the Clear Reward chest and carries on in the next tower. |
 | Dungeon dive vouchers | Challenge tab → Dungeon Dive. Buys 2 challenge vouchers with gems (300). The game allows 2 a day. |
 | Goblin miner | Challenge tab → Goblin Miner. Runs the [Goblin Miner](#goblin-miner) automation until the picks run out. |
 | Arena attacks | Arena tab → Arena. Attacks up to 5 times (see below). |
