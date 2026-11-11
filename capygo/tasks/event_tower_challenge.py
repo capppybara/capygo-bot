@@ -26,6 +26,11 @@ A tower has 10 floors (the bar at the left reads "n/10"). Once it reads 10/10, t
 Clear Reward chest at the top of the bar is tapped to open, the reward dismissed, and
 the game moves on to the next tower's bottom floor (user); then Challenge carries on.
 Checked whenever the tower screen shows, so a run that ended there is picked up too.
+
+A Challenge tap can do nothing (2026-11-10: the tap ~1.5s after a defeat's screen
+closed; the bot then waited 120s for a result that never came). So each tap is
+checked: a fight's screen has the tower's name higher up (above "Floor <n>"), so the
+title leaving its spot means the fight began. If it's still there, Challenge again.
 """
 
 from __future__ import annotations
@@ -40,7 +45,7 @@ from .daily import tap_to_close_up
 from .event import EventTask, card_at, go_events
 
 TOWER_CARD = Rel(0.35, 0.165)
-TOWER_TITLE = RelRect(0.25, 0.135, 0.50, 0.045)  # "Tower of Infinity <n>"
+TOWER_TITLE = RelRect(0.25, 0.135, 0.50, 0.045)  # "Tower of <name> <n>"
 CHALLENGE_BTN = Rel(0.498, 0.943)
 RESULT_DISMISS = Rel(0.5, 0.494)                 # middle of the result screen (defeat)
 OK_BTN = Rel(0.327, 0.773)                       # a victory's OK, beside "Next (3)"
@@ -54,6 +59,9 @@ BATTLE_TIMEOUT = 120.0
 TRANSITION_TIMEOUT = 10.0
 NEXT_TIMEOUT = 10.0      # a win's "Next (3)": the next floor's fight has begun by then
 CHEST_TIMEOUT = 15.0     # the chest tapped -> the next tower's screen
+START_TIMEOUT = 5.0      # Challenge tapped -> the tower screen gone (the fight began)
+START_TRIES = 3          # Challenge taps before giving up
+POPUP_WORDS = ("top-up", "top up", "purchase", "not enough")  # don't tap over these
 
 
 def read_result(frame) -> tuple[str | None, bool, Rel | None]:
@@ -152,6 +160,32 @@ class TowerChallenge(EventTask):
                         self.name)
         return False
 
+    def _start_fight(self, ctx: Context, n: int) -> bool:
+        """Tap Challenge until the fight begins: the tower title leaves its spot.
+        A tap the game ignored gets another, up to START_TRIES; not over a popup."""
+        for attempt in range(1, START_TRIES + 1):
+            what = f"Challenge ({n}/{RUNS})" + (f", try {attempt}" if attempt > 1 else "")
+            if not self.tap(ctx, CHALLENGE_BTN, what):
+                return False
+            if ctx.dry_run:
+                return True
+            end = time.time() + START_TIMEOUT
+            while time.time() < end:
+                if "tower of" not in self.text_in(ctx, TOWER_TITLE):
+                    return True
+                if self.wait(ctx, 0.5):
+                    return False
+            text = " ".join(t for t, _, _ in ocr_lines(ctx.frame())).lower()
+            if any(w in text for w in POPUP_WORDS):
+                ctx.log.warning("%s: a popup over the tower screen; not tapping again",
+                                self.name)
+                return False
+            ctx.log.info("%s: still on the tower screen %.0fs after Challenge",
+                         self.name, START_TIMEOUT)
+        ctx.log.warning("%s: Challenge didn't start a fight after %d taps",
+                        self.name, START_TRIES)
+        return False
+
     def _battle(self, ctx: Context) -> str | None:
         """Wait for the Victory/Defeat screen, checking every POLL seconds."""
         if ctx.dry_run:
@@ -182,7 +216,7 @@ class TowerChallenge(EventTask):
 
         results: list[str] = []
         while len(results) < RUNS:
-            if not self.tap(ctx, CHALLENGE_BTN, f"Challenge ({len(results) + 1}/{RUNS})"):
+            if not self._start_fight(ctx, len(results) + 1):
                 return False
             while True:  # this fight, then any the game starts after a win
                 result = self._battle(ctx)
