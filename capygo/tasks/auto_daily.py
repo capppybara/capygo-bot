@@ -1,10 +1,10 @@
 """Task: auto-daily.
 
 Runs the daily chores, then the event chores (auto_events.py), the guild chores
-(auto_guild.py) and the menu chores (auto_menu.py), in one go, skipping any
-switched off. The app shows one on/off switch per chore, under "Dailies", "Events",
-"Guild" and "Menu" headings (a group with no chores yet shows nothing); from the
-CLI:
+(auto_guild.py), the menu chores (auto_menu.py) and last of all Sale gift, in one
+go, skipping any switched off. The app shows one on/off switch per chore, under
+"Dailies", "Events", "Guild", "Menu" and "Last" headings (a group with no chores
+yet shows nothing); from the CLI:
 
   ./run.sh auto-daily                          run every daily and event
   ./run.sh auto-daily -p energy_claim=false    skip energy-claim
@@ -49,7 +49,10 @@ from .daily_sale_gift import SaleGift
 from .daily_shop import DailyShop
 
 DAILIES = [EnergyClaim, AdventureAssistant, DailyShop, ClaimCards,
-           ClaimCalendar, Capymon, SaleGift]  # run order
+           ClaimCalendar, Capymon]  # run order
+# Sale gift ALWAYS runs last of all (user, 2026-11-11), after the Menu chores: its
+# own group, based on the home screen like the dailies.
+LAST = [SaleGift]
 
 
 @register("auto-daily")
@@ -61,8 +64,9 @@ class AutoDaily(ChoreRunner):
     START_HINT = ("Start on the main Adventure screen. If the capy switch next to "
                   "Start is red, the bot taps it back to blue first.")
 
-    # Menu must stay LAST (user): it runs after capymon and everything else, so the
-    # daily tasks those chores complete are there to claim.
+    # Menu runs after capymon and everything else (user), so the daily tasks those
+    # chores complete are there to claim. Only the Last group (Sale gift) comes
+    # after it (user, 2026-11-11: sale-gift always runs last).
     GROUPS = [ChoreGroup("Dailies", DAILIES, go_home, "home screen"), EVENTS_GROUP,
-              GUILD_GROUP, MENU_GROUP]
+              GUILD_GROUP, MENU_GROUP, ChoreGroup("Last", LAST, go_home, "home screen")]
     PARAMS = chore_params(GROUPS)

@@ -151,16 +151,17 @@ restarts the game and carries on, up to 3 times a run.
 ## Auto Daily
 
 Auto Daily runs your daily chores in one go and leaves the game on the home
-screen. The chores are in four groups, and each chore has its own on/off switch
+screen. The chores are in five groups, and each chore has its own on/off switch
 in the app (**Select all** and **Select none** set them all at once).
 
 **Start on:** the main Adventure screen.
 
 ### How a run works
 
-The groups always run in this order: Dailies, Events, Guild, Menu. The Menu
-group stays last so its daily-tasks claim picks up the tasks the other chores
-finished.
+The groups always run in this order: Dailies, Events, Guild, Menu, Last. The
+Menu group runs after the first three so its daily-tasks claim picks up the
+tasks the other chores finished. The Last group holds only Sale gift, which
+always runs after everything else.
 
 Each group has a base screen. Every chore in the group starts there and returns
 there when done, so the next chore carries on from it.
@@ -171,6 +172,7 @@ there when done, so the next chore carries on from it.
 | Events | The Events screen (Events button, bottom-right of home) |
 | Guild | The guild screen (Guild button, left of Start) |
 | Menu | The menu drawer (the list icon under your profile picture) |
+| Last | The home screen |
 
 To get back to a base screen, the bot backs out step by step. If the capy switch
 is red (the other game mode), it taps the switch back to blue. Otherwise it
@@ -210,7 +212,6 @@ The log ends with a summary:
 | Claim cards | Opens Privilege Card (top of the left bar) and taps Claim all. |
 | Claim calendar | Opens Calendar (right-hand bar) and claims the reward chest. |
 | Capymon | Equip (helmet) → Capymon. See below. |
-| Sale gift | Opens Sale Gift on the left bar. It finds the button by its label, because the bar's buttons move. On each page of gift packs it claims the 2 Free gifts, then closes the popup. It never taps a priced tier. If there is no Sale Gift button, it skips. |
 
 **Capymon** does three things on the Card Table, then one in the Grand Voyage:
 
@@ -294,6 +295,24 @@ before each step: a reward with a tap above it, a panel with its X.
 | Log In reward | Opens Log In and claims the day whose header reads Claim. |
 | Black Market deals | Buys Silver Chest, Gold Chest, Pet Chest, Gold Key, Pet Egg and Gold Horseshoe only when their value tag is 40% or more, then claims the free gold at the bottom. |
 | Daily tasks claim | Opens Tasks and claims every finished daily task. Never taps Claim All. |
+
+### Last
+
+| Chore | What it does |
+|---|---|
+| Sale gift | Opens Sale Gift on the left bar and claims the 2 Free gifts on each page of gift packs. See below. |
+
+**Sale gift** works like this:
+
+1. It finds the Sale Gift button by its label, because the left bar's buttons
+   move. If there is no Sale Gift button, it skips.
+2. On each page it reads the whole list and taps every Free button that isn't
+   locked. The list scrolls itself to the current tier when it opens, so the
+   buttons aren't in fixed spots. A page with nothing left to claim is passed
+   over.
+3. It never taps a priced tier, or a Free tier locked behind one.
+4. It turns pages with the right arrow until a page has none, so any number
+   of pages works. Then it closes the popup.
 
 ### Not built
 
