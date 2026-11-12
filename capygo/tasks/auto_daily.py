@@ -45,10 +45,11 @@ from .daily_calendar import ClaimCalendar
 from .daily_capymon import Capymon
 from .daily_claim_cards import ClaimCards
 from .daily_energy_claim import EnergyClaim
+from .daily_sale_gift import SaleGift
 from .daily_shop import DailyShop
 
 DAILIES = [EnergyClaim, AdventureAssistant, DailyShop, ClaimCards,
-           ClaimCalendar, Capymon]  # run order
+           ClaimCalendar, Capymon, SaleGift]  # run order
 
 
 @register("auto-daily")

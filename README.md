@@ -210,6 +210,7 @@ The log ends with a summary:
 | Claim cards | Opens Privilege Card (top of the left bar) and taps Claim all. |
 | Claim calendar | Opens Calendar (right-hand bar) and claims the reward chest. |
 | Capymon | Equip (helmet) → Capymon. See below. |
+| Sale gift | Opens Sale Gift on the left bar. It finds the button by its label, because the bar's buttons move. On each page of gift packs it claims the 2 Free gifts, then closes the popup. It never taps a priced tier. If there is no Sale Gift button, it skips. |
 
 **Capymon** does three things on the Card Table, then one in the Grand Voyage:
 
