@@ -4,11 +4,8 @@ From the home screen, open Sale Gift on the left bar (below Privilege Card), cla
 the 2 Free gifts on each page of its popup (user), and close it. It runs after
 every other Auto Daily chore, in its own group (user, 2026-11-11).
 
-Finding the button: the left bar's buttons move from time to time (user), so the
-labels are read and the icon just above "Sale Gift" is tapped. The bar scrolls a
-little (2026-11-11: five buttons, the last "Super Value Gift"); if the label isn't
-in view, the bar is dragged each way and read again. No Sale Gift at all (the sale
-ended) is a skip.
+Finding the button: by its label, scrolling the left bar if needed (left_bar.py).
+No Sale Gift at all (the sale ended) is a skip.
 
 The popup: pages of gift packs. The number of pages changes (user); on 2026-11-11
 there were 4 ("Mythic Treasure Key Special Gift Pack", "Key Special Offer", "Pet
@@ -39,17 +36,14 @@ import numpy as np
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context, register
-from .daily import DailyTask, _crop, find_sprite, go_home, tap_to_close_up
+from .daily import DailyTask, _crop, find_sprite, go_home
+from .left_bar import close_rewards, left_bar_button
 
-BAR = RelRect(0.0, 0.20, 0.25, 0.42)       # the left bar's labels
-ICON_ABOVE = 0.03                          # the icon sits this far above its label
-BAR_LOW, BAR_HIGH = Rel(0.157, 0.52), Rel(0.157, 0.32)  # drag points to scroll it
-
+BUTTON_GUESS = Rel(0.157, 0.475)            # where it was (dry runs only)
 TIERS = RelRect(0.30, 0.32, 0.40, 0.55)     # the tier list: timer to page dots
 GIFT_X = 0.498                              # a tier's button, mid-panel
 LOCKED_X = 0.515     # "Free" reads at x 0.498; with the lock icon, at 0.530
 CLOSE_BAND = RelRect(0.35, 0.90, 0.30, 0.10)  # the popup's X
-REWARDS = RelRect(0.30, 0.345, 0.40, 0.06)  # the Rewards popup's banner
 CLOSE_REWARDS = Rel(0.5, 0.30)             # any tap closes it; this spot is harmless
 PAGE_TITLE = RelRect(0.20, 0.21, 0.60, 0.06)
 RIGHT_ARROW, RIGHT_BOX = Rel(0.868, 0.536), RelRect(0.854, 0.524, 0.037, 0.029)
@@ -59,19 +53,8 @@ ARROW_BRIGHT = 150   # the cream arrow's median darkest channel: ~204; no arrow:
 MAX_PAGES = 20       # a guard against a loop, not the expected count
 MAX_TAPS = 4         # Free taps per page (2 gifts; room for a missed tap)
 MAX_MISSES = 2       # Free taps with no Rewards popup before moving on
-POPUP_TIMEOUT = 4.0
 PAGE_TIMEOUT = 3.0
 OPEN_TIMEOUT = 3.0
-
-
-def sale_gift_label(frame) -> Rel | None:
-    """Where the left bar's "Sale Gift" label is, or None if it isn't in view."""
-    h, w = frame.shape[:2]
-    x0, y0, _, _ = BAR.to_pixels(w, h)
-    for t, cx, cy in ocr_lines(_crop(frame, BAR)):
-        if "sale gift" in t.lower():
-            return Rel((x0 + cx) / w, (y0 + cy) / h)
-    return None
 
 
 def free_buttons(frame) -> list[tuple[float, bool]]:
@@ -92,11 +75,6 @@ def arrow_showing(frame, box: RelRect) -> bool:
     return float(np.median(_crop(frame, box).min(axis=2))) > ARROW_BRIGHT
 
 
-def rewards_up(frame) -> bool:
-    text = " ".join(t for t, _, _ in ocr_lines(_crop(frame, REWARDS))).lower()
-    return "rewards" in text or tap_to_close_up(frame)
-
-
 @register("sale-gift")
 class SaleGift(DailyTask):
     TITLE = "Sale Gift"
@@ -107,20 +85,6 @@ class SaleGift(DailyTask):
     START_HINT = "Start on the main Adventure screen."
 
     # --- open -------------------------------------------------------------
-    def _find_button(self, ctx: Context) -> Rel | None:
-        """The Sale Gift icon, wherever it is on the left bar."""
-        for drag in (None, (BAR_LOW, BAR_HIGH), (BAR_HIGH, BAR_LOW)):
-            if drag:
-                ctx.log.info("%s: no Sale Gift label in view -> scroll the left bar",
-                             self.name)
-                ctx.drag_rel(*drag)
-                if self.wait(ctx, 1.0):
-                    return None
-            label = sale_gift_label(ctx.frame())
-            if label:
-                return Rel(label.x, label.y - ICON_ABOVE)
-        return None
-
     def _is_open(self, ctx: Context) -> bool:
         """The popup: its X at the bottom, and Free / Obtained tiers."""
         frame = ctx.frame()
@@ -150,23 +114,6 @@ class SaleGift(DailyTask):
         return [y for y, locked in last if not locked]
 
     # --- claim ------------------------------------------------------------
-    def _close_rewards(self, ctx: Context) -> bool | None:
-        """After a Free tap: close the Rewards popup once it shows. True if it
-        showed (the claim landed), False if it didn't, None on a stop."""
-        end = time.time() + POPUP_TIMEOUT
-        while not rewards_up(ctx.frame()):
-            if time.time() > end:
-                return False
-            if self.wait(ctx, 0.5):
-                return None
-        if not self.tap(ctx, CLOSE_REWARDS, "close the Rewards popup"):
-            return None
-        end = time.time() + POPUP_TIMEOUT
-        while rewards_up(ctx.frame()) and time.time() < end:
-            if self.wait(ctx, 0.5):
-                return None
-        return True
-
     def _claim_page(self, ctx: Context, page: str) -> int | None:
         """Claim every unlocked Free on this page (the 2nd unlocks once the 1st is
         claimed). How many were claimed; None on a stop."""
@@ -179,7 +126,7 @@ class SaleGift(DailyTask):
                 break
             if not self.tap(ctx, Rel(GIFT_X, free[0]), f"Free ({page})"):
                 return None
-            landed = self._close_rewards(ctx)
+            landed = close_rewards(ctx, self.name, CLOSE_REWARDS)
             if landed is None:
                 return None
             if landed:
@@ -207,7 +154,7 @@ class SaleGift(DailyTask):
         return False
 
     def run_daily(self, ctx: Context) -> bool:
-        button = self._find_button(ctx)
+        button = left_bar_button(ctx, "sale gift", self.name, BUTTON_GUESS)
         if button is None:
             if ctx.should_stop():
                 return False

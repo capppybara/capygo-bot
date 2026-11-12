@@ -160,8 +160,8 @@ in the app (**Select all** and **Select none** set them all at once).
 
 The groups always run in this order: Dailies, Events, Guild, Menu, Last. The
 Menu group runs after the first three so its daily-tasks claim picks up the
-tasks the other chores finished. The Last group holds only Sale gift, which
-always runs after everything else.
+tasks the other chores finished. The Last group runs Super value gift, then
+Sale gift, which always runs after everything else.
 
 Each group has a base screen. Every chore in the group starts there and returns
 there when done, so the next chore carries on from it.
@@ -300,12 +300,29 @@ before each step: a reward with a tap above it, a panel with its X.
 
 | Chore | What it does |
 |---|---|
+| Super value gift | Opens Super Value Gift on the left bar. Claims the Free gift on Daily Special, then checks in on the Seven-Day Pilgrimage. See below. |
 | Sale gift | Opens Sale Gift on the left bar and claims the 2 Free gifts on each page of gift packs. See below. |
+
+Both find their left-bar button by its label, because the bar's buttons move.
+The bar scrolls a little, and its last button (Super Value Gift) is cut off
+until it does, so the bot scrolls the bar when a label is cut off or missing.
+If the button isn't on the bar, the chore skips.
+
+**Super value gift** works like this:
+
+1. On the Daily Special tab it taps the Welfare Pack's Free button. If it reads
+   "Already purchased", today's gift is claimed already. Every other pack costs
+   jade and is never tapped.
+2. On the Seven-Day Pilgrimage tab (bottom right) it scrolls the days to find
+   today's Check in button and taps it. A grey "Not" button means a later day,
+   so today's check-in is done already. It never taps the paid "Already
+   purchased" tier above the days. If the event has ended and the tab is gone,
+   it logs that and finishes.
+3. It goes back home with the back arrow.
 
 **Sale gift** works like this:
 
-1. It finds the Sale Gift button by its label, because the left bar's buttons
-   move. If there is no Sale Gift button, it skips.
+1. It finds the Sale Gift button on the left bar (see above).
 2. On each page it reads the whole list and taps every Free button that isn't
    locked. The list scrolls itself to the current tier when it opens, so the
    buttons aren't in fixed spots. A page with nothing left to claim is passed

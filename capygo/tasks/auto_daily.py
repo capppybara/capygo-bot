@@ -1,10 +1,10 @@
 """Task: auto-daily.
 
 Runs the daily chores, then the event chores (auto_events.py), the guild chores
-(auto_guild.py), the menu chores (auto_menu.py) and last of all Sale gift, in one
-go, skipping any switched off. The app shows one on/off switch per chore, under
-"Dailies", "Events", "Guild", "Menu" and "Last" headings (a group with no chores
-yet shows nothing); from the CLI:
+(auto_guild.py), the menu chores (auto_menu.py), and last the left-bar gifts
+(Super value gift, then Sale gift), in one go, skipping any switched off. The app
+shows one on/off switch per chore, under "Dailies", "Events", "Guild", "Menu" and
+"Last" headings (a group with no chores yet shows nothing); from the CLI:
 
   ./run.sh auto-daily                          run every daily and event
   ./run.sh auto-daily -p energy_claim=false    skip energy-claim
@@ -46,13 +46,14 @@ from .daily_capymon import Capymon
 from .daily_claim_cards import ClaimCards
 from .daily_energy_claim import EnergyClaim
 from .daily_sale_gift import SaleGift
+from .daily_super_value_gift import SuperValueGift
 from .daily_shop import DailyShop
 
 DAILIES = [EnergyClaim, AdventureAssistant, DailyShop, ClaimCards,
            ClaimCalendar, Capymon]  # run order
-# Sale gift ALWAYS runs last of all (user, 2026-11-11), after the Menu chores: its
-# own group, based on the home screen like the dailies.
-LAST = [SaleGift]
+# After the Menu chores: Super value gift, then Sale gift, which ALWAYS runs last of
+# all (user, 2026-11-11). Based on the home screen like the dailies.
+LAST = [SuperValueGift, SaleGift]
 
 
 @register("auto-daily")
@@ -65,8 +66,8 @@ class AutoDaily(ChoreRunner):
                   "Start is red, the bot taps it back to blue first.")
 
     # Menu runs after capymon and everything else (user), so the daily tasks those
-    # chores complete are there to claim. Only the Last group (Sale gift) comes
-    # after it (user, 2026-11-11: sale-gift always runs last).
+    # chores complete are there to claim. Only the Last group comes after it
+    # (user, 2026-11-11: super-value-gift, then sale-gift, always last).
     GROUPS = [ChoreGroup("Dailies", DAILIES, go_home, "home screen"), EVENTS_GROUP,
               GUILD_GROUP, MENU_GROUP, ChoreGroup("Last", LAST, go_home, "home screen")]
     PARAMS = chore_params(GROUPS)

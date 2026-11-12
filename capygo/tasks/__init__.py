@@ -16,6 +16,7 @@ from . import daily_capymon  # noqa: F401
 from . import daily_claim_cards  # noqa: F401
 from . import daily_energy_claim  # noqa: F401
 from . import daily_sale_gift  # noqa: F401
+from . import daily_super_value_gift  # noqa: F401
 from . import daily_shop  # noqa: F401
 from . import event_arena  # noqa: F401
 from . import event_dungeon_dive  # noqa: F401
