@@ -348,7 +348,7 @@ friend in it, it carries on from there.
 | Setting | Default | Mode | Meaning |
 |---|---|---|---|
 | Join instead of host | off | both | Off: host. On: join the friend's run. |
-| Friend | from `config.local.yaml` | both | Who to invite (hosting), or whose invite to accept (joining) |
+| Friend | from `config.local.yaml` | both | Who to invite (hosting), or whose invite to accept (joining). Hosting with it blank: you invite, the bot waits for anyone to join. Joining needs it. |
 | Runs | 4 | both | How many runs to play |
 | Difficulty (hosting) | from `config.local.yaml` (else 1) | hosting | The Gulu Mine difficulty to host |
 | Stay (hosting) | off | hosting | Play each run to the end instead of quitting it |
@@ -384,6 +384,11 @@ With **Stay** on, the bot plays each run to the end instead of quitting:
 
 If the friend leaves, the bot invites them again. It taps the button only while
 it reads Start Challenge. With nobody in, the same button reads Random Match.
+
+**No Friend set:** the bot never opens the invite list. You invite someone
+yourself. Everywhere the bot would invite (each run, a teammate who left, a
+Remove after 5 minutes without a start), it skips the invite and waits up to 30
+minutes for anyone to join, then carries on.
 
 ### Joining
 

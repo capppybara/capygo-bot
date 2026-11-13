@@ -13,6 +13,9 @@ Hosting (user, 2026-10-05):
   1. Already on the Gulu team screen at this difficulty with a partner -> step 5.
   2. Otherwise enter Gulu and pick the difficulty (tap ◀ down from the max).
   3. Invite the friend from the Friend tab (first page only, no scrolling).
+     No Friend set (user, 2026-11-12): no invite at all. The user invites
+     someone by hand, and the bot goes straight to step 4 and waits for anyone
+     to join. The same holds for every later invite (stay mode's re-invites).
   4. Every 10s, for up to 30 minutes, check whether they joined (never
      re-invite); on a timeout the task stops.
   5. The "stay" setting (an app input) picks the loop.
@@ -219,7 +222,8 @@ class AutoGulu(Task):
         Param("join", "bool", False, "Join instead of host",
               help="on: wait for the friend's invite and join it; off: host"),
         Param("friend", "str", local_default("friend"), "Friend",
-              help="hosting: who to invite; joining: whose invite to accept"),
+              help="hosting: who to invite (blank: you invite, the bot waits for "
+                   "anyone to join); joining: whose invite to accept"),
         Param("runs", "int", 4, "Runs", min=1, max=100),
         Param("difficulty", "int", local_default("gulu_difficulty", 1), "Difficulty (hosting)", min=1, max=999,
               help="Gulu Mine difficulty to host (the panel opens on your max)"),
@@ -229,17 +233,22 @@ class AutoGulu(Task):
 
     def run(self, ctx: Context) -> None:
         p = self.params
-        if not p["friend"].strip():
-            ctx.log.warning("auto-gulu: no Friend set -> enter their in-game name, or set "
-                            "defaults: friend: in config.local.yaml")
-            return
         if p["join"]:
+            if not p["friend"].strip():
+                ctx.log.warning("auto-gulu: no Friend set -> enter their in-game name, "
+                                "or set defaults: friend: in config.local.yaml")
+                return
             ctx.log.info("auto-gulu: joining %s's Gulu, %d run(s)", p["friend"],
                          p["runs"])
             self._join_loop(ctx)
             return
-        ctx.log.info("auto-gulu: hosting difficulty %d with %s, %d run(s), stay=%s",
-                     p["difficulty"], p["friend"], p["runs"], p["stay"])
+        if p["friend"].strip():
+            ctx.log.info("auto-gulu: hosting difficulty %d with %s, %d run(s), "
+                         "stay=%s", p["difficulty"], p["friend"], p["runs"], p["stay"])
+        else:
+            ctx.log.info("auto-gulu: hosting difficulty %d, %d run(s), stay=%s; no "
+                         "Friend set -> invite someone yourself, the bot waits for "
+                         "them to join", p["difficulty"], p["runs"], p["stay"])
         if p["stay"]:
             self._stay_loop(ctx)
             return
@@ -646,8 +655,13 @@ class AutoGulu(Task):
         return True
 
     def _invite(self, ctx: Context) -> bool:
-        """Invite the friend from the Friend tab's first page (never scroll)."""
+        """Invite the friend from the Friend tab's first page (never scroll). No
+        Friend set: nothing to tap, the user invites by hand (_wait_join follows)."""
         friend = self.params["friend"]
+        if not friend.strip():
+            ctx.log.info("auto-gulu: no Friend set -> skipping the invite (invite "
+                         "someone yourself)")
+            return True
         if not self._tap(ctx, INVITE_BTN, "Invite"):
             return False
         if ctx.dry_run:
@@ -701,7 +715,7 @@ class AutoGulu(Task):
             if time.time() >= next_note:
                 next_note += 300
                 ctx.log.info("auto-gulu: still waiting for %s (%.0f min)",
-                             self.params["friend"], (time.time() - start) / 60)
+                             self._who(), (time.time() - start) / 60)
             if wait(ctx, JOIN_POLL):
                 return False
 
@@ -744,7 +758,9 @@ class AutoGulu(Task):
                 return True
             if team_level(frame) is not None:
                 if not partner(frame):
-                    ctx.log.info("auto-gulu: the teammate left -> inviting again")
+                    ctx.log.info("auto-gulu: the teammate left -> %s",
+                                 "inviting again" if self.params["friend"].strip()
+                                 else "waiting for someone to join")
                     if not (self._invite(ctx) and self._wait_join(ctx)):
                         return False
                     since, tries = time.time(), 0
@@ -765,8 +781,7 @@ class AutoGulu(Task):
             if time.time() - since >= STUCK_AFTER:
                 if reinvited:
                     ctx.log.warning("auto-gulu: still no start %d minutes after "
-                                    "inviting %s again", STUCK_AFTER // 60,
-                                    self.params["friend"])
+                                    "%s joined again", STUCK_AFTER // 60, self._who())
                     return False
                 ctx.log.warning("auto-gulu: no start in %d minutes (%d tries) -> remove "
                                 "the teammate and invite them again", STUCK_AFTER // 60,
@@ -808,6 +823,10 @@ class AutoGulu(Task):
         return False
 
     # --- helpers ------------------------------------------------------------
+    def _who(self) -> str:
+        """The friend's name for the log, or "someone" with no Friend set."""
+        return self.params["friend"].strip() or "someone"
+
     def _close_popup(self, ctx: Context, quiet: bool = False) -> bool:
         x = find_sprite(ctx, ctx.frame(), "close_x.png")
         if x is None:

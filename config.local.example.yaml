@@ -3,6 +3,7 @@
 defaults:
   # Your friend's in-game name: the default Friend for Auto Gulu (who to invite,
   # or whose invite to accept) and hard mode joining (whose invite to accept).
+  # Blank: Auto Gulu hosting leaves the invite to you and waits for anyone.
   friend: ""
   # Your own in-game UID (Character Info). Arena Sniping uses it to recognize your
   # own row on the leaderboard; without it, it goes by your points and power.
