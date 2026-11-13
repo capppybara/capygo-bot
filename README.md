@@ -348,7 +348,7 @@ friend in it, it carries on from there.
 | Setting | Default | Mode | Meaning |
 |---|---|---|---|
 | Join instead of host | off | both | Off: host. On: join the friend's run. |
-| Friend | from `config.local.yaml` | both | Who to invite (hosting), or whose invite to accept (joining). Hosting with it blank: you invite, the bot waits for anyone to join. Joining needs it. |
+| Friend | from `config.local.yaml` | both | Who to invite (hosting), or whose invite to accept (joining). Hosting with it blank: you invite, the bot waits for anyone to join. |
 | Runs | 4 | both | How many runs to play |
 | Difficulty (hosting) | from `config.local.yaml` (else 1) | hosting | The Gulu Mine difficulty to host |
 | Stay (hosting) | off | hosting | Play each run to the end instead of quitting it |
