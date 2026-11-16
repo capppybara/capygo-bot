@@ -30,6 +30,12 @@ time, by UID) and beaten under 40% of the time is skipped. The UID needs their
 profile, so when anyone in the log has 5+ fights, candidates are scouted best
 first (the profile the fight log opens anyway) until one passes; otherwise the
 pick is as before and the profile is opened just before the fight.
+A popup can show after a fight (user, 2026-11-15; that day the list read
+nothing 4 times, so 4 Refreshes went by and the ratio rose to 1.5x). So when no
+opponent reads at all, a popup is looked for first: its X, or "Tap to close" (a
+tap on the title). Closed -> the list is read again, with no Refresh used and the
+ratio unchanged. No popup found -> the screen is saved and the run carries on as
+before (Refresh).
 Sniping starts 1 minute before that with a game restart (user, 2026-10-12: a
 clean game for it; a fight froze in 10-06's snipe), closing the start-up
 notices, then goes straight to the list; the cutoff is unchanged.
@@ -105,6 +111,7 @@ SKIP_RETRY = 5.0         # user: tap Skip every 5 seconds while it shows
 RESULT_TIMEOUT = 30.0    # user: Skip still showing after 30s = stuck
 FROZEN_AFTER = 10.0       # a fight screen this long without any change = frozen
 STILL_DIFF = 1.0          # mean pixel change (80x120 grey) below this = no change
+POPUP_TRIES = 3           # popups closed in a row before the list is taken as read
 OPEN_TIMEOUT = 8.0
 POLL = 0.5
 SETTLE = 1.0
@@ -433,6 +440,7 @@ class MartialArtsTournament(Task):
                  deadline: datetime | None) -> int:
         done = 0
         self.restarts = 0
+        self.unreadable_saved = False  # one screenshot of an unreadable list a run
         while not ctx.should_stop():
             if limit and done >= limit:
                 self._log.info("%d attack(s) done (the limit)", done)
@@ -480,10 +488,10 @@ class MartialArtsTournament(Task):
         """Scroll down, read all 6, pick; refresh (up to 5, ratio +0.1 each)."""
         ratio = base
         for refresh in range(REFRESHES + 1):
-            before = ctx.frame()  # the list before the scroll (row 1's name: hgw)
-            self._scroll(ctx, SCROLL_DOWN)
-            frame = ctx.frame()
-            foes = read_foes(frame, self.LAYOUT)
+            got = self._read_list(ctx)
+            if got is None:
+                return None
+            before, frame, foes = got
             left = tickets(frame, foes, self.LAYOUT)  # for the log; the Purchase popup
                                                       # ends the run
             cap = cp * ratio
@@ -507,6 +515,50 @@ class MartialArtsTournament(Task):
             ratio += RATIO_STEP
         self._log.warning("no opponent below %sx your CP after %d refreshes -> "
                         "stopping; attack the rest by hand", ratio, REFRESHES)
+        return None
+
+    def _read_list(self, ctx: Context):
+        """Scroll down and read the opponents: (the list before the scroll - row 1's
+        name, for hgw -, the frame read, the foes). Nothing read at all: a popup
+        may be up (one can show after a fight - user), so close it and read again,
+        up to POPUP_TRIES. None on a stop, or if closing it left the Qualifiers."""
+        for attempt in range(POPUP_TRIES + 1):
+            before = ctx.frame()
+            self._scroll(ctx, SCROLL_DOWN)
+            frame = ctx.frame()
+            foes = read_foes(frame, self.LAYOUT)
+            if foes or attempt == POPUP_TRIES:
+                return before, frame, foes
+            closed = self._close_popup(ctx, frame)
+            if closed is None:
+                return None
+            if not closed:
+                return before, frame, foes
+
+    def _close_popup(self, ctx: Context, frame) -> bool | None:
+        """The list read nothing: close a popup over it - its X, else "Tap to
+        close" (a tap on the title, inert on the list). True once closed and the
+        Qualifiers show again; False if there's no popup to close (the screen is
+        saved, once a run); None on a stop or if the Qualifiers didn't come back."""
+        x = find_sprite(ctx, frame, "close_x.png")
+        if x is not None:
+            target, what = x, "close the popup (its X)"
+        elif tap_to_close_up(frame):
+            target, what = _px(TITLE_TAP), "close the popup (Tap to close)"
+        else:
+            self._log.warning("couldn't read the opponent list, and no popup to close")
+            if not self.unreadable_saved:
+                self.unreadable_saved = True
+                self._snapshot(ctx, "unreadable-list")
+            return False
+        self._log.info("couldn't read the opponent list -> a popup is up")
+        if not self._tap(ctx, target, what):
+            return None
+        if self._until(ctx, lambda: "qualifier" in _words(ctx.frame(), STAGE_TITLE)):
+            return True
+        if not ctx.should_stop():
+            self._log.warning("not on the Qualifiers after closing the popup -> stopping")
+            self._snapshot(ctx, "after-popup")
         return None
 
     def _fight(self, ctx: Context, foe: Foe, buy: bool = False) -> str | None:

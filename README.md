@@ -582,7 +582,11 @@ Schedule (the Qualifiers) itself.
 For each attack the bot:
 
 1. Scrolls the list a little so all 6 opponents show, and reads each one's power
-   and points. B and T are converted (1T = 1000B).
+   and points. B and T are converted (1T = 1000B). If it can't read any
+   opponent, a popup may be up (one can show after a fight). It closes it with
+   its X, or with a tap if it says "Tap to close", and reads the list again.
+   That uses no Refresh and keeps the ratio. If it finds no popup to close, it
+   saves a screenshot to `logs/` and goes on to step 3.
 2. Fights the one with the most points whose power is below the ratio x your CP,
    skipping a player you've fought 5 or more times and beaten less than 40% of
    the time (arena and martial fights together, by UID). The UID is on their
