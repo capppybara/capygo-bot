@@ -23,6 +23,8 @@ middle bar) -> the Capymon screen. Then:
        minus once (= 20 hours) - unless it's before 02:00 UTC: then 24 hours
        stays (user, 2026-10-15). The hours are read back before Dispatch. Quick
        (fills the team), Dispatch (energy). Close (X).
+       The team still out (neither "Travel completed" nor "Send"): nothing is
+       sent, and a flag says so (user, 2026-11-18).
   The voyage map's "adventure" button (bottom-left) goes straight home.
 
 Reward popups are closed by tapping a title ABOVE their dark band (taps on the
@@ -282,11 +284,19 @@ class Capymon(DailyTask):
                 self.flag(ctx, "the finished travel didn't give its rewards. Collect "
                                "and re-send the team by hand.")
                 return self._close_x(ctx)
-        if "send" in _words(ctx.frame(), SLOT1_TEXT):
+        slot = _words(ctx.frame(), SLOT1_TEXT)
+        if "send" in slot:
             if not self._dispatch(ctx):
                 return False
         else:
-            ctx.log.info("%s: the team is still travelling", self.name)
+            # the last travel isn't back yet (2026-11-18: a 24h travel sent at 17:03,
+            # the next day's run at 16:28): no new travel today, so the player
+            # should know (user)
+            ctx.log.info("%s: the team is still travelling (the slot reads %r)",
+                         self.name, slot)
+            self.flag(ctx, "the team was still out on its last travel, so no new "
+                           "travel was sent. Collect it and send the team again by "
+                           "hand once it's back.")
         return self._close_x(ctx)
 
     def _dispatch(self, ctx: Context) -> bool:

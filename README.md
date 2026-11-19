@@ -223,7 +223,8 @@ The log ends with a summary:
 3. **Points chests:** claims every points-bar chest with a red "!".
 4. **Travel:** in Capy Grand Voyage → Travel, it collects a finished travel and
    sends the team out again for 20 hours, or for 24 hours before 2 AM UTC
-   (7 PM Pacific in summer, 6 PM in winter).
+   (7 PM Pacific in summer, 6 PM in winter). If the team is still out, it sends
+   nothing and lists that under "Needs your attention".
 
 ### Events
 
