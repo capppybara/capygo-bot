@@ -52,6 +52,10 @@ Joining (user, 2026-10-05):
   the host sometimes can't start (a bug), leaves, and invites from a new room
   (user, 2026-10-08). So until the start the bot loops through: the banner ->
   open it -> accept the friend's invite if there is one -> look for the start.
+  The host can also Remove the joiner, to invite again (stay mode does it when a
+  start won't take). That leaves the joiner on the challenge screen (the Events
+  screen), where no invites show (user, 2026-11-20): from there, or from the
+  Gulu Mine panel, the bot goes home and waits for the invite there.
   Then the run, always played to the end: every 2s look for a skill screen or
   the result. Battle 1 has two screens of 2 picks (the hosting positions and
   waits); battles 2-4 have two screens of 1 pick (the top of 3 cards). The
@@ -74,7 +78,7 @@ from ..perception import ocr_lines
 from ..task import Context, Param, Task, register
 from .daily import (HOME, _crop, find_sprite, go_home, home_state, save_snapshot, tap,
                     wait)
-from .event import TABS, card_at, go_events
+from .event import TABS, card_at, go_events, on_events
 from . import invites, skills
 from .invites import same_name
 from .skills import CHOOSE_TITLE, RESELECT_AFTER, SKILL_SETTLE
@@ -181,6 +185,19 @@ def in_gulu(frame) -> bool:
     return team_level(frame) is not None or "choose skill" in _words(frame, CHOOSE_TITLE)
 
 
+def off_team(frame) -> str:
+    """Where a joiner removed from the team lands (user, 2026-11-20: the host's
+    Remove, to invite again, leaves you on the challenge screen), named for the
+    log; "" elsewhere. No invitation banner shows there: only home has it."""
+    if team_level(frame) is not None:
+        return ""
+    if on_events(frame):
+        return "the Events screen"
+    if "gulu mine" in _words(frame, PANEL_TITLE):
+        return "the Gulu Mine panel"
+    return ""
+
+
 def result_title(frame) -> str:
     """ "victory" / "defeat" while a run's result screen is up, else ""."""
     text = _words(frame, RESULT_TITLE)
@@ -282,6 +299,19 @@ class AutoGulu(Task):
             if in_gulu(frame):
                 ctx.log.info("auto-gulu: already in Gulu")
                 return True
+            where = off_team(frame)
+            if where:
+                ctx.log.info("auto-gulu: on %s, where invites don't show -> home",
+                             where)
+                if not go_home(ctx):
+                    if not ctx.should_stop():
+                        shot = save_snapshot(ctx, "gulu-join-no-home")
+                        ctx.log.warning("auto-gulu: couldn't get home to wait for the "
+                                        "invite -> stopping%s",
+                                        f"; screen saved: {shot}" if shot else "")
+                    return False
+                next_banner = time.time()
+                continue
             if time.time() >= next_banner:
                 next_banner = time.time() + INVITE_POLL
                 already_open = invites.popup_open(frame)
@@ -393,6 +423,12 @@ class AutoGulu(Task):
             if started is None:
                 if not in_gulu(frame) and home_state(frame) == HOME:
                     ctx.log.info("auto-gulu: back home before a start (the host left)")
+                    return None if self._join(ctx) is False else \
+                        self._play_run(ctx)
+                where = "" if in_gulu(frame) else off_team(frame)
+                if where:  # the host removed us, to invite again (_join goes home)
+                    ctx.log.info("auto-gulu: out of the team before a start (on %s; "
+                                 "the host removed us?)", where)
                     return None if self._join(ctx) is False else \
                         self._play_run(ctx)
                 if time.time() - wait_start >= START_TIMEOUT:

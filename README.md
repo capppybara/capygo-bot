@@ -412,6 +412,10 @@ banner holds only other players' invites, the bot rejects them in every mode, so
 the banner comes back only for a new invite. If the popup can't be switched to
 Gulu Mine, it closes the popup without rejecting anything.
 
+The host can also remove you from the team to invite you again. That leaves you
+on the Events screen, where invites don't show. From there, or from the Gulu
+Mine panel, the bot goes home and waits for the invite there.
+
 Where the result screen leaves you tells the bot whether the host stayed. Back
 on the Gulu team screen means the host stayed, so it waits for the next start.
 Back home means the host left, so it looks for the next invite.
