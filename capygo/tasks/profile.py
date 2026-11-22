@@ -84,6 +84,7 @@ WEAPON_MATCH = 0.80       # same weapon 0.95-0.99, another <= 0.69 (shift-tolera
 SHIFT = 5                 # px: the compare tolerates the slot sitting this far off
 CLIP_SENTINEL = "capygo-none"  # seeded before a copy so a stale value can't fool us
 SETTLE_TIMEOUT = 3.0      # the screen slides and fades in
+LOAD_TIMEOUT = 10.0       # ... and a "Loading .." box can hold it up (read_profile)
 STILL_DIFF = 2.0          # two frames this alike (banner not moving) = settled
 SLOT_FRAMES = 6           # the darkest of these frames, per pixel, drops the icons'
 SLOT_GAP = 0.25           # sheen: it can wash a whole slot out white for ~1s
@@ -453,24 +454,27 @@ def _banner_y(frame) -> int | None:
     return m.y if m.found else None
 
 
-def _settled(ctx: Context):
+def _settled(ctx: Context, loaded: bool = False):
     """A frame once the profile has finished sliding and fading in: the banner
     in the same place in two frames in a row and the info box below it still
     (a frame grabbed at once had no name or power and a blank weapon; two caught
-    it mid-slide)."""
+    it mid-slide). `loaded`: also wait (up to LOAD_TIMEOUT) for the weapon slot's
+    border, i.e. past the "Loading .." box, which is just as still (2026-11-21:
+    3 PvP reads caught it; see read_profile)."""
     def part(f, y):
         h, w = f.shape[:2]
         g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).astype(np.float32)
         return g[max(0, y + int(40 * h / 951)):y + int(160 * h / 951), int(100 * w / 642):int(540 * w / 642)]
     prev = ctx.frame()
     prev_y = _banner_y(prev)
-    end = time.time() + SETTLE_TIMEOUT
+    end = time.time() + (LOAD_TIMEOUT if loaded else SETTLE_TIMEOUT)
     while time.time() < end:
         time.sleep(0.25)
         cur = ctx.frame()
         y = _banner_y(cur)
         if y is not None and prev_y is not None and abs(y - prev_y) <= 1 and \
-                float(np.abs(part(cur, y) - part(prev, y)).mean()) < STILL_DIFF:
+                float(np.abs(part(cur, y) - part(prev, y)).mean()) < STILL_DIFF and \
+                (not loaded or _slot_top(cur) is not None):
             return cur
         prev, prev_y = cur, y
     return prev
@@ -503,7 +507,16 @@ def read_profile(ctx: Context, save_to: str | None = None) -> Profile:
     """Read the open Character Info screen. `save_to`: also save the screenshot
     there (a .png path)."""
     p = Profile()
-    frame = _settled(ctx)
+    frame = _settled(ctx, loaded=True)
+    if _slot_top(frame) is None:
+        # Still "Loading ..": nothing is where layout() would guess. Reading
+        # anyway cut the weapon slot 9px low from the frames that came after
+        # (the art loaded by then), and every such read was saved as a new
+        # unknown weapon (2026-11-03 BBC, 2026-11-21 amogus-bow).
+        p.notes.append("the profile didn't load")
+        if save_to and cv2.imwrite(save_to, frame):
+            p.screenshot = save_to
+        return p
     lay = layout(frame)
     slot = _weapon_slot(ctx, frame, lay)
     # The UID last: its copy button pops a "copied" notice across the middle of
