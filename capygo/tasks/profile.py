@@ -228,15 +228,30 @@ def _slot_top(frame) -> float | None:
     return None
 
 
-def layout(frame) -> Layout:
-    """Find the Name / UID rows (their labels) and the weapon slot (its border).
-    Anything not found falls back to a guild member's layout."""
+def _labels(frame) -> dict[str, float]:
+    """The info box's labels that read ("name", "uid", ...), each with its row's
+    y (px at 642x951)."""
     h, w = frame.shape[:2]
     kx, ky = w / 642, h / 951
     x0, x1, y0, y1 = LABELS
     rows = {}
     for t, _, cy in ocr_lines(frame[int(y0 * ky):int(y1 * ky), int(x0 * kx):int(x1 * kx)]):
         rows.setdefault(t.strip().lower(), cy / ky + y0)
+    return rows
+
+
+def loaded(frame) -> bool:
+    """The profile's info has loaded: its Name and UID labels read. They don't
+    move, and a "Loading .." box hides them (user; on 313 of 313 loaded PvP
+    profiles, none of the 3 caught loading)."""
+    rows = _labels(frame)
+    return "name" in rows and "uid" in rows
+
+
+def layout(frame) -> Layout:
+    """Find the Name / UID rows (their labels) and the weapon slot (its border).
+    Anything not found falls back to a guild member's layout."""
+    rows = _labels(frame)
     name_y, uid_y, top = DEFAULT_LAYOUT
     return Layout(rows.get("name", name_y), rows.get("uid", uid_y),
                   _slot_top(frame) or top)
@@ -454,30 +469,44 @@ def _banner_y(frame) -> int | None:
     return m.y if m.found else None
 
 
-def _settled(ctx: Context, loaded: bool = False):
+def _still(ctx: Context):
     """A frame once the profile has finished sliding and fading in: the banner
     in the same place in two frames in a row and the info box below it still
     (a frame grabbed at once had no name or power and a blank weapon; two caught
-    it mid-slide). `loaded`: also wait (up to LOAD_TIMEOUT) for the weapon slot's
-    border, i.e. past the "Loading .." box, which is just as still (2026-11-21:
-    3 PvP reads caught it; see read_profile)."""
+    it mid-slide). After SETTLE_TIMEOUT, the last frame anyway: a character's
+    animated glow can reach into the info box and never hold still (2026-11-21)."""
     def part(f, y):
         h, w = f.shape[:2]
         g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).astype(np.float32)
         return g[max(0, y + int(40 * h / 951)):y + int(160 * h / 951), int(100 * w / 642):int(540 * w / 642)]
     prev = ctx.frame()
     prev_y = _banner_y(prev)
-    end = time.time() + (LOAD_TIMEOUT if loaded else SETTLE_TIMEOUT)
+    end = time.time() + SETTLE_TIMEOUT
     while time.time() < end:
         time.sleep(0.25)
         cur = ctx.frame()
         y = _banner_y(cur)
         if y is not None and prev_y is not None and abs(y - prev_y) <= 1 and \
-                float(np.abs(part(cur, y) - part(prev, y)).mean()) < STILL_DIFF and \
-                (not loaded or _slot_top(cur) is not None):
+                float(np.abs(part(cur, y) - part(prev, y)).mean()) < STILL_DIFF:
             return cur
         prev, prev_y = cur, y
     return prev
+
+
+def _settled(ctx: Context, wait_load: bool = False):
+    """A still frame (_still). `wait_load`: one past the "Loading .." box as well,
+    which is just as still (2026-11-21: 3 PvP reads caught it; see read_profile):
+    until the Name and UID labels read (loaded()), up to LOAD_TIMEOUT, then
+    settle again."""
+    frame = _still(ctx)
+    if not wait_load or loaded(frame):
+        return frame
+    end = time.time() + LOAD_TIMEOUT
+    while time.time() < end:
+        time.sleep(0.25)
+        if loaded(ctx.frame()):
+            return _still(ctx)
+    return ctx.frame()
 
 
 def _weapon_slot(ctx: Context, frame, lay: Layout):
@@ -507,8 +536,8 @@ def read_profile(ctx: Context, save_to: str | None = None) -> Profile:
     """Read the open Character Info screen. `save_to`: also save the screenshot
     there (a .png path)."""
     p = Profile()
-    frame = _settled(ctx, loaded=True)
-    if _slot_top(frame) is None:
+    frame = _settled(ctx, wait_load=True)
+    if not loaded(frame):
         # Still "Loading ..": nothing is where layout() would guess. Reading
         # anyway cut the weapon slot 9px low from the frames that came after
         # (the art loaded by then), and every such read was saved as a new
@@ -518,7 +547,8 @@ def read_profile(ctx: Context, save_to: str | None = None) -> Profile:
             p.screenshot = save_to
         return p
     lay = layout(frame)
-    slot = _weapon_slot(ctx, frame, lay)
+    # the weapon only from a slot actually found: a guessed spot makes up unknowns
+    slot = _weapon_slot(ctx, frame, lay) if _slot_top(frame) is not None else None
     # The UID last: its copy button pops a "copied" notice across the middle of
     # the screen (a gold band right over the weapon slot). OCR if the copy fails.
     p.uid = read_uid(ctx, lay) or read_uid_text(frame, lay)
@@ -526,7 +556,10 @@ def read_profile(ctx: Context, save_to: str | None = None) -> Profile:
     p.power = read_power(frame, lay)
     p.hp, p.atk, p.defense = read_stats(frame, lay)
     try:
-        p.weapon, p.new_weapon = read_weapon(slot)
+        if slot is None:
+            p.notes.append("weapon slot not found")
+        else:
+            p.weapon, p.new_weapon = read_weapon(slot)
     except Exception as e:  # a weapon read must never break a fight
         p.notes.append(f"weapon: {e}")
     if save_to and cv2.imwrite(save_to, frame):
