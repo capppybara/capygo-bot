@@ -83,8 +83,9 @@ TITLE_MATCH = 0.85
 WEAPON_MATCH = 0.80       # same weapon 0.95-0.99, another <= 0.69 (shift-tolerant)
 SHIFT = 5                 # px: the compare tolerates the slot sitting this far off
 CLIP_SENTINEL = "capygo-none"  # seeded before a copy so a stale value can't fool us
-SETTLE_TIMEOUT = 3.0      # the screen slides and fades in
-LOAD_TIMEOUT = 10.0       # ... and a "Loading .." box can hold it up (read_profile)
+SETTLE_TIMEOUT = 3.0      # the screen slides and fades in (read_uid_power)
+READ_WAIT = 2.0           # user: read_profile waits 2s after the profile opens
+LOAD_TRIES = 2            # ... and once more if it's still "Loading .." then
 STILL_DIFF = 2.0          # two frames this alike (banner not moving) = settled
 SLOT_FRAMES = 6           # the darkest of these frames, per pixel, drops the icons'
 SLOT_GAP = 0.25           # sheen: it can wash a whole slot out white for ~1s
@@ -493,22 +494,6 @@ def _still(ctx: Context):
     return prev
 
 
-def _settled(ctx: Context, wait_load: bool = False):
-    """A still frame (_still). `wait_load`: one past the "Loading .." box as well,
-    which is just as still (2026-11-21: 3 PvP reads caught it; see read_profile):
-    until the Name and UID labels read (loaded()), up to LOAD_TIMEOUT, then
-    settle again."""
-    frame = _still(ctx)
-    if not wait_load or loaded(frame):
-        return frame
-    end = time.time() + LOAD_TIMEOUT
-    while time.time() < end:
-        time.sleep(0.25)
-        if loaded(ctx.frame()):
-            return _still(ctx)
-    return ctx.frame()
-
-
 def _weapon_slot(ctx: Context, frame, lay: Layout):
     """The weapon slot as the per-pixel darkest of SLOT_FRAMES frames SLOT_GAP
     apart: the icon's sheen only brightens it (sometimes the whole slot, for ~1s),
@@ -526,7 +511,7 @@ def read_uid_power(ctx: Context) -> tuple[str | None, Decimal | None]:
     a settled frame first, its power, then the UID copy last (the copy's "copied"
     notice covers the middle of the screen; 2026-10-27 the member list copied
     first and read no power at all). OCR for the UID if the copy fails."""
-    frame = _settled(ctx)
+    frame = _still(ctx)
     lay = layout(frame)
     power = read_power(frame, lay)
     return read_uid(ctx, lay) or read_uid_text(frame, lay), power
@@ -534,14 +519,20 @@ def read_uid_power(ctx: Context) -> tuple[str | None, Decimal | None]:
 
 def read_profile(ctx: Context, save_to: str | None = None) -> Profile:
     """Read the open Character Info screen. `save_to`: also save the screenshot
-    there (a .png path)."""
+    there (a .png path). User: wait 2s after it opens, then read (the slide-in is
+    over by then). The frame must show the Name and UID labels (loaded()): a
+    "Loading .." box hides them, and nothing is where layout() would guess then.
+    Reading anyway cut the weapon slot 9px low from the frames that came after
+    (the art loaded by then), and every such read was saved as a new unknown
+    weapon (2026-11-03 BBC, 2026-11-21 amogus-bow). Still loading: one more 2s,
+    then give up. The UID's copy confirms it: a new clipboard entry (read_uid)."""
     p = Profile()
-    frame = _settled(ctx, wait_load=True)
-    if not loaded(frame):
-        # Still "Loading ..": nothing is where layout() would guess. Reading
-        # anyway cut the weapon slot 9px low from the frames that came after
-        # (the art loaded by then), and every such read was saved as a new
-        # unknown weapon (2026-11-03 BBC, 2026-11-21 amogus-bow).
+    for _ in range(LOAD_TRIES):
+        time.sleep(READ_WAIT)
+        frame = ctx.frame()
+        if loaded(frame):
+            break
+    else:
         p.notes.append("the profile didn't load")
         if save_to and cv2.imwrite(save_to, frame):
             p.screenshot = save_to
@@ -551,7 +542,10 @@ def read_profile(ctx: Context, save_to: str | None = None) -> Profile:
     slot = _weapon_slot(ctx, frame, lay) if _slot_top(frame) is not None else None
     # The UID last: its copy button pops a "copied" notice across the middle of
     # the screen (a gold band right over the weapon slot). OCR if the copy fails.
-    p.uid = read_uid(ctx, lay) or read_uid_text(frame, lay)
+    p.uid = read_uid(ctx, lay)
+    if p.uid is None:
+        p.notes.append("the UID copy didn't take; UID by OCR")
+        p.uid = read_uid_text(frame, lay)
     p.name = read_name(frame, lay)
     p.power = read_power(frame, lay)
     p.hp, p.atk, p.defense = read_stats(frame, lay)
