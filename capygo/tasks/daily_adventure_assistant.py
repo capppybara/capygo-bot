@@ -2,9 +2,10 @@
 
 From the home screen, tap the floating robot-head bubble to open the Adventure
 Assistant. The bubble sits on the home island, and the island isn't always drawn in
-the same place (seen at x 332-413, y 404-492 on a 642x951 window), so the bubble is
-found by its picture (templates/dailies/robot_bubble.png) instead of tapped at a
-fixed spot. Then on each of the Shortcut, Feature and Shop tabs: tap Execute and wait
+the same place (seen at x 239-413, y 302-492 on a 642x951 window, three spots in one
+evening), so the bubble is found by its picture (templates/dailies/robot_bubble.png)
+anywhere on the screen. It is tapped only in the open middle of the screen: outside
+that, a side icon or a bottom button is drawn over that spot. Then on each of the Shortcut, Feature and Shop tabs: tap Execute and wait
 for the run to finish, then tap Completed to get back. Finally close it with the X.
 
 While a run is going, an "Assistant Log" screen shows "Waiting" and its bottom button
@@ -14,6 +15,10 @@ run is done the same button reads "Completed" (about 5s; give up after 10s).
 The Shop tab's button bar has an extra "Add Item" button, which pushes Execute to the
 right (x~463 vs ~429 on the other tabs). So Execute is found by reading the button
 bar on every tab instead of being tapped at a fixed spot.
+
+Whenever the chore can't go on, the reason is raised as a flag, so the end-of-run
+summary says what went wrong (e.g. "the robot bubble isn't on the home screen")
+instead of only "did not finish".
 """
 
 from __future__ import annotations
@@ -23,12 +28,15 @@ import time
 from ..geometry import Rel, RelRect
 from ..perception import Match, ocr_lines
 from ..task import Context, register
-from .daily import DailyTask, find_sprite
+from .daily import (HOME, SPRITE_THRESHOLD, SWITCH_RED, SWITCH_UNKNOWN, DailyTask,
+                    best_sprite, home_state)
 
-# The robot head inside the bubble: 0.92-1.00 on home screens, at most 0.52 on any
-# other saved screen. Looked for on the island, between the side icon bars.
+# The robot head inside the bubble, searched over the whole screen: 0.92-1.00 on home
+# screens (10 spots), at most 0.52 on any other saved screen.
 ROBOT_SPRITE = "robot_bubble.png"
-ISLAND = RelRect(0.15, 0.12, 0.65, 0.55)
+# The open middle of the home screen, clear of the top bar, the side icon bars and
+# the buttons at the bottom. The bubble is tapped only in here.
+CLEAR = RelRect(0.22, 0.11, 0.56, 0.51)
 ROBOT_BTN = Rel(0.645, 0.508)    # where the bubble usually is (dry runs only)
 TABS = [("Shortcut", Rel(0.234, 0.835)),
         ("Feature", Rel(0.411, 0.835)),
@@ -76,48 +84,90 @@ class AdventureAssistant(DailyTask):
                 return False
         return False
 
+    def _fail(self, ctx: Context, reason: str) -> bool:
+        """Give up with a reason: logged now and listed in the end-of-run summary."""
+        if not ctx.should_stop():
+            self.flag(ctx, reason)
+        return False
+
     def _run_tab(self, ctx: Context, name: str, tab: Rel) -> bool:
         if not self.tap(ctx, tab, f"{name} tab"):
             return False
         if not self._is_open(ctx):
-            ctx.log.warning("adventure-assistant: the assistant closed on the %s tab",
-                            name)
-            return False
+            return self._fail(ctx, f"the assistant closed after tapping the {name} tab")
         if ctx.dry_run:
             ctx.log.info("%s: tap Execute (%s tab)", self.name, name)
         else:
             execute = self._find_execute(ctx)
             if execute is None:
-                ctx.log.warning("adventure-assistant: no Execute button on the %s tab",
-                                name)
-                return False
+                return self._fail(ctx, f"no Execute button on the {name} tab")
             if not self.tap(ctx, execute, f"Execute ({name} tab)"):
                 return False
         if not self._wait_completed(ctx):
-            if not ctx.should_stop():
-                ctx.log.warning("adventure-assistant: the %s run didn't finish within "
-                                "%.0fs", name, RUN_TIMEOUT)
-            return False
+            return self._fail(ctx, f"the {name} tab's run didn't finish within "
+                                   f"{RUN_TIMEOUT:.0f}s (its log never read Completed)")
         return self.tap(ctx, COMPLETED_BTN, "Completed")
+
+    @staticmethod
+    def _covered_by(bubble: Match, w: int, h: int) -> str | None:
+        """What's drawn over the bubble's spot, or None if it's in the open middle."""
+        x, y = bubble.x / w, bubble.y / h
+        if y < CLEAR.y:
+            return "the top bar"
+        if y > CLEAR.y + CLEAR.h:
+            return "the buttons at the bottom"
+        if x < CLEAR.x:
+            return "the left icon bar"
+        if x > CLEAR.x + CLEAR.w:
+            return "the right icon bar"
+        return None
+
+    def _why_no_bubble(self, frame, best: Match) -> str:
+        """Why the bubble wasn't found on this frame."""
+        state = home_state(frame)
+        if state == SWITCH_RED:
+            return ("the game was in the red-switch co-op mode, not on the home screen, "
+                    "so there was no robot bubble to tap")
+        if state == SWITCH_UNKNOWN:
+            return ("the capy switch next to Start couldn't be read, so this may not be "
+                    "the home screen; no robot bubble found")
+        if state != HOME:
+            return ("the game wasn't on the home screen (the Start button was covered "
+                    "or missing), so there was no robot bubble to tap")
+        return (f"the robot bubble isn't on the home screen (closest look-alike "
+                f"{best.score:.2f} at ({best.x}, {best.y}); a match needs "
+                f"{SPRITE_THRESHOLD:.2f}). The island may be dragged so the bubble is "
+                f"off screen. Drag it back, or open the assistant by hand")
 
     def _open(self, ctx: Context) -> bool:
         """Find the robot bubble and tap it; True once the assistant is open."""
-        for _attempt in range(2):  # the first tap can just bring the window forward
-            if ctx.dry_run:
-                bubble = ROBOT_BTN
-            else:
-                bubble = find_sprite(ctx, ctx.frame(), ROBOT_SPRITE, ISLAND)
-                if bubble is None:
-                    ctx.log.warning("adventure-assistant: no robot bubble on the screen "
-                                    "(start on the main Adventure screen); skipping")
-                    return False
+        bubble = ROBOT_BTN
+        for attempt in range(2):  # the first tap can just bring the window forward
+            if not ctx.dry_run:
+                frame = ctx.frame()
+                best = best_sprite(ctx, frame, ROBOT_SPRITE)
+                if not best.found:
+                    if attempt and self._is_open(ctx):  # it opened late
+                        return True
+                    return self._fail(ctx, self._why_no_bubble(frame, best))
+                h, w = frame.shape[:2]
+                ctx.log.info("%s: robot bubble at (%d, %d), match %.2f",
+                             self.name, best.x, best.y, best.score)
+                covered = self._covered_by(best, w, h)
+                if covered:
+                    return self._fail(ctx, (
+                        f"the robot bubble is at ({best.x}, {best.y}), where "
+                        f"{covered} is drawn, so a tap there could hit that instead. "
+                        f"Drag the island so the bubble is in the middle, or open the "
+                        f"assistant by hand"))
+                bubble = best
             if not self.tap(ctx, bubble, "robot bubble"):
                 return False
             if self._is_open(ctx):
                 return True
-        ctx.log.warning("adventure-assistant: the Adventure Assistant did not open "
-                        "(start on the main Adventure screen); skipping")
-        return False
+        where = "" if ctx.dry_run else f" at ({bubble.x}, {bubble.y})"
+        return self._fail(ctx, f"tapped the robot bubble{where} twice, but the Adventure "
+                               f"Assistant didn't open")
 
     def run_daily(self, ctx: Context) -> bool:
         if not self._open(ctx):
@@ -132,5 +182,4 @@ class AdventureAssistant(DailyTask):
                 return False
             if ctx.dry_run or not self._is_open(ctx):
                 return True
-        ctx.log.warning("adventure-assistant: the assistant is still open")
-        return False
+        return self._fail(ctx, "the assistant was still open after tapping its X twice")

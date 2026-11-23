@@ -209,6 +209,13 @@ def find_sprite(ctx: Context, frame, name: str,
                 region: RelRect | None = None) -> Match | None:
     """A shared sprite from templates/dailies/ (e.g. "close_x.png"), wherever (within
     `region`, if given) and at whatever size it is drawn; None if it isn't showing."""
+    best = best_sprite(ctx, frame, name, region)
+    return best if best.found else None
+
+
+def best_sprite(ctx: Context, frame, name: str, region: RelRect | None = None) -> Match:
+    """find_sprite's best spot even when it scores under the threshold (found=False),
+    so a caller can say how close the screen came."""
     path = os.path.join(os.path.dirname(ctx.templates_dir), "dailies", name)
     tpl = load_template(path)
     ox = oy = 0
@@ -227,7 +234,7 @@ def find_sprite(ctx: Context, frame, name: str,
         if score > best.score:
             best = Match(score >= SPRITE_THRESHOLD, float(score),
                          ox + loc[0] + t.shape[1] // 2, oy + loc[1] + t.shape[0] // 2)
-    return best if best.found else None
+    return best
 
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
