@@ -207,7 +207,7 @@ The log ends with a summary:
 | Chore | What it does |
 |---|---|
 | Energy claim | Opens the energy shop (bolt at the top). Watches the free ad twice, buys energy with gems twice, claims the Daily Pack, closes the shop. |
-| Adventure assistant | Opens the floating robot bubble. On the Shortcut, Feature and Shop tabs it taps Execute, waits for Completed (10 seconds at most), and taps it. Then closes the assistant. |
+| Adventure assistant | Finds the floating robot bubble by its picture (the home island isn't always drawn in the same place) and opens it. On the Shortcut, Feature and Shop tabs it taps Execute, waits for Completed (10 seconds at most), and taps it. Then closes the assistant. |
 | Daily shop | Opens the Shop (leftmost bottom-bar icon). On Treasure it taps Get 1 once on the Gem Chest and once on the Mythic Treasure Chest. On Pack Shop it claims the Free Pack. Never touches Top Up or gem-priced packs. |
 | Claim cards | Opens Privilege Card (top of the left bar) and taps Claim all. |
 | Claim calendar | Opens Calendar (right-hand bar) and claims the reward chest. |

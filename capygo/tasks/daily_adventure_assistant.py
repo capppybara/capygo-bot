@@ -1,7 +1,10 @@
 """Daily: adventure-assistant.
 
 From the home screen, tap the floating robot-head bubble to open the Adventure
-Assistant. Then on each of the Shortcut, Feature and Shop tabs: tap Execute and wait
+Assistant. The bubble sits on the home island, and the island isn't always drawn in
+the same place (seen at x 332-413, y 404-492 on a 642x951 window), so the bubble is
+found by its picture (templates/dailies/robot_bubble.png) instead of tapped at a
+fixed spot. Then on each of the Shortcut, Feature and Shop tabs: tap Execute and wait
 for the run to finish, then tap Completed to get back. Finally close it with the X.
 
 While a run is going, an "Assistant Log" screen shows "Waiting" and its bottom button
@@ -20,9 +23,13 @@ import time
 from ..geometry import Rel, RelRect
 from ..perception import Match, ocr_lines
 from ..task import Context, register
-from .daily import DailyTask
+from .daily import DailyTask, find_sprite
 
-ROBOT_BTN = Rel(0.645, 0.508)    # the floating robot-head bubble on the home screen
+# The robot head inside the bubble: 0.92-1.00 on home screens, at most 0.52 on any
+# other saved screen. Looked for on the island, between the side icon bars.
+ROBOT_SPRITE = "robot_bubble.png"
+ISLAND = RelRect(0.15, 0.12, 0.65, 0.55)
+ROBOT_BTN = Rel(0.645, 0.508)    # where the bubble usually is (dry runs only)
 TABS = [("Shortcut", Rel(0.234, 0.835)),
         ("Feature", Rel(0.411, 0.835)),
         ("Shop", Rel(0.589, 0.835))]
@@ -93,15 +100,27 @@ class AdventureAssistant(DailyTask):
             return False
         return self.tap(ctx, COMPLETED_BTN, "Completed")
 
-    def run_daily(self, ctx: Context) -> bool:
+    def _open(self, ctx: Context) -> bool:
+        """Find the robot bubble and tap it; True once the assistant is open."""
         for _attempt in range(2):  # the first tap can just bring the window forward
-            if not self.tap(ctx, ROBOT_BTN, "robot bubble"):
+            if ctx.dry_run:
+                bubble = ROBOT_BTN
+            else:
+                bubble = find_sprite(ctx, ctx.frame(), ROBOT_SPRITE, ISLAND)
+                if bubble is None:
+                    ctx.log.warning("adventure-assistant: no robot bubble on the screen "
+                                    "(start on the main Adventure screen); skipping")
+                    return False
+            if not self.tap(ctx, bubble, "robot bubble"):
                 return False
             if self._is_open(ctx):
-                break
-        else:
-            ctx.log.warning("adventure-assistant: the Adventure Assistant did not open "
-                            "(start on the main Adventure screen); skipping")
+                return True
+        ctx.log.warning("adventure-assistant: the Adventure Assistant did not open "
+                        "(start on the main Adventure screen); skipping")
+        return False
+
+    def run_daily(self, ctx: Context) -> bool:
+        if not self._open(ctx):
             return False
 
         for name, tab in TABS:
