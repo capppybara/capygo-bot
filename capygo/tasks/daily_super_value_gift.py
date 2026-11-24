@@ -22,6 +22,14 @@ right: Daily Special and Seven-Day Pilgrimage. It opened on Daily Special.
   below it). A "Not" in view means today's check-in is done. The event ends
   (2026-11-11: "Ends in 3 days 18 hours"); no Pilgrimage tab is logged, not a
   failure.
+  PAID CHECK IN (2026-11-23): with the paid tier NOT bought (its button shows the
+  500 jade price), a day already checked in keeps a "Check in" button, ORANGE: it
+  claims that day's locked paid reward, so it opens a 500-jade Purchase
+  Confirmation. Same text as today's green one, so the button's colour decides:
+  green hue ~35, orange ~20 (OpenCV), every coloured pixel. Only green is tapped.
+  (The bot once tapped Day 1's orange one first; it read top to bottom.)
+Any claim tap that opens a Purchase Confirmation anyway is cancelled and flagged,
+and the chore stops (left_bar.close_rewards).
 Each claim shows a Rewards popup, closed with a tap on the top banner's middle
 (clear of the Pilgrimage banner's "5000% Rebate" badge on the left). go_home leaves
 with the back arrow.
@@ -30,6 +38,8 @@ with the back arrow.
 from __future__ import annotations
 
 import time
+
+import cv2
 
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
@@ -50,6 +60,8 @@ OPEN_TIMEOUT = 3.0
 TAB_TIMEOUT = 3.0
 MAX_SCROLLS = 3
 CLAIM_TRIES = 2
+BUTTON_HALF = (55, 16)   # a day button's half width / height around its text (px)
+GREEN_HUE = 28           # today's Check in ~35, a paid-reward Check in ~20
 
 
 def lines_in(frame, region: RelRect) -> list[tuple[str, float, float]]:
@@ -72,19 +84,39 @@ def free_button(frame) -> Rel | None:
     return next((Rel(x, y) for t, x, y in lines_in(frame, PACKS) if t == "free"), None)
 
 
+def green_button(frame, x: float, y: float) -> bool:
+    """The button around this text (window-relative) is green: most of its
+    coloured pixels have a hue of at least GREEN_HUE."""
+    h, w = frame.shape[:2]
+    cx, cy = int(x * w), int(y * h)
+    hw, hh = BUTTON_HALF
+    box = cv2.cvtColor(frame[max(cy - hh, 0):cy + hh + 1, max(cx - hw, 0):cx + hw + 1],
+                       cv2.COLOR_BGR2HSV).reshape(-1, 3)
+    colour = box[(box[:, 1] > 90) & (box[:, 2] > 120)]
+    return len(colour) > 0 and (colour[:, 0] >= GREEN_HUE).mean() > 0.5
+
+
 def day_buttons(frame) -> list[tuple[str, float, float]]:
-    """The Pilgrimage buttons in view, top to bottom: ("check in" / "already" /
-    "not", x, y)."""
+    """The Pilgrimage buttons in view, top to bottom: ("check in" / "paid check in"
+    / "already" / "not", x, y). "paid check in" is an orange Check in: a past day's
+    locked paid reward, which asks for the jade unlock. Never tapped."""
     found = []
     for t, x, y in lines_in(frame, DAYS):
         word = t.replace(" ", "").replace("-", "")
         if word.startswith("checkin"):
-            found.append(("check in", x, y))
+            kind = "check in" if green_button(frame, x, y) else "paid check in"
+            found.append((kind, x, y))
         elif word.startswith("already"):
             found.append(("already", x, y))
         elif word == "not":
             found.append(("not", x, y))
     return sorted(found, key=lambda b: b[2])
+
+
+def _px(ctx: Context, spot: Rel) -> str:
+    """A tap spot in window pixels, for the log."""
+    h, w = ctx.frame().shape[:2]
+    return f"({spot.x * w:.0f}, {spot.y * h:.0f})"
 
 
 @register("super-value-gift")
@@ -129,7 +161,7 @@ class SuperValueGift(DailyTask):
                 text = " ".join(t for t, _, _ in lines_in(ctx.frame(), PACKS))
                 return ("already claimed" if "already purchased" in text
                         else "no Free button")
-            if not self.tap(ctx, button, "Free (Welfare Pack)"):
+            if not self.tap(ctx, button, f"Free (Welfare Pack) at {_px(ctx, button)}"):
                 return None
             landed = close_rewards(ctx, self.name, CLOSE_REWARDS)
             if landed is None:
@@ -159,7 +191,8 @@ class SuperValueGift(DailyTask):
                 if tries >= CLAIM_TRIES:
                     return "Check in showed no Rewards popup"
                 tries += 1
-                if not self.tap(ctx, Rel(*check), "Check in"):
+                spot = Rel(*check)
+                if not self.tap(ctx, spot, f"the green Check in at {_px(ctx, spot)}"):
                     return None
                 landed = close_rewards(ctx, self.name, CLOSE_REWARDS)
                 if landed is None:

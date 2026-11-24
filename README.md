@@ -315,11 +315,17 @@ If the button isn't on the bar, the chore skips.
    "Already purchased", today's gift is claimed already. Every other pack costs
    jade and is never tapped.
 2. On the Seven-Day Pilgrimage tab (bottom right) it scrolls the days to find
-   today's Check in button and taps it. A grey "Not" button means a later day,
-   so today's check-in is done already. It never taps the paid "Already
-   purchased" tier above the days. If the event has ended and the tab is gone,
-   it logs that and finishes.
+   today's green Check in button and taps it. A grey "Not" button means a later
+   day, so today's check-in is done already. It never taps the paid tier above
+   the days. When the paid tier isn't bought, a day already checked in keeps an
+   orange "Check in" button that asks for the jade unlock; the bot tells the two
+   apart by colour and never taps an orange one. If the event has ended and the
+   tab is gone, it logs that and finishes.
 3. It goes back home with the back arrow.
+
+If any claim tap in Super value gift or Sale gift opens a Purchase
+Confirmation, the bot taps Cancel, stops that chore and lists it under "Needs
+your attention". Going home also taps Cancel on a Purchase Confirmation, never OK.
 
 **Sale gift** works like this:
 

@@ -263,6 +263,24 @@ def tap_to_close_up(frame) -> bool:
     return "taptoclose" in text or "toclose" in text or "tapto" in text
 
 
+# A "Purchase Confirmation" popup (2026-11-23, over Super Value Gift: title y 0.37,
+# Cancel (0.33, 0.63), OK (0.67, 0.63), the jade price between). OK spends; the bot
+# only ever taps Cancel on it.
+PURCHASE_BAND = RelRect(0.10, 0.25, 0.80, 0.50)
+
+
+def purchase_cancel(frame) -> Rel | None:
+    """Where to tap Cancel on a "Purchase Confirmation" popup; None if none is up
+    (or its Cancel can't be read)."""
+    h, w = frame.shape[:2]
+    x0, y0, _, _ = PURCHASE_BAND.to_pixels(w, h)
+    lines = [(t.strip().lower(), (x0 + cx) / w, (y0 + cy) / h)
+             for t, cx, cy in ocr_lines(_crop(frame, PURCHASE_BAND))]
+    if not any("purchase confirmation" in t for t, _, _ in lines):
+        return None
+    return next((Rel(x, y) for t, x, y in lines if t == "cancel"), None)
+
+
 def next_move(ctx: Context, frame):
     """The next step toward home, as (move, target): target is a Rel or a Match to
     tap, or None for "home" (done), "stuck" (give up) and "unknown" (nothing to tap
@@ -274,6 +292,9 @@ def next_move(ctx: Context, frame):
         return "stuck", None
     if state == SWITCH_RED:
         return "switch", SWITCH_TAP
+    cancel = purchase_cancel(frame)  # modal: the back arrow under it does nothing
+    if cancel is not None:
+        return "cancel", cancel
     x = find_sprite(ctx, frame, "close_x.png")
     if x is not None:
         return "x", x
@@ -290,6 +311,7 @@ def next_move(ctx: Context, frame):
 
 _MOVE_LOG = {
     "switch": "capy switch is red -> tap it back to blue",
+    "cancel": "a Purchase Confirmation is up -> tap Cancel",
     "x": "tap the X",
     "dismiss": "dismiss the popup",
     "adventure": "tap the crossed-swords Adventure tab",

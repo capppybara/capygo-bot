@@ -18,7 +18,7 @@ import time
 from ..geometry import Rel, RelRect
 from ..perception import ocr_lines
 from ..task import Context
-from .daily import _crop, tap, tap_to_close_up, wait
+from .daily import _crop, purchase_cancel, tap, tap_to_close_up, wait
 
 LEFT_BAR = RelRect(0.0, 0.20, 0.25, 0.42)   # the bar's labels
 BAR_BOTTOM = 0.55     # a label lower than this is cut off (top state: "Super" 0.56)
@@ -68,12 +68,29 @@ def rewards_up(frame) -> bool:
     return "rewards" in text or tap_to_close_up(frame)
 
 
+def _refuse_purchase(ctx: Context, who: str, cancel: Rel) -> None:
+    """A claim tap opened a Purchase Confirmation: tap its Cancel and flag it."""
+    message = ("a claim tap opened a Purchase Confirmation instead of a Rewards popup. "
+               "Tapped Cancel, so nothing was bought, and stopped this chore")
+    ctx.log.warning("%s: FLAG - %s", who, message)
+    ctx.flags.append((who, message))
+    tap(ctx, cancel)
+    return None
+
+
 def close_rewards(ctx: Context, who: str, spot: Rel) -> bool | None:
     """After a claim tap: wait for the Rewards popup and close it with a tap at
     `spot`. True if it showed (the claim landed), False if it didn't, None on a
-    stop."""
+    stop. None too if the tap opened a Purchase Confirmation instead: that is
+    cancelled and flagged, and the caller gives up as on a stop."""
     end = time.time() + POPUP_TIMEOUT
-    while not rewards_up(ctx.frame()):
+    while True:
+        frame = ctx.frame()
+        if rewards_up(frame):
+            break
+        cancel = purchase_cancel(frame)
+        if cancel is not None:
+            return _refuse_purchase(ctx, who, cancel)
         if time.time() > end:
             return False
         if wait(ctx, 0.5):
