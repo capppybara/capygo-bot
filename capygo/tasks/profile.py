@@ -36,8 +36,13 @@ anchors (layout()): the Name / UID rows from their labels, the weapon slot from
 its black right border (x 191), the power and HP / ATK / DEF from the slot's top.
 Guild member's: Name y 182, UID y 209 (copy button x 523), slot square x 118-192
 y 298-372 (its gems start at 373), power y 565, stats y 599. Arena opponent's:
-160, 190, slot top 289, power 551, stats 585. The screen slides in (its banner
-starts ~34px lower), so reading waits until the banner stops moving.
+160, 190, slot top 289, power 551, stats 585.
+
+Every read (read_profile, read_uid_power) starts the same way (user): wait 2s
+after the screen opens (it slides in, its banner starting ~34px lower), then the
+frame must show the Name and UID labels; a "Loading .." box hides them. Still
+loading: one more 2s, then nothing is read. The UID copy is confirmed by a new
+clipboard entry; if it doesn't take, the UID is OCR'd from that frame.
 """
 
 from __future__ import annotations
@@ -83,10 +88,8 @@ TITLE_MATCH = 0.85
 WEAPON_MATCH = 0.80       # same weapon 0.95-0.99, another <= 0.69 (shift-tolerant)
 SHIFT = 5                 # px: the compare tolerates the slot sitting this far off
 CLIP_SENTINEL = "capygo-none"  # seeded before a copy so a stale value can't fool us
-SETTLE_TIMEOUT = 3.0      # the screen slides and fades in (read_uid_power)
-READ_WAIT = 2.0           # user: read_profile waits 2s after the profile opens
+READ_WAIT = 2.0           # user: every profile read waits 2s after it opens
 LOAD_TRIES = 2            # ... and once more if it's still "Loading .." then
-STILL_DIFF = 2.0          # two frames this alike (banner not moving) = settled
 SLOT_FRAMES = 6           # the darkest of these frames, per pixel, drops the icons'
 SLOT_GAP = 0.25           # sheen: it can wash a whole slot out white for ~1s
                           # (2026-10-11: 3 frames over 0.5s weren't enough)
@@ -465,33 +468,18 @@ def _index_unknown(p: "Profile") -> None:
 
 
 # --- all of it ----------------------------------------------------------------
-def _banner_y(frame) -> int | None:
-    m = find_template(frame, load_template(TITLE_TEMPLATE), TITLE_MATCH)
-    return m.y if m.found else None
-
-
-def _still(ctx: Context):
-    """A frame once the profile has finished sliding and fading in: the banner
-    in the same place in two frames in a row and the info box below it still
-    (a frame grabbed at once had no name or power and a blank weapon; two caught
-    it mid-slide). After SETTLE_TIMEOUT, the last frame anyway: a character's
-    animated glow can reach into the info box and never hold still (2026-11-21)."""
-    def part(f, y):
-        h, w = f.shape[:2]
-        g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).astype(np.float32)
-        return g[max(0, y + int(40 * h / 951)):y + int(160 * h / 951), int(100 * w / 642):int(540 * w / 642)]
-    prev = ctx.frame()
-    prev_y = _banner_y(prev)
-    end = time.time() + SETTLE_TIMEOUT
-    while time.time() < end:
-        time.sleep(0.25)
-        cur = ctx.frame()
-        y = _banner_y(cur)
-        if y is not None and prev_y is not None and abs(y - prev_y) <= 1 and \
-                float(np.abs(part(cur, y) - part(prev, y)).mean()) < STILL_DIFF:
-            return cur
-        prev, prev_y = cur, y
-    return prev
+def _loaded_frame(ctx: Context):
+    """(frame, loaded): the frame every profile read works from. User: wait 2s
+    after the profile opens, then read (the slide-in is over by then). The frame
+    must show the Name and UID labels (loaded()): a "Loading .." box hides them,
+    and nothing is where layout() would guess then. Still loading: one more 2s,
+    then (that frame, False)."""
+    for _ in range(LOAD_TRIES):
+        time.sleep(READ_WAIT)
+        frame = ctx.frame()
+        if loaded(frame):
+            return frame, True
+    return frame, False
 
 
 def _weapon_slot(ctx: Context, frame, lay: Layout):
@@ -507,32 +495,35 @@ def _weapon_slot(ctx: Context, frame, lay: Layout):
 
 
 def read_uid_power(ctx: Context) -> tuple[str | None, Decimal | None]:
-    """(UID, power) of the open Character Info screen, in read_profile's order:
-    a settled frame first, its power, then the UID copy last (the copy's "copied"
-    notice covers the middle of the screen; 2026-10-27 the member list copied
-    first and read no power at all). OCR for the UID if the copy fails."""
-    frame = _still(ctx)
+    """(UID, power) of the open Character Info screen, read like read_profile (user:
+    every profile read the same way): the loaded frame 2s after it opens
+    (_loaded_frame; (None, None) if it never loads), its power, then the UID copy
+    last (the copy's "copied" notice covers the middle of the screen; 2026-10-27
+    the member list copied first and read no power at all). The copy is confirmed
+    by a new clipboard entry (read_uid); OCR for the UID if it doesn't take."""
+    frame, ok = _loaded_frame(ctx)
+    if not ok:
+        ctx.log.warning("the profile didn't load; nothing read")
+        return None, None
     lay = layout(frame)
     power = read_power(frame, lay)
-    return read_uid(ctx, lay) or read_uid_text(frame, lay), power
+    uid = read_uid(ctx, lay)
+    if uid is None:
+        ctx.log.warning("the UID copy didn't take; UID by OCR")
+        uid = read_uid_text(frame, lay)
+    return uid, power
 
 
 def read_profile(ctx: Context, save_to: str | None = None) -> Profile:
     """Read the open Character Info screen. `save_to`: also save the screenshot
-    there (a .png path). User: wait 2s after it opens, then read (the slide-in is
-    over by then). The frame must show the Name and UID labels (loaded()): a
-    "Loading .." box hides them, and nothing is where layout() would guess then.
-    Reading anyway cut the weapon slot 9px low from the frames that came after
-    (the art loaded by then), and every such read was saved as a new unknown
-    weapon (2026-11-03 BBC, 2026-11-21 amogus-bow). Still loading: one more 2s,
-    then give up. The UID's copy confirms it: a new clipboard entry (read_uid)."""
+    there (a .png path). From the loaded frame 2s after it opens (_loaded_frame).
+    Reading a "Loading .." frame anyway cut the weapon slot 9px low from the
+    frames that came after (the art loaded by then), and every such read was
+    saved as a new unknown weapon (2026-11-03 BBC, 2026-11-21 amogus-bow). The
+    UID's copy confirms it: a new clipboard entry (read_uid)."""
     p = Profile()
-    for _ in range(LOAD_TRIES):
-        time.sleep(READ_WAIT)
-        frame = ctx.frame()
-        if loaded(frame):
-            break
-    else:
+    frame, ok = _loaded_frame(ctx)
+    if not ok:
         p.notes.append("the profile didn't load")
         if save_to and cv2.imwrite(save_to, frame):
             p.screenshot = save_to

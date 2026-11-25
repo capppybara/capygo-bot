@@ -118,7 +118,7 @@ itself. The time is in UTC, so a clock change doesn't move it.
 | Fights | 5 | With Hold the lead off: how many fights to do |
 | Power ratio | 1.2 | A player counts as beatable below this x your power |
 | Refreshes per fight | 50 | How many times to refresh the list looking for 2nd or 3rd place, per fight |
-| Log opponents | on | Read the whole profile of each opponent before the fight, for the fight log (about 4s a fight) |
+| Log opponents | on | Read the whole profile of each opponent before the fight, for the fight log (about 5s a fight) |
 
 **Holding the lead.** Every 10 seconds it taps the back arrow and enters the Arena
 again, which refreshes the leaderboard. You're first when your banner shows the gold 1
@@ -460,9 +460,11 @@ CSV.
 | Hedgemony comparison | off | Also collect the guild's top powers to compare guilds (see below) |
 | Top N to sum | 25 | How many of the highest powers hedgemony mode adds up |
 
-For each member it opens their character screen, copies the UID with the
-in-game copy button, reads the power under the character, and closes the screen.
-It scrolls the list itself and skips repeats by UID, so everyone appears exactly
+For each member it opens their character screen and waits 2 seconds for it to
+load (once more if it still shows "Loading .."; then it skips that member until
+the second walk). It reads the power under the character, copies the UID with
+the in-game copy button (a new clipboard entry confirms the copy), and closes
+the screen. PvP opponents' profiles are read the same way. It scrolls the list itself and skips repeats by UID, so everyone appears exactly
 once. If the walk ends with fewer members than the guild's count, it goes back
 to the top and walks the list once more, stopping as soon as the missing UIDs
 are found.
@@ -588,7 +590,7 @@ Schedule (the Qualifiers) itself.
 | Power ratio | 1.1 | Fight only opponents below this x your CP |
 | Sniping mode | off | Wait for 6:50 AM Pacific and use every attack then |
 | Attacks (0 = until tickets run out) | 0 | 0 uses every ticket and stops. A number: always do that many, buying tickets if needed |
-| Log opponents | on | Before each fight, open the opponent's profile and log it with the result in `~/Downloads/capy-bot/pvp/` (about 4 seconds a fight) |
+| Log opponents | on | Before each fight, open the opponent's profile and log it with the result in `~/Downloads/capy-bot/pvp/` (about 5 seconds a fight) |
 
 For each attack the bot:
 

@@ -208,7 +208,7 @@ class GetGuildMemberList(Task):
         list wasn't disturbed and the close button must NOT be pressed)."""
         if not open_profile(ctx, Rel(PROFILE_X, y_rel)):
             return None
-        uid, power = read_uid_power(ctx)  # power first, from a settled frame
+        uid, power = read_uid_power(ctx)  # waits 2s for it to load; power, then UID
         close_profile(ctx)
         return uid, None if power is None else fmt_trillions(power)
 
